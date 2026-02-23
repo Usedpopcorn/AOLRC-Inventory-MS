@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Venues{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h3 mb-0">Venues</h1>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5">Add a venue</h2>
+      <form method="post" class="row g-2">
+        <div class="col-md-8">
+          <input class="form-control" type="text" name="name" placeholder="Venue name (e.g., Veda 1)">
+        </div>
+        <div class="col-md-4">
+          <button class="btn w-100" style="background-color:#F9B62B;">Add</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <h2 class="h5">Existing venues</h2>
+      <ul class="list-group">
+        {% for v in venues %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>{{ v.name }}</span>
+            {% if v.is_core %}
+              <span class="badge" style="background-color:#6E4F6D;">Core</span>
+            {% endif %}
+          </li>
+        {% else %}
+          <li class="list-group-item">No venues yet.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+{% endblock %}
