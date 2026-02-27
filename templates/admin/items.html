@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Manage Items{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-3">Manage Items</h1>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <h2 class="h5">Add an item</h2>
+    <form method="post" class="row g-2">
+      <div class="col-md-6">
+        <input class="form-control" name="name" placeholder="Item name (e.g., Yoga Mats)">
+      </div>
+      <div class="col-md-4">
+        <select class="form-select" name="item_type">
+          <option value="durable">Durable</option>
+          <option value="consumable">Consumable</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button class="btn w-100" style="background-color:#F9B62B;">Add</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <h2 class="h5">Items</h2>
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th style="width:140px;">Type</th>
+            <th style="width:120px;">Active</th>
+            <th style="width:200px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+          <tr>
+            <td>{{ it.name }}</td>
+            <td>{{ it.item_type }}</td>
+            <td>
+              {% if it.active %}
+                <span class="badge bg-success">Active</span>
+              {% else %}
+                <span class="badge bg-secondary">Inactive</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if it.active %}
+                <form method="get"
+                        action="{{ url_for('admin.deactivate_item', item_id=it.id) }}"
+                        class="d-inline">
+                    <button class="btn btn-sm btn-outline-danger" type="submit">Deactivate</button>
+                </form>
+                  </button>
+                </form>
+              {% else %}
+                <form method="post"
+                      action="{{ url_for('admin.activate_item', item_id=it.id) }}"
+                      class="d-inline">
+                  <button class="btn btn-sm btn-outline-success" type="submit">
+                    Activate
+                  </button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4">No items yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

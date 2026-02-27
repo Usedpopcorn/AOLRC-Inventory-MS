@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Confirm Deactivate{% endblock %}
+
+{% block content %}
+<h1 class="h4 mb-3">Deactivate Item</h1>
+
+<div class="card">
+  <div class="card-body">
+    <p class="mb-2">
+      You are about to deactivate:
+      <strong>{{ item.name }}</strong>
+    </p>
+
+    <div class="alert alert-warning">
+      This item is currently tracked in <strong>{{ venues|length }}</strong> venue(s).
+      Deactivating it will remove it from those venues and hide it from venue supply lists.
+    </div>
+
+    <h2 class="h6">Affected venues</h2>
+    <ul class="mb-3">
+      {% for v in venues %}
+        <li>{{ v.name }}</li>
+      {% endfor %}
+    </ul>
+
+    <div class="d-flex gap-2">
+      <form method="post" action="{{ url_for('admin.deactivate_item', item_id=item.id) }}">
+        <button type="submit" class="btn btn-danger">Deactivate anyway</button>
+      </form>
+
+      <a class="btn btn-outline-secondary" href="{{ url_for('admin.items') }}">Cancel</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

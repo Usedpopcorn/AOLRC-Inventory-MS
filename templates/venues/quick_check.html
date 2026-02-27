@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}{{ venue.name }} Check{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h1 class="h4 mb-0">{{ venue.name }}</h1>
+    <div class="text-muted">Tap a status for each item, then Save Changes.</div>
+  </div>
+  <a class="btn btn-outline-secondary" href="{{ url_for('main.venues') }}">Back</a>
+</div>
+
+{% if items|length == 0 %}
+  <div class="alert alert-info">No supplies are tracked for this venue yet.</div>
+{% else %}
+<form method="post">
+  <div class="card">
+    <div class="card-body">
+      <div class="d-flex fw-semibold mb-2">
+        <div style="flex: 1;">Supplies</div>
+        <div style="width: 320px;" class="text-end d-none d-md-block">Good / OK / Low / Out</div>
+      </div>
+
+      {% for it in items %}
+      {% set s = latest_status[it.id] %}
+      <div class="d-flex align-items-center py-2 border-top">
+        <div style="flex: 1;">
+          <div class="fw-semibold">{{ it.name }}</div>
+        </div>
+
+        <!-- Hidden input stores the chosen status -->
+        <input type="hidden" name="status_{{ it.id }}" id="status_{{ it.id }}" value="{{ s }}">
+
+        <!-- Button group: big tap targets -->
+        <div class="btn-group" role="group" aria-label="Status for {{ it.name }}">
+          <button type="button" class="btn btn-outline-success status-btn"
+                  data-item="{{ it.id }}" data-value="good">Good</button>
+          <button type="button" class="btn btn-outline-secondary status-btn"
+                  data-item="{{ it.id }}" data-value="ok">OK</button>
+          <button type="button" class="btn btn-outline-warning status-btn"
+                  data-item="{{ it.id }}" data-value="low">Low</button>
+          <button type="button" class="btn btn-outline-danger status-btn"
+                  data-item="{{ it.id }}" data-value="out">Out</button>
+        </div>
+      </div>
+      {% endfor %}
+
+      <button class="btn mt-3 w-100" style="background-color:#F9B62B;" type="submit">
+        Save Changes
+      </button>
+    </div>
+  </div>
+</form>
+
+<script>
+  // Set initial selected button style based on hidden input values
+  function refreshButtons(itemId) {
+    const val = document.getElementById("status_" + itemId).value;
+    document.querySelectorAll('.status-btn[data-item="' + itemId + '"]').forEach(btn => {
+      const isSelected = btn.dataset.value === val;
+      btn.classList.toggle("active", isSelected);
+    });
+  }
+
+  document.querySelectorAll(".status-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const itemId = btn.dataset.item;
+      const val = btn.dataset.value;
+      document.getElementById("status_" + itemId).value = val;
+      refreshButtons(itemId);
+    });
+  });
+
+  // Initialize all rows
+  document.querySelectorAll('input[id^="status_"]').forEach(inp => {
+    const itemId = inp.id.replace("status_", "");
+    refreshButtons(itemId);
+  });
+</script>
+{% endif %}
+{% endblock %}

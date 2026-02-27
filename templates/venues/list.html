@@ -24,18 +24,44 @@
   <div class="card">
     <div class="card-body">
       <h2 class="h5">Existing venues</h2>
-      <ul class="list-group">
-        {% for v in venues %}
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            <span>{{ v.name }}</span>
-            {% if v.is_core %}
-              <span class="badge" style="background-color:#6E4F6D;">Core</span>
-            {% endif %}
-          </li>
-        {% else %}
-          <li class="list-group-item">No venues yet.</li>
-        {% endfor %}
-      </ul>
+      <div class="table-responsive">
+        <table class="table align-middle">
+        <thead>
+          <tr>
+            <th>Venue</th>
+            <th style="width:120px;">Status</th>
+            <th style="width:160px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for v in venues %}
+          <tr>
+            <td>
+              <div class="fw-semibold">{{ v.name }}</div>
+              {% if v.is_core %}
+                <span class="badge" style="background-color:#6E4F6D;">Core</span>
+              {% endif %}
+            </td>
+
+            <!-- Placeholder status for now -->
+            <td>
+              <span class="badge bg-secondary">OK</span>
+            </td>
+
+            <td>
+              <a class="btn btn-sm text-white"
+                style="background-color:#6E4F6D;"
+                href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}">
+                View / Update
+              </a>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3">No venues yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     </div>
   </div>
 {% endblock %}

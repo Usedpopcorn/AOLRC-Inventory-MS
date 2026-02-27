@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ venue.name }} Supplies{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h1 class="h3 mb-0">{{ venue.name }}</h1>
+    <div class="text-muted">Select which supplies are tracked in this venue.</div>
+  </div>
+  <a class="btn btn-outline-secondary" href="{{ url_for('main.venues') }}">Back to Venues</a>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <form method="post">
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead>
+            <tr>
+              <th style="width:60px;">Track</th>
+              <th>Item</th>
+              <th style="width:160px;">Type</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for it in items %}
+            <tr>
+              <td>
+                <input class="form-check-input" type="checkbox" name="item_ids" value="{{ it.id }}"
+                  {% if it.id in active_item_ids %}checked{% endif %}>
+              </td>
+              <td>{{ it.name }}</td>
+              <td>
+                {% if it.item_type == "durable" %}
+                  <span class="badge bg-primary">Durable</span>
+                {% else %}
+                  <span class="badge bg-warning text-dark">Consumable</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <button class="btn mt-2" style="background-color:#F9B62B;">Save Supplies</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
