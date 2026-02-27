@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-
 {% block title %}Venues{% endblock %}
 
 {% block content %}
@@ -24,44 +23,55 @@
   <div class="card">
     <div class="card-body">
       <h2 class="h5">Existing venues</h2>
+
       <div class="table-responsive">
         <table class="table align-middle">
-        <thead>
-          <tr>
-            <th>Venue</th>
-            <th style="width:120px;">Status</th>
-            <th style="width:160px;">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for v in venues %}
-          <tr>
-            <td>
-              <div class="fw-semibold">{{ v.name }}</div>
-              {% if v.is_core %}
-                <span class="badge" style="background-color:#6E4F6D;">Core</span>
-              {% endif %}
-            </td>
+          <thead>
+            <tr>
+              <th>Venue</th>
+              <th style="width:220px;">Status</th>
+              <th style="width:160px;">Actions</th>
+            </tr>
+          </thead>
 
-            <!-- Placeholder status for now -->
-            <td>
-              <span class="badge bg-secondary">OK</span>
-            </td>
+          <tbody>
+            {% for row in venue_rows %}
+              {% set v = row.venue %}
+              <tr>
+                <td>
+                  <div class="fw-semibold">{{ v.name }}</div>
+                  {% if v.is_core %}
+                    <span class="badge" style="background-color:#6E4F6D;">Core</span>
+                  {% endif %}
+                </td>
 
-            <td>
-              <a class="btn btn-sm text-white"
-                style="background-color:#6E4F6D;"
-                href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}">
-                View / Update
-              </a>
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="3">No venues yet.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+                <td>
+                  <span class="status-pill
+                    {{ 'status-good' if row.badge.key == 'good' else '' }}
+                    {{ 'status-ok' if row.badge.key == 'ok' else '' }}
+                    {{ 'status-low' if row.badge.key == 'low' else '' }}
+                    {{ 'status-out' if row.badge.key == 'out' else '' }}
+                    {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
+                    title="{{ row.tooltip }}">
+                    <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
+                  </span>
+                </td>
+
+                <td>
+                  <a class="btn btn-sm text-white"
+                     style="background-color:#6E4F6D;"
+                     href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}">
+                    View / Update
+                  </a>
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="3">No venues yet.</td></tr>
+            {% endfor %}
+          </tbody>
+
+        </table>
+      </div>
     </div>
   </div>
 {% endblock %}

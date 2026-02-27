@@ -1,0 +1,20 @@
+/* Status pills (no fill, colored text) */
+.status-pill{
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .15rem 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Color variants */
+.status-good { color: #198754; }   /* green */
+.status-ok   { color: #f9b62b; }   /* yellow/gold */
+.status-low  { color: #fd7e14; }   /* orange */
+.status-out  { color: #dc3545; }   /* red */
+.status-na   { color: #111; }      /* black for Not Checked */
+
