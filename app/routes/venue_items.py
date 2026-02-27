@@ -74,9 +74,9 @@ def quick_check(venue_id):
 
         # For each tracked item, read status from form
         for it in tracked:
-            status = (request.form.get(f"status_{it.id}") or "ok").strip().lower()
-            if status not in ("good", "ok", "low", "out"):
-                status = "ok"
+            status = (request.form.get(f"status_{it.id}") or "not_checked").strip().lower()
+            if status not in ("good", "ok", "low", "out", "not_checked"):
+                status = "not_checked"
 
             db.session.add(CheckLine(check_id=chk.id, item_id=it.id, status=status))
 
@@ -94,7 +94,7 @@ def quick_check(venue_id):
             .order_by(Check.created_at.desc())
             .first()
         )
-        latest_status[it.id] = row[0] if row else "ok"
+        latest_status[it.id] = row[0] if row else "not_checked"
 
     return render_template(
         "venues/quick_check.html",

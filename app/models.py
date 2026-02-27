@@ -68,8 +68,8 @@ class CheckLine(db.Model):
     check_id = db.Column(db.Integer, db.ForeignKey("checks.id"), nullable=False)
     item_id = db.Column(db.Integer, db.ForeignKey("items.id"), nullable=False)
 
-    # good | ok | low | out
-    status = db.Column(db.String(10), nullable=False)
+    # good | ok | low | out | not_checked
+    status = db.Column(db.String(20), nullable=False)
 
     __table_args__ = (
         db.UniqueConstraint("check_id", "item_id", name="uq_checkline_check_item"),
