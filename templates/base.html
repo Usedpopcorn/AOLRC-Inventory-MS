@@ -16,13 +16,54 @@
 
 <nav class="navbar navbar-expand-lg navbar-dark" style="background-color:#6E4F6D;">
   <div class="container">
-    <span class="navbar-brand">AOLRC Inventory</span>
-    <div class="navbar-nav">
-      <a class="nav-link" href="{{ url_for('main.venues') }}">Venues</a>
-      <a class="nav-link" href="{{ url_for('admin.items') }}">Admin</a>
+    <a class="navbar-brand" href="{{ url_for('main.dashboard') }}">AOLRC Inventory</a>
+
+    <!-- Offcanvas toggle (mobile) -->
+    <button class="navbar-toggler" type="button"
+            data-bs-toggle="offcanvas" data-bs-target="#mobileNav"
+            aria-controls="mobileNav" aria-label="Open menu">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <!-- Desktop nav (normal inline links) -->
+    <div class="d-none d-lg-flex ms-auto">
+      <div class="navbar-nav">
+        <a class="nav-link" href="{{ url_for('main.dashboard') }}">Dashboard</a>
+        <a class="nav-link" href="{{ url_for('main.venues') }}">Venues</a>
+        <a class="nav-link" href="{{ url_for('admin.items') }}">Admin</a>
+      </div>
     </div>
   </div>
 </nav>
+
+<!-- Mobile offcanvas menu -->
+<div class="offcanvas offcanvas-end text-white" tabindex="-1" id="mobileNav" aria-labelledby="mobileNavLabel"
+     style="background-color:#6E4F6D;">
+  <div class="offcanvas-header">
+    <h5 class="offcanvas-title" id="mobileNavLabel">Menu</h5>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+  </div>
+
+  <div class="offcanvas-body">
+    <div class="nav flex-column gap-1">
+      <a class="nav-link text-white px-0" href="{{ url_for('main.dashboard') }}" data-bs-dismiss="offcanvas">
+        Dashboard
+      </a>
+      <a class="nav-link text-white px-0" href="{{ url_for('main.venues') }}" data-bs-dismiss="offcanvas">
+        Venues
+      </a>
+      <a class="nav-link text-white px-0" href="{{ url_for('admin.items') }}" data-bs-dismiss="offcanvas">
+        Admin
+      </a>
+    </div>
+
+    <hr class="border-light opacity-25">
+
+    <div class="text-white-50 small">
+      AOLRC Inventory Management
+    </div>
+  </div>
+</div>
 
 <div class="container my-4">
   {% with messages = get_flashed_messages(with_categories=true) %}

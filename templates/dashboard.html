@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h1 class="h3 mb-0">Dashboard</h1>
+    <div class="text-muted">Quick visibility and updates across all venues</div>
+  </div>
+
+</div>
+
+<ul class="nav nav-tabs mb-3" id="dashTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="venues-tab" data-bs-toggle="tab" data-bs-target="#venues"
+            type="button" role="tab">Venues</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="restocking-tab" data-bs-toggle="tab" data-bs-target="#restocking"
+            type="button" role="tab">Restocking</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="activity-tab" data-bs-toggle="tab" data-bs-target="#activity"
+            type="button" role="tab">Activity Log</button>
+  </li>
+</ul>
+
+<div class="tab-content">
+  <!-- Venues TAB -->
+  <div class="tab-pane fade show active" id="venues" role="tabpanel">
+    <div class="card mb-3">
+      <div class="card-body d-flex flex-column flex-md-row gap-2 align-items-stretch align-items-md-center justify-content-between">
+        <div class="d-flex flex-column flex-sm-row gap-2 align-items-stretch align-items-sm-center">
+          <input id="venueSearch" class="form-control" style="max-width: 320px;" placeholder="Search venues...">
+          <select id="statusFilter" class="form-select" style="max-width: 220px;">
+                 <option value="all">All Statuses</option>
+                 <option value="good">Good</option>
+                 <option value="ok">OK</option>
+                 <option value="low">Low</option>
+                 <option value="out">Out</option>
+                 <option value="not_checked">Not Checked</option>
+           </select>
+            </div>
+
+        <a class="btn text-white" style="background-color:#F9B62B;"
+           href="{{ url_for('main.venues') }}">
+           Edit Venues
+         </a>
+       </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table align-middle" id="venuesTable">
+            <thead>
+              <tr>
+                <th>Venue</th>
+                <th style="width:220px;">Status</th>
+                <th style="width:160px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in venue_rows %}
+                {% set v = row.venue %}
+                <tr data-status="{{ row.badge.key }}">
+                  <td class="venue-name">
+                    <div class="fw-semibold">{{ v.name }}</div>
+                  </td>
+
+                  <td>
+                    <span class="status-pill
+                      {{ 'status-good' if row.badge.key == 'good' else '' }}
+                      {{ 'status-ok' if row.badge.key == 'ok' else '' }}
+                      {{ 'status-low' if row.badge.key == 'low' else '' }}
+                      {{ 'status-out' if row.badge.key == 'out' else '' }}
+                      {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
+                      title="{{ row.tooltip }}">
+                      <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
+                    </span>
+                  </td>
+
+                  <td>
+                    <a class="btn btn-sm text-white"
+                       style="background-color:#6E4F6D;"
+                       href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}">
+                      View / Update
+                    </a>
+                  </td>
+                </tr>
+              {% else %}
+                <tr><td colspan="3">No venues yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const searchEl = document.getElementById("venueSearch");
+      const filterEl = document.getElementById("statusFilter");
+      const rows = Array.from(document.querySelectorAll("#venuesTable tbody tr"));
+
+      function applyFilters() {
+        const q = (searchEl.value || "").trim().toLowerCase();
+        const status = filterEl.value;
+
+        rows.forEach(tr => {
+          const name = (tr.querySelector(".venue-name")?.innerText || "").toLowerCase();
+          const rowStatus = tr.getAttribute("data-status") || "unknown";
+
+          const matchSearch = !q || name.includes(q);
+          const matchStatus = (status === "all") || (rowStatus === status);
+
+          tr.style.display = (matchSearch && matchStatus) ? "" : "none";
+        });
+      }
+
+      searchEl.addEventListener("input", applyFilters);
+      filterEl.addEventListener("change", applyFilters);
+    </script>
+  </div>
+
+  <!-- Restocking TAB (placeholder) -->
+  <div class="tab-pane fade" id="restocking" role="tabpanel">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h5">Restocking</h2>
+        <p class="text-muted mb-0">
+          Coming soon: a list of all items marked Low/Out across venues, with quick filters and notes.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Activity TAB (placeholder) -->
+  <div class="tab-pane fade" id="activity" role="tabpanel">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h5">Activity Log</h2>
+        <p class="text-muted mb-0">
+          Coming soon: history of venue checks and admin changes (items activated/deactivated, etc.).
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

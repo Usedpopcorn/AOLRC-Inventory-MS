@@ -18,3 +18,7 @@
 .status-out  { color: #dc3545; }   /* red */
 .status-na   { color: #111; }      /* black for Not Checked */
 
+/* Offcanvas nav hover */
+.offcanvas .nav-link:hover{
+  text-decoration: underline;
+}
