@@ -6,20 +6,74 @@
     <h1 class="h3 mb-0">Venues</h1>
   </div>
 
-  <div class="card mb-4">
-    <div class="card-body">
-      <h2 class="h5">Add a venue</h2>
-      <form method="post" class="row g-2">
-        <div class="col-md-8">
-          <input class="form-control" type="text" name="name" placeholder="Venue name (e.g., Veda 1)">
-        </div>
-        <div class="col-md-4">
-          <button class="btn w-100" style="background-color:#F9B62B;">Add</button>
-        </div>
-      </form>
+  <!-- Search + Filters + Add Venue toggle -->
+  <div class="card mb-3">
+    <div class="card-body d-flex flex-column flex-md-row gap-2 align-items-stretch align-items-md-center justify-content-between">
+      <div class="d-flex flex-column flex-sm-row gap-2 align-items-stretch align-items-sm-center">
+        <input id="venueSearch" class="form-control" style="max-width: 320px;"
+               placeholder="Search venues...">
+
+        <select id="statusFilter" class="form-select" style="max-width: 220px;">
+          <option value="all">All Statuses</option>
+          <option value="good">Good</option>
+          <option value="ok">OK</option>
+          <option value="low">Low</option>
+          <option value="out">Out</option>
+          <option value="not_checked">Not Checked</option>
+        </select>
+
+        <select id="coreFilter" class="form-select" style="max-width: 220px;">
+          <option value="all">Core + Non-core</option>
+          <option value="core">Core only</option>
+          <option value="noncore">Non-core only</option>
+        </select>
+      </div>
+
+      <button class="btn text-white" style="background-color:#F9B62B;"
+              data-bs-toggle="collapse" data-bs-target="#addVenueCollapse"
+              aria-expanded="false" aria-controls="addVenueCollapse">
+        Add Venue
+      </button>
     </div>
   </div>
 
+  <!-- Collapsible Add Venue form -->
+  <div class="collapse mb-4" id="addVenueCollapse">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h5 mb-2">Add a venue</h2>
+
+        <form method="post" class="row g-2 align-items-end">
+          <div class="col-lg-6">
+            <label class="form-label mb-1">Venue name</label>
+            <input class="form-control" type="text" name="name" placeholder="e.g., Veda 5">
+          </div>
+
+          <div class="col-lg-4">
+            <label class="form-label mb-1">Venue type</label>
+            <select class="form-select" name="is_core">
+              <option value="false" selected>Non-core (can be deleted later)</option>
+              <option value="true">Core (cannot be deleted)</option>
+             </select>
+          </div>
+
+          <div class="col-12">
+            <div class="form-text">
+               Core venues are protected from deletion; non-core venues are editable/removable.
+           </div>
+        </div>
+
+          <div class="col-lg-2">
+            <button class="btn w-100 text-white" style="background-color:#6E4F6D;">
+              Create
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Existing venues table -->
   <div class="card">
     <div class="card-body">
       <h2 class="h5">Existing venues</h2>
@@ -37,7 +91,7 @@
           <tbody>
             {% for row in venue_rows %}
               {% set v = row.venue %}
-              <tr>
+              <tr data-status="{{ row.badge.key }}" data-core="{{ 'core' if v.is_core else 'noncore' }}">
                 <td>
                   <div class="fw-semibold">{{ v.name }}</div>
                   {% if v.is_core %}
@@ -69,9 +123,38 @@
               <tr><td colspan="3">No venues yet.</td></tr>
             {% endfor %}
           </tbody>
-
         </table>
       </div>
     </div>
   </div>
+
+  <script>
+    const searchEl = document.getElementById("venueSearch");
+    const statusEl = document.getElementById("statusFilter");
+    const coreEl = document.getElementById("coreFilter");
+
+    function applyFilters() {
+      const q = (searchEl.value || "").trim().toLowerCase();
+      const st = statusEl.value;
+      const core = coreEl.value;
+
+      const rows = Array.from(document.querySelectorAll("tbody tr[data-status]"));
+
+      rows.forEach(tr => {
+        const name = (tr.querySelector(".fw-semibold")?.innerText || "").toLowerCase();
+        const rowStatus = tr.dataset.status || "";
+        const rowCore = tr.dataset.core || "";
+
+        const matchSearch = !q || name.includes(q);
+        const matchStatus = (st === "all") || (rowStatus === st);
+        const matchCore = (core === "all") || (rowCore === core);
+
+        tr.style.display = (matchSearch && matchStatus && matchCore) ? "" : "none";
+      });
+    }
+
+    searchEl.addEventListener("input", applyFilters);
+    statusEl.addEventListener("change", applyFilters);
+    coreEl.addEventListener("change", applyFilters);
+  </script>
 {% endblock %}

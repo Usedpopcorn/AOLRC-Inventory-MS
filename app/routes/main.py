@@ -113,7 +113,8 @@ def venues():
             flash("That venue already exists.", "error")
             return redirect(url_for("main.venues"))
 
-        v = Venue(name=name, is_core=False, active=True)
+        is_core = (request.form.get("is_core") == "true")
+        v = Venue(name=name, is_core=is_core, active=True)
         db.session.add(v)
         db.session.commit()
 
