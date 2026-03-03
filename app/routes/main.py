@@ -57,6 +57,8 @@ def build_venue_rows():
             )
             for status, c in rows:
                 status = (status or "").strip().lower()
+                if status == "-":
+                    status = "not_checked"
                 if status in counts:
                     counts[status] = c
 
@@ -72,8 +74,14 @@ def build_venue_rows():
             badge = {"key": "low", "text": text, "icon_class": "bi-exclamation-triangle-fill"}
         elif counts["ok"] > 0:
             badge = {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
+        elif counts["good"] > 0 and (counts["good"] + counts["not_checked"] == total_tracked):
+            badge = {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
+
+        # all items explicitly good
         elif counts["good"] == total_tracked:
             badge = {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
+
+        # otherwise (typically all not_checked)
         else:
             badge = {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
 
