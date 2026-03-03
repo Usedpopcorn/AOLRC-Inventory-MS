@@ -39,7 +39,7 @@ def supplies(venue_id):
 
         db.session.commit()
         flash(f"Saved supplies. Added: {created}, Enabled: {activated}, Disabled: {deactivated}", "success")
-        return redirect(url_for("venue_items.supplies", venue_id=venue.id))
+        return redirect(url_for("venue_items.supplies", venue_id=venue.id, next=next_url))
 
     items = Item.query.filter_by(active=True).order_by(Item.name.asc()).all()
     active_item_ids = {
@@ -56,6 +56,8 @@ def supplies(venue_id):
 @venue_items_bp.route("/<int:venue_id>/check", methods=["GET", "POST"])
 def quick_check(venue_id):
     venue = Venue.query.get_or_404(venue_id)
+
+    next_url = request.args.get("next") or url_for("main.venues")
 
     # Items tracked in this venue (active mappings, active items)
     tracked = (
@@ -101,4 +103,5 @@ def quick_check(venue_id):
         venue=venue,
         items=tracked,
         latest_status=latest_status,
+        next_url=next_url,
     )

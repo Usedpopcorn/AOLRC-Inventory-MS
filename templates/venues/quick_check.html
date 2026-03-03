@@ -7,7 +7,7 @@
     <h1 class="h4 mb-0">{{ venue.name }}</h1>
     <div class="text-muted">Tap a status for each item, then Save Changes.</div>
   </div>
-  <a class="btn btn-outline-secondary" href="{{ url_for('main.venues') }}">Back</a>
+  <a class="btn btn-outline-secondary" href="{{ next_url }}">Back</a>
 </div>
 
 {% if items|length == 0 %}

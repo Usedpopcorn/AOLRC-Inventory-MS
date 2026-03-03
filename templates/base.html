@@ -46,13 +46,13 @@
 
   <div class="offcanvas-body">
     <div class="nav flex-column gap-1">
-      <a class="nav-link text-white px-0" href="{{ url_for('main.dashboard') }}" data-bs-dismiss="offcanvas">
+      <a class="nav-link text-white px-0" href="{{ url_for('main.dashboard') }}">
         Dashboard
       </a>
-      <a class="nav-link text-white px-0" href="{{ url_for('main.venues') }}" data-bs-dismiss="offcanvas">
+      <a class="nav-link text-white px-0" href="{{ url_for('main.venues') }}">
         Venues
       </a>
-      <a class="nav-link text-white px-0" href="{{ url_for('admin.items') }}" data-bs-dismiss="offcanvas">
+      <a class="nav-link text-white px-0" href="{{ url_for('admin.items') }}">
         Admin
       </a>
     </div>
@@ -81,6 +81,15 @@
 
 <!-- Bootstrap JS bundle (enables tooltips, etc.) -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-
+<script>
+  // Close offcanvas when clicking a nav link (without breaking navigation)
+  document.querySelectorAll('#mobileNav a.nav-link').forEach(link => {
+    link.addEventListener('click', () => {
+      const el = document.getElementById('mobileNav');
+      const offcanvas = bootstrap.Offcanvas.getInstance(el) || new bootstrap.Offcanvas(el);
+      offcanvas.hide();
+    });
+  });
+</script>
 </body>
 </html>

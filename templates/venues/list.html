@@ -114,7 +114,7 @@
                 <td>
                   <a class="btn btn-sm text-white"
                      style="background-color:#6E4F6D;"
-                     href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}">
+                     href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}">
                     View / Update
                   </a>
                 </td>
