@@ -57,7 +57,7 @@ def supplies(venue_id):
 def quick_check(venue_id):
     venue = Venue.query.get_or_404(venue_id)
 
-    next_url = request.args.get("next") or url_for("main.venues")
+    next_url = request.values.get("next") or url_for("main.venues")
 
     # Items tracked in this venue (active mappings, active items)
     tracked = (
@@ -84,7 +84,7 @@ def quick_check(venue_id):
 
         db.session.commit()
         flash("Saved check ✅", "success")
-        return redirect(url_for("venue_items.quick_check", venue_id=venue.id))
+        return redirect(url_for("venue_items.quick_check", venue_id=venue.id, next=next_url))
 
     # GET: Prefill with most recent status per item (if exists)
     latest_status = {}
