@@ -36,6 +36,9 @@ def create_app():
     from .routes.venue_items import venue_items_bp
     app.register_blueprint(venue_items_bp)
 
+    from .routes.venue_settings import venue_settings_bp
+    app.register_blueprint(venue_settings_bp)
+    
     from . import models  # ensures models are registered for migrations
 
     return app

@@ -8,6 +8,7 @@ venue_items_bp = Blueprint("venue_items", __name__, url_prefix="/venues")
 @venue_items_bp.route("/<int:venue_id>/supplies", methods=["GET", "POST"])
 def supplies(venue_id):
     venue = Venue.query.get_or_404(venue_id)
+    next_url = request.values.get("next") or url_for("venue_settings.settings", venue_id=venue.id)
 
     if request.method == "POST":
         # IDs of items that were checked in the form
@@ -51,6 +52,7 @@ def supplies(venue_id):
         venue=venue,
         items=items,
         active_item_ids=active_item_ids,
+        next_url=next_url,
     )
 
 @venue_items_bp.route("/<int:venue_id>/check", methods=["GET", "POST"])

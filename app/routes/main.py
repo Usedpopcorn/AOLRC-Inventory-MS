@@ -6,8 +6,11 @@ from app.models import Venue, VenueItem, Item, Check, CheckLine
 main_bp = Blueprint("main", __name__)
 
 
-def build_venue_rows():
-    venues = Venue.query.order_by(Venue.name.asc()).all()
+def build_venue_rows(include_inactive=False):
+    q = Venue.query
+    if not include_inactive:
+        q = q.filter(Venue.active == True)
+    venues = q.order_by(Venue.name.asc()).all()
     venue_rows = []
 
     for v in venues:
@@ -106,7 +109,6 @@ def home():
 def dashboard():
     return render_template("dashboard.html", venue_rows=build_venue_rows())
 
-
 @main_bp.route("/venues", methods=["GET", "POST"])
 def venues():
     if request.method == "POST":
@@ -129,4 +131,4 @@ def venues():
         flash("Venue added!", "success")
         return redirect(url_for("main.venues"))
 
-    return render_template("venues/list.html", venue_rows=build_venue_rows())
+    return render_template("venues/list.html", venue_rows=build_venue_rows(include_inactive=True))
