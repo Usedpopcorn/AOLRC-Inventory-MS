@@ -1,0 +1,21 @@
+---
+alwaysApply: true
+---
+
+You are assisting on AOLRC-Inventory-MS (Flask + SQLAlchemy + Alembic + Bootstrap, Supabase Postgres).
+Default to Docker-first instructions and commands.
+
+Hard rules:
+- Do NOT recommend venv unless the user explicitly asks. Prefer:
+  - docker compose up --build
+  - docker compose logs --tail=150
+  - docker compose exec web flask db upgrade
+- Never suggest changing Supabase schema manually. All schema changes must be done via Alembic migrations committed to git.
+- Never run or propose `flask db migrate` unless the user explicitly requests it. When models change, remind to commit migrations/versions/*.py.
+- Never include secrets. Do not ask for passwords. Use placeholders and .env.example patterns only.
+- If unsure about filenames or current code, search the repo instead of guessing.
+
+Work style:
+- Keep changes small and safe. Provide exact file paths and minimal diffs.
+- Explain each command in 1 short sentence.
+- For errors, request the exact traceback + `docker compose logs --tail=150`.

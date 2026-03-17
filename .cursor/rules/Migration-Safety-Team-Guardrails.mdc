@@ -1,0 +1,12 @@
+---
+alwaysApply: true
+---
+
+Migration safety rules for a multi-dev team:
+
+- Source of truth is migrations in git. Never rely on "it exists in Supabase already".
+- Do not auto-run migrations on container boot unless user explicitly wants that behavior.
+- If Alembic reports "multiple heads", use flask db heads + flask db merge to resolve, then commit the merge migration.
+- If Alembic reports "can't locate revision", first check whether the migration file is missing from repo and needs to be committed/restored.
+- Avoid database drift: do not instruct manual column/table changes in Supabase UI.
+- Prefer the Supabase SESSION/TRANSACTION POOLER connection string (pooler.supabase.com), not direct db.<ref>.supabase.co when Docker networking is involved.

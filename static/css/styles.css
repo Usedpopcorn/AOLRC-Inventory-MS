@@ -1,3 +1,74 @@
+:root {
+  --aolrc-purple: #84608C;
+  --aolrc-gold:   #F8AD26;
+  --aolrc-gold-hi: #FFDA94; /* optional */
+}
+
+/* AOLRC filled buttons: stay filled on hover/active/focus (no outline/transparent) */
+
+.btn-aolrc-primary {
+  background: var(--aolrc-purple) !important;
+  color: #fff !important;
+  border: 2px solid var(--aolrc-purple);
+  opacity: 1;
+}
+.btn-aolrc-primary:active,
+.btn-aolrc-primary:focus,
+.btn-aolrc-primary:focus-visible {
+  background: var(--aolrc-purple) !important;
+  color: #fff !important;
+  border-color: var(--aolrc-purple) !important;
+}
+.btn-aolrc-primary:focus-visible {
+  box-shadow: 0 0 0 3px rgba(132, 96, 140, 0.45);
+  outline: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .btn-aolrc-primary:hover {
+    background: var(--aolrc-purple) !important;
+    color: #fff !important;
+    border-color: var(--aolrc-purple) !important;
+    filter: brightness(0.93);
+  }
+}
+.btn-aolrc-primary:active {
+  filter: brightness(0.88);
+}
+
+.btn-aolrc-accent {
+  background: var(--aolrc-gold) !important;
+  color: #fff !important;
+  border: 2px solid var(--aolrc-gold);
+  opacity: 1;
+}
+.btn-aolrc-accent:active,
+.btn-aolrc-accent:focus,
+.btn-aolrc-accent:focus-visible {
+  background: var(--aolrc-gold) !important;
+  color: #fff !important;
+  border-color: var(--aolrc-gold) !important;
+}
+.btn-aolrc-accent:focus-visible {
+  box-shadow: 0 0 0 3px rgba(248, 173, 38, 0.5);
+  outline: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .btn-aolrc-accent:hover {
+    background: var(--aolrc-gold) !important;
+    color: #fff !important;
+    border-color: var(--aolrc-gold) !important;
+    filter: brightness(0.93);
+  }
+}
+.btn-aolrc-accent:active {
+  filter: brightness(0.88);
+}
+
+.badge-core {
+  background: var(--aolrc-purple);
+  color: #fff;
+}
+
 /* Status pills (no fill, colored text) */
 .status-pill{
   display: inline-flex;
@@ -13,7 +84,7 @@
 
 /* Color variants */
 .status-good { color: #198754; }   /* green */
-.status-ok   { color: #f9b62b; }   /* yellow/gold */
+.status-ok   { color: var(--aolrc-gold); }   /* yellow/gold */
 .status-low  { color: #fd7e14; }   /* orange */
 .status-out  { color: #dc3545; }   /* red */
 .status-na   { color: #111; }      /* black for Not Checked */

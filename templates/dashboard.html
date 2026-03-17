@@ -42,7 +42,7 @@
            </select>
             </div>
 
-        <a class="btn text-white" style="background-color:#F9B62B;"
+        <a class="btn btn-aolrc-accent"
            href="{{ url_for('main.venues') }}">
            Edit Venues
          </a>
@@ -81,8 +81,7 @@
                   </td>
 
                   <td>
-                    <a class="btn btn-sm text-white"
-                       style="background-color:#6E4F6D;"
+                    <a class="btn btn-sm btn-aolrc-primary"
                        href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}">
                       View / Update
                     </a>
