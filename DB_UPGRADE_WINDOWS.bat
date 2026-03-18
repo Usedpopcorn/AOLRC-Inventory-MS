@@ -1,3 +1,10 @@
+REM =========================================================
+REM DB_UPGRADE_WINDOWS.bat
+REM Purpose: Start Docker services and apply Alembic database
+REM migrations (`flask db upgrade`) against DATABASE_URL.
+REM Use this only for approved/admin migration workflows.
+REM =========================================================
+
 @echo off
 setlocal
 cd /d "%~dp0"

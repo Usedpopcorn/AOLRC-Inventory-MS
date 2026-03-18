@@ -1,3 +1,11 @@
+"""Remove database items that are not listed in `seed_data/items.csv`.
+
+The script builds a keep-list from the CSV `item_name` column, finds `Item`
+rows missing from that list, and deletes those rows (plus dependent
+`VenueItem` links) when `dry_run=False`. Use `dry_run=True` to preview exactly
+what would be removed without writing changes.
+"""
+
 import csv
 from pathlib import Path
 
