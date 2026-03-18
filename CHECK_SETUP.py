@@ -1,3 +1,11 @@
+"""Validate local app setup before running the Flask service.
+
+This script checks that a `.env` file exists, confirms `DATABASE_URL` is set
+and points to the Supabase pooler host, and then attempts a real Postgres
+connection using that URL. It exits with a clear [FAIL] message on the first
+problem, or prints [OK] checks and a final success message when setup is valid.
+"""
+
 import os
 import sys
 
