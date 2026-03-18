@@ -93,3 +93,16 @@
 .offcanvas .nav-link:hover{
   text-decoration: underline;
 }
+
+/* Site footer */
+.site-footer{
+  background: var(--aolrc-purple);
+  color: #fff;
+}
+.site-footer a{
+  color: var(--aolrc-gold-hi);
+  text-decoration: none;
+}
+.site-footer a:hover{
+  text-decoration: underline;
+}
