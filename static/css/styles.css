@@ -69,6 +69,10 @@
   color: #fff;
 }
 
+.text-aolrc-purple {
+  color: var(--aolrc-purple) !important;
+}
+
 /* Status pills (no fill, colored text) */
 .status-pill{
   display: inline-flex;
