@@ -46,6 +46,12 @@
     );
 }
 
+/* Keep layout width stable when some views need vertical scroll. */
+html {
+  scrollbar-gutter: stable;
+  overflow-y: scroll;
+}
+
 .site-nav,
 .mobile-nav-panel {
   background: var(--aolrc-purple-gradient);
