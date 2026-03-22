@@ -1,0 +1,24 @@
+---
+alwaysApply: true
+---
+
+We use a single shared Supabase Postgres database. Running `flask db upgrade` against it on a feature branch can break other teammates (schema mismatch).
+
+Rules:
+- If the user is on any branch other than `main`, NEVER instruct them to run `flask db upgrade` against the shared Supabase database.
+- If the user asks to run a DB upgrade while on a feature branch, give a heavy warning and recommend one of:
+  1) Switch to `main`, pull latest, then run upgrade, OR
+  2) Use a local Postgres database (Docker db profile) for branch testing, OR
+  3) Wait until the migration is merged to main and the migration captain runs upgrade.
+
+- Always ask them to run `git branch --show-current` before any upgrade instructions if branch status is unknown.
+- When giving DB commands, prefer Docker form:
+  `docker compose exec web flask db upgrade`
+
+Allowed:
+- Running `flask db upgrade` on `main` after pulling latest.
+- Running `flask db upgrade` on a local-only database (not the shared Supabase DB), if explicitly using local Postgres.
+
+Never:
+- Do not suggest upgrading the shared DB from a feature branch.
+- Do not suggest manual schema edits in Supabase.

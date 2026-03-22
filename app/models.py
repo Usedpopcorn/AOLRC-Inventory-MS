@@ -8,7 +8,7 @@ class Venue(db.Model):
     name = db.Column(db.String(120), nullable=False, unique=True)
     notes = db.Column(db.Text, nullable=True)
 
-    # core venues cannot be deleted 
+    # primary venues cannot be deleted
     is_core = db.Column(db.Boolean, default=False, nullable=False)
     active = db.Column(db.Boolean, default=True, nullable=False)
 

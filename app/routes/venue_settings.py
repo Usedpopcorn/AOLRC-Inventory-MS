@@ -36,10 +36,10 @@ def settings(venue_id):
             flash("Venue settings saved.", "success")
             return redirect(url_for("venue_settings.settings", venue_id=venue.id))
 
-        # Delete venue (non-core only)
+        # Delete venue (other only)
         if action == "delete":
             if venue.is_core:
-                flash("Core venues cannot be deleted. Deactivate instead.", "error")
+                flash("Primary venues cannot be deleted. Deactivate instead.", "error")
                 return redirect(url_for("venue_settings.settings", venue_id=venue.id))
 
             db.session.delete(venue)

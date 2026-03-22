@@ -1,7 +1,7 @@
 from app import create_app, db
 from app.models import Venue
 
-CORE_VENUES = [
+PRIMARY_VENUES = [
     "Main Meditation Hall",
     "Veda 1",
     "Veda 2",
@@ -19,11 +19,11 @@ def seed():
         created = 0
         updated = 0
 
-        for name in CORE_VENUES:
+        for name in PRIMARY_VENUES:
             venue = Venue.query.filter_by(name=name).first()
 
             if venue:
-                # Ensure it's core + active
+                # Ensure it's primary + active
                 changed = False
                 if not venue.is_core:
                     venue.is_core = True
@@ -39,7 +39,7 @@ def seed():
                 created += 1
 
         db.session.commit()
-        print(f"Core venues seeded. Created: {created}, Updated: {updated}")
+        print(f"Primary venues seeded. Created: {created}, Updated: {updated}")
 
 if __name__ == "__main__":
     seed()
