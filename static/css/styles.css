@@ -2,22 +2,72 @@
   --aolrc-purple: #84608C;
   --aolrc-gold:   #F8AD26;
   --aolrc-gold-hi: #FFDA94; /* optional */
+  --aolrc-purple-gradient: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.12) 0%,
+    rgba(255, 255, 255, 0.04) 40%,
+    rgba(0, 0, 0, 0.06) 100%
+  ), var(--aolrc-purple);
+  --aolrc-gold-gradient: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(255, 255, 255, 0.05) 42%,
+    rgba(0, 0, 0, 0.05) 100%
+  ), var(--aolrc-gold);
+  --aolrc-purple-btn-gradient: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.02) 58%,
+    rgba(255, 255, 255, 0) 100%
+  ), var(--aolrc-purple);
+  --aolrc-gold-btn-gradient: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.05) 52%,
+    rgba(0, 0, 0, 0.05) 100%
+  ), var(--aolrc-gold);
+  --aolrc-purple-text-gradient: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(255, 255, 255, 0.04) 46%,
+    rgba(0, 0, 0, 0.08) 100%
+  );
 }
 
 /* AOLRC filled buttons: stay filled on hover/active/focus (no outline/transparent) */
 
+.app-shell {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(132, 96, 140, 0.14) 0,
+      rgba(132, 96, 140, 0.06) 240px,
+      var(--bs-light) 520px
+    );
+}
+
+.site-nav,
+.mobile-nav-panel {
+  background: var(--aolrc-purple-gradient);
+}
+
+.site-nav {
+  border-bottom: 5px solid var(--aolrc-gold);
+}
+
 .btn-aolrc-primary {
-  background: var(--aolrc-purple) !important;
+  background: var(--aolrc-purple-btn-gradient) !important;
   color: #fff !important;
-  border: 2px solid var(--aolrc-purple);
+  border: 1px solid rgba(132, 96, 140, 0.95);
+  box-shadow: none !important;
   opacity: 1;
 }
 .btn-aolrc-primary:active,
 .btn-aolrc-primary:focus,
 .btn-aolrc-primary:focus-visible {
-  background: var(--aolrc-purple) !important;
+  background: var(--aolrc-purple-btn-gradient) !important;
   color: #fff !important;
-  border-color: var(--aolrc-purple) !important;
+  border-color: rgba(132, 96, 140, 0.95) !important;
 }
 .btn-aolrc-primary:focus-visible {
   box-shadow: 0 0 0 3px rgba(132, 96, 140, 0.45);
@@ -25,10 +75,10 @@
 }
 @media (hover: hover) and (pointer: fine) {
   .btn-aolrc-primary:hover {
-    background: var(--aolrc-purple) !important;
+    background: var(--aolrc-purple-btn-gradient) !important;
     color: #fff !important;
-    border-color: var(--aolrc-purple) !important;
-    filter: brightness(0.93);
+    border-color: rgba(132, 96, 140, 0.95) !important;
+    filter: brightness(0.96);
   }
 }
 .btn-aolrc-primary:active {
@@ -36,17 +86,18 @@
 }
 
 .btn-aolrc-accent {
-  background: var(--aolrc-gold) !important;
+  background: var(--aolrc-gold-btn-gradient) !important;
   color: #fff !important;
-  border: 2px solid var(--aolrc-gold);
+  border: 1px solid rgba(248, 173, 38, 0.95);
+  box-shadow: none !important;
   opacity: 1;
 }
 .btn-aolrc-accent:active,
 .btn-aolrc-accent:focus,
 .btn-aolrc-accent:focus-visible {
-  background: var(--aolrc-gold) !important;
+  background: var(--aolrc-gold-btn-gradient) !important;
   color: #fff !important;
-  border-color: var(--aolrc-gold) !important;
+  border-color: rgba(248, 173, 38, 0.95) !important;
 }
 .btn-aolrc-accent:focus-visible {
   box-shadow: 0 0 0 3px rgba(248, 173, 38, 0.5);
@@ -54,23 +105,72 @@
 }
 @media (hover: hover) and (pointer: fine) {
   .btn-aolrc-accent:hover {
-    background: var(--aolrc-gold) !important;
+    background: var(--aolrc-gold-btn-gradient) !important;
     color: #fff !important;
-    border-color: var(--aolrc-gold) !important;
-    filter: brightness(0.93);
+    border-color: rgba(248, 173, 38, 0.95) !important;
+    filter: brightness(0.96);
   }
 }
 .btn-aolrc-accent:active {
   filter: brightness(0.88);
 }
 
+/* Give all filled Bootstrap color buttons a subtle shared gradient */
+.btn:is(.btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-warning, .btn-info, .btn-dark, .btn-light) {
+  background-image: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(255, 255, 255, 0.04) 52%,
+    rgba(0, 0, 0, 0.05) 100%
+  );
+  background-repeat: no-repeat;
+}
+
+/* Match filled badges with the same soft depth */
+.badge:is(.bg-primary, .bg-secondary, .bg-success, .bg-danger, .bg-warning, .bg-info, .bg-dark, .bg-light) {
+  background-image: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(255, 255, 255, 0.04) 52%,
+    rgba(0, 0, 0, 0.05) 100%
+  );
+  background-repeat: no-repeat;
+}
+
 .badge-core {
-  background: var(--aolrc-purple);
+  background: var(--aolrc-purple-gradient);
   color: #fff;
 }
 
 .text-aolrc-purple {
   color: var(--aolrc-purple) !important;
+}
+
+@supports ((-webkit-background-clip: text) and (-webkit-text-fill-color: transparent)) {
+  .text-aolrc-purple {
+    background-image:
+      var(--aolrc-purple-text-gradient),
+      linear-gradient(180deg, var(--aolrc-purple), var(--aolrc-purple));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Prevent the transparent text-fill from bleeding into child elements
+     (e.g. a button or icon nested inside a .text-aolrc-purple heading). */
+  .text-aolrc-purple .btn,
+  .text-aolrc-purple .btn * {
+    -webkit-text-fill-color: currentColor;
+    -webkit-background-clip: initial;
+    background-clip: initial;
+    background-image: none;
+  }
+}
+
+/* Slightly larger, mobile-friendly main page headers */
+.page-heading {
+  font-size: clamp(1.55rem, 1.35rem + 0.95vw, 2rem) !important;
+  line-height: 1.2;
 }
 
 /* Dashboard segmented tabs */
@@ -101,7 +201,7 @@
 }
 .dash-tabs .nav-link.active,
 .dash-tabs .show > .nav-link {
-  background: var(--aolrc-purple);
+  background: var(--aolrc-purple-gradient);
   color: #fff;
 }
 .dash-tabs .nav-link:focus-visible {
@@ -121,6 +221,123 @@
   .dash-tabs .nav-item {
     flex: 1 1 180px;
   }
+}
+
+.icon-btn-plain {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: #8f8f8f;
+  border-radius: 0.5rem;
+  text-decoration: none;
+}
+.icon-btn-plain i {
+  font-size: 1.1rem;
+}
+.icon-btn-plain.icon-btn-sm {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+}
+.icon-btn-plain.icon-btn-sm i {
+  font-size: 1rem;
+}
+.icon-btn-plain:focus-visible {
+  box-shadow: 0 0 0 3px rgba(132, 96, 140, 0.3);
+  outline: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .icon-btn-plain:hover {
+    background: var(--bs-secondary-bg);
+    color: #757575;
+  }
+}
+
+.venue-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: nowrap;
+}
+.venue-action-group .btn {
+  white-space: nowrap;
+}
+
+/* Data row readability */
+.table > :not(caption) > * > * {
+  padding-top: 0.9rem;
+  padding-bottom: 0.9rem;
+}
+.table tbody tr:nth-of-type(odd) > * {
+  background-color: rgba(132, 96, 140, 0.04);
+}
+
+/* Status segmented control */
+.status-seg {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  background: var(--bs-tertiary-bg);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.6rem;
+  padding: 0.2rem;
+  gap: 0.2rem;
+}
+.status-seg-btn {
+  flex: 1 1 0;
+  min-height: 38px;
+  min-width: 52px;
+  padding: 0.25rem 0.6rem;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #666;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.status-seg-btn:focus-visible {
+  box-shadow: 0 0 0 3px rgba(132, 96, 140, 0.3);
+  outline: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .status-seg-btn:not(.active):hover {
+    background: var(--bs-secondary-bg);
+  }
+}
+.status-seg-good.active { background: #198754; color: #fff; }
+.status-seg-ok.active   { background: var(--aolrc-gold); color: #fff; }
+.status-seg-low.active  { background: #fd7e14; color: #fff; }
+.status-seg-out.active  { background: #dc3545; color: #fff; }
+.status-seg-na.active   { background: #343a40; color: #fff; }
+
+@media (max-width: 575.98px) {
+  .status-seg {
+    width: 100%;
+  }
+  .status-seg-btn {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.status-header-align {
+  width: 300px;
+  text-align: center;
+}
+
+.supply-status-row {
+  padding: 0.85rem 0.5rem !important;
+  border-top-color: rgba(132, 96, 140, 0.14) !important;
+  border-radius: 0.75rem;
+}
+.supply-status-row-alt {
+  background-color: rgba(132, 96, 140, 0.04);
 }
 
 /* Status pills (no fill, colored text) */
@@ -150,7 +367,7 @@
 
 /* Site footer */
 .site-footer{
-  background: var(--aolrc-purple);
+  background: var(--aolrc-purple-gradient);
   color: #fff;
 }
 .site-footer a{

@@ -4,7 +4,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
-    <h1 class="h4 mb-0 fw-bold text-aolrc-purple">{{ venue.name }}</h1>
+    <h1 class="h4 mb-0 fw-bold text-aolrc-purple page-heading">{{ venue.name }}</h1>
     <div class="text-muted">Tap a status for each item, then Save Changes.</div>
   </div>
   <a class="btn btn-outline-secondary" href="{{ next_url }}">Back</a>
@@ -17,32 +17,30 @@
   <input type="hidden" name="next" value="{{ next_url }}">
   <div class="card">
     <div class="card-body">
-      <div class="d-flex fw-semibold mb-2">
+      <div class="d-flex fw-bold mb-2">
         <div style="flex: 1;">Supplies</div>
-        <div style="width: 320px;" class="text-end d-none d-md-block">Good / OK / Low / Out</div>
+        <div class="d-none d-md-block status-header-align">Status</div>
       </div>
 
       {% for it in items %}
       {% set s = latest_status[it.id] %}
-      <div class="d-flex align-items-center py-2 border-top">
+      <div class="supply-status-row{% if loop.index is odd %} supply-status-row-alt{% endif %} d-flex flex-column flex-md-row align-items-md-center py-2 border-top gap-2">
         <div style="flex: 1;">
           <div class="fw-semibold">{{ it.name }}</div>
         </div>
 
-        <!-- Hidden input stores the chosen status -->
         <input type="hidden" name="status_{{ it.id }}" id="status_{{ it.id }}" value="{{ s }}">
 
-        <!-- Button group: big tap targets -->
-        <div class="btn-group" role="group" aria-label="Status for {{ it.name }}">
-          <button type="button" class="btn btn-outline-success status-btn"
+        <div class="status-seg" role="group" aria-label="Status for {{ it.name }}">
+          <button type="button" class="status-seg-btn status-seg-good status-btn"
                   data-item="{{ it.id }}" data-value="good">Good</button>
-          <button type="button" class="btn btn-outline-secondary status-btn"
+          <button type="button" class="status-seg-btn status-seg-ok status-btn"
                   data-item="{{ it.id }}" data-value="ok">OK</button>
-          <button type="button" class="btn btn-outline-warning status-btn"
+          <button type="button" class="status-seg-btn status-seg-low status-btn"
                   data-item="{{ it.id }}" data-value="low">Low</button>
-          <button type="button" class="btn btn-outline-danger status-btn"
+          <button type="button" class="status-seg-btn status-seg-out status-btn"
                   data-item="{{ it.id }}" data-value="out">Out</button>
-          <button type="button" class="btn btn-outline-dark status-btn"
+          <button type="button" class="status-seg-btn status-seg-na status-btn"
                   data-item="{{ it.id }}" data-value="not_checked">—</button>
         </div>
       </div>

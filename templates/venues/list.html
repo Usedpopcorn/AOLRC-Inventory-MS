@@ -3,7 +3,7 @@
 
 {% block content %}
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="h3 mb-0 fw-bold text-aolrc-purple">Venues</h1>
+    <h1 class="h3 mb-0 fw-bold text-aolrc-purple page-heading">Venues</h1>
   </div>
 
   <!-- Search + Filters + Add Venue toggle -->
@@ -84,7 +84,7 @@
             <tr>
               <th>Venue</th>
               <th style="width:220px;">Status</th>
-              <th style="width:160px;">Actions</th>
+              <th style="width:180px;">Actions</th>
             </tr>
           </thead>
 
@@ -117,14 +117,16 @@
                 </td>
 
                 <td>
-                  <a class="btn btn-sm btn-aolrc-primary"
-                     href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}">
-                    View / Update
-                  </a>
-                  <a class="btn btn-sm btn-outline-secondary"
-                    href="{{ url_for('venue_settings.settings', venue_id=v.id) }}">
-                  <i class="bi bi-gear"></i>
-                  </a>
+                  <div class="venue-action-group">
+                    <a class="btn btn-sm btn-aolrc-primary"
+                       href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}">
+                      View / Update
+                    </a>
+                    <a class="icon-btn-plain icon-btn-sm"
+                       href="{{ url_for('venue_settings.settings', venue_id=v.id) }}">
+                      <i class="bi bi-gear-fill"></i>
+                    </a>
+                  </div>
                 </td>
                   
               </tr>
