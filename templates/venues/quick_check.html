@@ -33,7 +33,7 @@
         <div class="mode-select-wrap">
           <label class="visually-hidden" for="check_mode">Check mode</label>
           <select class="form-select" id="check_mode" name="check_mode" aria-label="Check mode">
-            <option value="status" {% if not is_counts_mode %}selected{% endif %}>Category Status</option>
+            <option value="status" {% if not is_counts_mode %}selected{% endif %}>Quick Status</option>
             <option value="raw_counts" {% if is_counts_mode %}selected{% endif %}>Raw Counts</option>
           </select>
         </div>
