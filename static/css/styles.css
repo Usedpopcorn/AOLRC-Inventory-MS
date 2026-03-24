@@ -343,10 +343,38 @@ html {
     flex: 1;
     min-width: 0;
   }
+  .mode-select-wrap,
+  .raw-count-wrap {
+    width: 100%;
+    max-width: 100%;
+  }
 }
 
 .status-header-align {
   width: 300px;
+  text-align: center;
+}
+
+.mode-column-header {
+  width: 300px;
+  text-align: center;
+}
+
+.mode-column-header.raw-mode {
+  width: 130px;
+}
+
+.mode-select-wrap {
+  width: 100%;
+  max-width: 220px;
+}
+
+.raw-count-wrap {
+  width: 130px;
+}
+
+.raw-count-input {
+  min-height: 38px;
   text-align: center;
 }
 

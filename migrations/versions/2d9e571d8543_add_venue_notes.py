@@ -17,9 +17,15 @@ depends_on = None
 
 
 def upgrade():
-    # Postgres-safe: won't error if the column already exists
-    op.execute("ALTER TABLE venues ADD COLUMN IF NOT EXISTS notes TEXT;")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    column_names = {col["name"] for col in inspector.get_columns("venues")}
+    if "notes" not in column_names:
+        op.add_column("venues", sa.Column("notes", sa.Text(), nullable=True))
 
 def downgrade():
-    # Also safe
-    op.execute("ALTER TABLE venues DROP COLUMN IF EXISTS notes;")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    column_names = {col["name"] for col in inspector.get_columns("venues")}
+    if "notes" in column_names:
+        op.drop_column("venues", "notes")

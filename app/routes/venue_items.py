@@ -1,7 +1,15 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from app import db
-from app.models import Venue, Item, VenueItem, Check, CheckLine
-from sqlalchemy import desc
+from app.models import (
+    Venue,
+    Item,
+    VenueItem,
+    Check,
+    CheckLine,
+    CountSession,
+    CountLine,
+    VenueItemCount,
+)
 
 venue_items_bp = Blueprint("venue_items", __name__, url_prefix="/venues")
 
@@ -70,8 +78,67 @@ def quick_check(venue_id):
         .all()
     )
 
+    selected_mode = (request.values.get("mode") or "status").strip().lower()
+    if selected_mode not in ("status", "raw_counts"):
+        selected_mode = "status"
+
     if request.method == "POST":
-        # Create a new check
+        selected_mode = (request.form.get("check_mode") or "status").strip().lower()
+        if selected_mode not in ("status", "raw_counts"):
+            selected_mode = "status"
+
+        if selected_mode == "raw_counts":
+            count_session = CountSession(venue_id=venue.id)
+            db.session.add(count_session)
+            db.session.flush()
+
+            existing_counts = {
+                row.item_id: row
+                for row in VenueItemCount.query.filter_by(venue_id=venue.id).all()
+            }
+
+            for it in tracked:
+                raw_value = (request.form.get(f"count_{it.id}") or "0").strip()
+                try:
+                    raw_count = int(raw_value)
+                except ValueError:
+                    raw_count = 0
+
+                if raw_count < 0:
+                    raw_count = 0
+
+                db.session.add(
+                    CountLine(
+                        count_session_id=count_session.id,
+                        item_id=it.id,
+                        raw_count=raw_count,
+                    )
+                )
+
+                current = existing_counts.get(it.id)
+                if current:
+                    current.raw_count = raw_count
+                else:
+                    db.session.add(
+                        VenueItemCount(
+                            venue_id=venue.id,
+                            item_id=it.id,
+                            raw_count=raw_count,
+                        )
+                    )
+
+            db.session.commit()
+            flash("Saved raw counts.", "success")
+            return redirect(
+                url_for(
+                    "venue_items.quick_check",
+                    venue_id=venue.id,
+                    next=next_url,
+                    mode="raw_counts",
+                )
+            )
+
+        # Create a new status check (existing behavior)
         chk = Check(venue_id=venue.id)
         db.session.add(chk)
         db.session.flush()  # assign chk.id
@@ -86,7 +153,9 @@ def quick_check(venue_id):
 
         db.session.commit()
         flash("Saved check ✅", "success")
-        return redirect(url_for("venue_items.quick_check", venue_id=venue.id, next=next_url))
+        return redirect(
+            url_for("venue_items.quick_check", venue_id=venue.id, next=next_url, mode="status")
+        )
 
     # GET: Prefill with most recent status per item (if exists)
     latest_status = {}
@@ -100,10 +169,21 @@ def quick_check(venue_id):
         )
         latest_status[it.id] = row[0] if row else "not_checked"
 
+    latest_counts = {}
+    for it in tracked:
+        row = (
+            db.session.query(VenueItemCount.raw_count)
+            .filter(VenueItemCount.venue_id == venue.id, VenueItemCount.item_id == it.id)
+            .first()
+        )
+        latest_counts[it.id] = row[0] if row else 0
+
     return render_template(
         "venues/quick_check.html",
         venue=venue,
         items=tracked,
         latest_status=latest_status,
+        latest_counts=latest_counts,
+        selected_mode=selected_mode,
         next_url=next_url,
     )

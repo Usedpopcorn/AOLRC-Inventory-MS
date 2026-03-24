@@ -11,7 +11,12 @@
 <div class="mb-3">
   <div>
     <h1 class="h4 mb-0 fw-bold text-aolrc-purple page-heading">{{ venue.name }}</h1>
-    <div class="text-muted">Tap a status for each item, then Save Changes.</div>
+    <div class="text-muted status-mode-only{% if selected_mode == 'raw_counts' %} d-none{% endif %}">
+      Tap a status for each item, then Save Changes.
+    </div>
+    <div class="text-muted counts-mode-only{% if selected_mode != 'raw_counts' %} d-none{% endif %}">
+      Enter a raw count for each item, then Save Changes.
+    </div>
   </div>
 </div>
 
@@ -20,11 +25,28 @@
 {% else %}
 <form method="post" id="quick-check-form">
   <input type="hidden" name="next" value="{{ next_url }}">
+  {% set is_counts_mode = (selected_mode == "raw_counts") %}
   <div class="card">
     <div class="card-body">
+      <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
+        <div class="small text-muted">Choose check mode</div>
+        <div class="mode-select-wrap">
+          <label class="visually-hidden" for="check_mode">Check mode</label>
+          <select class="form-select" id="check_mode" name="check_mode" aria-label="Check mode">
+            <option value="status" {% if not is_counts_mode %}selected{% endif %}>Category Status</option>
+            <option value="raw_counts" {% if is_counts_mode %}selected{% endif %}>Raw Counts</option>
+          </select>
+        </div>
+      </div>
+
       <div class="d-flex fw-bold mb-2">
         <div style="flex: 1;">Supplies</div>
-        <div class="d-none d-md-block status-header-align">Status</div>
+        <div
+          id="mode_column_header"
+          class="d-none d-md-block mode-column-header{% if is_counts_mode %} raw-mode{% endif %}"
+        >
+          {% if is_counts_mode %}Raw Count{% else %}Status{% endif %}
+        </div>
       </div>
 
       {% for it in items %}
@@ -36,7 +58,7 @@
 
         <input type="hidden" name="status_{{ it.id }}" id="status_{{ it.id }}" value="{{ s }}">
 
-        <div class="status-seg" role="group" aria-label="Status for {{ it.name }}">
+        <div class="status-seg status-mode-only{% if is_counts_mode %} d-none{% endif %}" role="group" aria-label="Status for {{ it.name }}">
           <button type="button" class="status-seg-btn status-seg-good status-btn"
                   data-item="{{ it.id }}" data-value="good">Good</button>
           <button type="button" class="status-seg-btn status-seg-ok status-btn"
@@ -47,6 +69,20 @@
                   data-item="{{ it.id }}" data-value="out">Out</button>
           <button type="button" class="status-seg-btn status-seg-na status-btn"
                   data-item="{{ it.id }}" data-value="not_checked">—</button>
+        </div>
+
+        <div class="raw-count-wrap counts-mode-only{% if not is_counts_mode %} d-none{% endif %}">
+          <label class="visually-hidden" for="count_{{ it.id }}">Raw count for {{ it.name }}</label>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            inputmode="numeric"
+            class="form-control raw-count-input"
+            id="count_{{ it.id }}"
+            name="count_{{ it.id }}"
+            value="{{ latest_counts[it.id] }}"
+          >
         </div>
       </div>
       {% endfor %}
@@ -82,6 +118,29 @@
     const itemId = inp.id.replace("status_", "");
     refreshButtons(itemId);
   });
+
+  function refreshModeUI() {
+    const mode = document.getElementById("check_mode").value;
+    const isCountsMode = mode === "raw_counts";
+
+    document.querySelectorAll(".status-mode-only").forEach(el => {
+      el.classList.toggle("d-none", isCountsMode);
+    });
+
+    document.querySelectorAll(".counts-mode-only").forEach(el => {
+      el.classList.toggle("d-none", !isCountsMode);
+    });
+
+    const header = document.getElementById("mode_column_header");
+    if (header) {
+      header.textContent = isCountsMode ? "Raw Count" : "Status";
+      header.classList.toggle("raw-mode", isCountsMode);
+    }
+  }
+
+  const modeSelect = document.getElementById("check_mode");
+  modeSelect.addEventListener("change", refreshModeUI);
+  refreshModeUI();
 </script>
 {% endif %}
 {% endblock %}
