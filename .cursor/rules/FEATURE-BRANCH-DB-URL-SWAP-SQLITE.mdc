@@ -1,0 +1,27 @@
+---
+description: Enforce local SQLite DATABASE_URL swap and clear communication for DB changes outside main.
+alwaysApply: true
+---
+
+# Feature Branch DB URL Safety
+
+When DB schema/migration work is requested on a branch other than `main`, protect the shared Supabase DB.
+
+Requirements:
+- Check current branch with `git branch --show-current` before DB upgrade guidance or execution.
+- If branch is not `main`, do not run shared Supabase upgrades from that branch.
+- For feature-branch DB testing, switch `.env` `DATABASE_URL` to local SQLite:
+  - `sqlite:////app/instance/local_test.db`
+- Explain the reason to the user before running commands:
+  - "Using local SQLite to avoid changing shared Supabase from a feature branch."
+- Run migrations and tests against the local DB in Docker.
+- After feature-branch testing, restore `.env` `DATABASE_URL` back to Supabase pooler before shared usage.
+
+Communication requirements:
+- State what DB target is being used (Supabase vs SQLite) before migration commands.
+- Call out any side effects clearly (for example, local DB starts empty and may need seed data).
+- Confirm post-check status (`flask db current`) and summarize the result.
+
+Safety:
+- Never commit `.env` changes.
+- Never recommend manual schema edits in Supabase UI.
