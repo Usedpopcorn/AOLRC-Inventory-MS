@@ -8,7 +8,7 @@ class Venue(db.Model):
     name = db.Column(db.String(120), nullable=False, unique=True)
     notes = db.Column(db.Text, nullable=True)
 
-    # core venues cannot be deleted 
+    # primary venues cannot be deleted
     is_core = db.Column(db.Boolean, default=False, nullable=False)
     active = db.Column(db.Boolean, default=True, nullable=False)
 
@@ -74,4 +74,44 @@ class CheckLine(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint("check_id", "item_id", name="uq_checkline_check_item"),
+    )
+
+
+class CountSession(db.Model):
+    __tablename__ = "count_sessions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    venue_id = db.Column(db.Integer, db.ForeignKey("venues.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class CountLine(db.Model):
+    __tablename__ = "count_lines"
+
+    id = db.Column(db.Integer, primary_key=True)
+    count_session_id = db.Column(db.Integer, db.ForeignKey("count_sessions.id"), nullable=False)
+    item_id = db.Column(db.Integer, db.ForeignKey("items.id"), nullable=False)
+    raw_count = db.Column(db.Integer, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("count_session_id", "item_id", name="uq_countline_session_item"),
+    )
+
+
+class VenueItemCount(db.Model):
+    __tablename__ = "venue_item_counts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    venue_id = db.Column(db.Integer, db.ForeignKey("venues.id"), nullable=False)
+    item_id = db.Column(db.Integer, db.ForeignKey("items.id"), nullable=False)
+    raw_count = db.Column(db.Integer, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("venue_id", "item_id", name="uq_venue_item_count"),
     )

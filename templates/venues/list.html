@@ -3,7 +3,7 @@
 
 {% block content %}
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="h3 mb-0">Venues</h1>
+    <h1 class="h3 mb-0 fw-bold text-aolrc-purple page-heading">Venues</h1>
   </div>
 
   <!-- Search + Filters + Add Venue toggle -->
@@ -22,10 +22,10 @@
           <option value="not_checked">Not Checked</option>
         </select>
 
-        <select id="coreFilter" class="form-select" style="max-width: 220px;">
-          <option value="all">Core + Non-core</option>
-          <option value="core">Core only</option>
-          <option value="noncore">Non-core only</option>
+        <select id="venueTypeFilter" class="form-select" style="max-width: 220px;">
+          <option value="all">Primary + Other</option>
+          <option value="primary">Primary only</option>
+          <option value="other">Other only</option>
         </select>
       </div>
 
@@ -52,14 +52,14 @@
           <div class="col-lg-4">
             <label class="form-label mb-1">Venue type</label>
             <select class="form-select" name="is_core">
-              <option value="false" selected>Non-core (can be deleted later)</option>
-              <option value="true">Core (cannot be deleted)</option>
+              <option value="false" selected>Other (can be deleted later)</option>
+              <option value="true">Primary (cannot be deleted)</option>
              </select>
           </div>
 
           <div class="col-12">
             <div class="form-text">
-               Core venues are protected from deletion; non-core venues are editable/removable.
+               Primary venues are protected from deletion; other venues are editable/removable.
            </div>
         </div>
 
@@ -84,18 +84,20 @@
             <tr>
               <th>Venue</th>
               <th style="width:220px;">Status</th>
-              <th style="width:160px;">Actions</th>
+              <th style="width:180px;">Actions</th>
             </tr>
           </thead>
 
           <tbody>
             {% for row in venue_rows %}
               {% set v = row.venue %}
-              <tr data-status="{{ row.badge.key }}" data-core="{{ 'core' if v.is_core else 'noncore' }}">
+              <tr data-status="{{ row.badge.key }}" data-venue-type="{{ 'primary' if v.is_core else 'other' }}">
                 <td>
                   <div class="fw-semibold">{{ v.name }}</div>
                   {% if v.is_core %}
-                    <span class="badge badge-core">Core</span>
+                    <span class="badge badge-core">Primary</span>
+                  {% else %}
+                    <span class="badge bg-secondary">Other</span>
                   {% endif %}
                   {% if not v.active %}
                     <span class="badge bg-dark">Hidden</span>
@@ -115,14 +117,16 @@
                 </td>
 
                 <td>
-                  <a class="btn btn-sm btn-aolrc-primary"
-                     href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}">
-                    View / Update
-                  </a>
-                  <a class="btn btn-sm btn-outline-secondary"
-                    href="{{ url_for('venue_settings.settings', venue_id=v.id) }}">
-                  <i class="bi bi-gear"></i>
-                  </a>
+                  <div class="venue-action-group">
+                    <a class="btn btn-sm btn-aolrc-primary"
+                       href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}">
+                      View / Update
+                    </a>
+                    <a class="icon-btn-plain icon-btn-sm"
+                       href="{{ url_for('venue_settings.settings', venue_id=v.id) }}">
+                      <i class="bi bi-gear-fill"></i>
+                    </a>
+                  </div>
                 </td>
                   
               </tr>
@@ -138,30 +142,30 @@
   <script>
     const searchEl = document.getElementById("venueSearch");
     const statusEl = document.getElementById("statusFilter");
-    const coreEl = document.getElementById("coreFilter");
+    const venueTypeEl = document.getElementById("venueTypeFilter");
 
     function applyFilters() {
       const q = (searchEl.value || "").trim().toLowerCase();
       const st = statusEl.value;
-      const core = coreEl.value;
+      const venueType = venueTypeEl.value;
 
       const rows = Array.from(document.querySelectorAll("tbody tr[data-status]"));
 
       rows.forEach(tr => {
         const name = (tr.querySelector(".fw-semibold")?.innerText || "").toLowerCase();
         const rowStatus = tr.dataset.status || "";
-        const rowCore = tr.dataset.core || "";
+        const rowVenueType = tr.dataset.venueType || "";
 
         const matchSearch = !q || name.includes(q);
         const matchStatus = (st === "all") || (rowStatus === st);
-        const matchCore = (core === "all") || (rowCore === core);
+        const matchVenueType = (venueType === "all") || (rowVenueType === venueType);
 
-        tr.style.display = (matchSearch && matchStatus && matchCore) ? "" : "none";
+        tr.style.display = (matchSearch && matchStatus && matchVenueType) ? "" : "none";
       });
     }
 
     searchEl.addEventListener("input", applyFilters);
     statusEl.addEventListener("change", applyFilters);
-    coreEl.addEventListener("change", applyFilters);
+    venueTypeEl.addEventListener("change", applyFilters);
   </script>
 {% endblock %}

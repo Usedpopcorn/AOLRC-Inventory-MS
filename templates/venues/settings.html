@@ -2,34 +2,33 @@
 {% block title %}{{ venue.name }} Settings{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-start mb-3">
-  <div>
-    <h1 class="h4 mb-0 d-flex align-items-center gap-2">
-      {{ venue.name }}
-
-      {% if not venue.is_core %}
-        <form method="post" class="d-inline"
-              onsubmit="return confirm('Delete this venue? This cannot be undone.');">
-          <input type="hidden" name="action" value="delete">
-          <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete venue">
-            <i class="bi bi-trash"></i>
-          </button>
-        </form>
-      {% endif %}
-    </h1>
-    <div class="text-muted">Venue settings</div>
-  </div>
-
+<div class="mb-2">
   <a class="btn btn-outline-secondary" href="{{ url_for('main.venues') }}">Back</a>
+</div>
+<div class="mb-3">
+  <h1 class="h4 mb-0 d-flex align-items-center gap-2 fw-bold text-aolrc-purple page-heading">
+    {{ venue.name }}
+
+    {% if not venue.is_core %}
+      <form method="post" class="d-inline"
+            onsubmit="return confirm('Delete this venue? This cannot be undone.');">
+        <input type="hidden" name="action" value="delete">
+        <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete venue">
+          <i class="bi bi-trash"></i>
+        </button>
+      </form>
+    {% endif %}
+  </h1>
+  <div class="text-muted">Venue settings</div>
 </div>
 
 <div class="card mb-3">
   <div class="card-body">
     <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
       {% if venue.is_core %}
-        <span class="badge badge-core">Core venue</span>
+        <span class="badge badge-core">Primary venue</span>
       {% else %}
-        <span class="badge bg-secondary">Non-core venue</span>
+        <span class="badge bg-secondary">Other</span>
       {% endif %}
 
       {% if venue.active %}
