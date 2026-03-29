@@ -508,7 +508,17 @@
 
     <div class="card">
       <div class="card-body">
-        <div id="restockResultCount" class="text-muted small mb-2">{{ restock_rows|length }} result(s)</div>
+        <div
+          id="restockResultCount"
+          class="text-muted small mb-2"
+          data-total="{{ restock_total_count }}"
+        >
+          {% if restock_total_count %}
+            Showing {{ restock_rows|length }} of {{ restock_total_count }} result(s)
+          {% else %}
+            0 result(s)
+          {% endif %}
+        </div>
         <div class="d-md-none d-flex flex-column gap-2" id="restockMobileList">
           {% for row in restock_rows %}
             <article
@@ -615,6 +625,16 @@
             </tbody>
           </table>
         </div>
+        <div id="restockLoadMoreArea" class="pt-2 {{ 'd-none' if not restock_has_more else '' }}">
+          <div id="restockLoadMoreSpinner" class="text-muted small text-center d-none">
+            Loading more results...
+          </div>
+          <div id="restockLoadMoreError" class="text-danger small text-center d-none">
+            Could not load more results.
+            <button id="restockLoadMoreRetry" type="button" class="btn btn-link btn-sm p-0 align-baseline">Retry</button>
+          </div>
+          <div id="restockLoadMoreSentinel" aria-hidden="true"></div>
+        </div>
       </div>
     </div>
 
@@ -631,6 +651,8 @@
         const saveFiltersBtn = document.getElementById("restockSaveFiltersBtn");
         const saveFiltersTooltipWrap = document.getElementById("restockSaveFiltersTooltipWrap");
         const mobileFilterMq = window.matchMedia("(max-width: 767.98px)");
+        const restockApiUrl = "{{ url_for('main.dashboard_restocking_rows') }}";
+        const restockPageSize = {{ restock_page_size }};
         let saveFiltersTooltip = null;
 
         if (saveFiltersTooltipWrap && window.bootstrap && window.bootstrap.Tooltip) {
@@ -653,140 +675,258 @@
         const restockMobileList = document.getElementById("restockMobileList");
         const restockMobileCards = Array.from(document.querySelectorAll("#restockMobileList .restock-mobile-card"));
         const restockMobileEmpty = document.getElementById("restockMobileEmpty");
+        const restockLoadMoreArea = document.getElementById("restockLoadMoreArea");
+        const restockLoadMoreSpinner = document.getElementById("restockLoadMoreSpinner");
+        const restockLoadMoreError = document.getElementById("restockLoadMoreError");
+        const restockLoadMoreRetry = document.getElementById("restockLoadMoreRetry");
+        const restockLoadMoreSentinel = document.getElementById("restockLoadMoreSentinel");
+        let restockLoadedCount = restockTableRows.length;
+        let restockTotalCount = Number(restockResultCount?.getAttribute("data-total") || restockLoadedCount || 0);
+        let restockHasMore = restockLoadedCount < restockTotalCount;
+        let restockLoadingMore = false;
+        let restockLoadErrored = false;
 
-        function getRestockSortValue() {
-          if (!restockSort) return "status_priority";
-          const value = restockSort.value || "status_priority";
-          if (["item", "venue", "status_priority", "last_checked"].includes(value)) return value;
-          return "status_priority";
-        }
-
-        function getRestockSearchValue() {
-          if (!restockSearch) return "";
-          return (restockSearch.value || "").trim().toLowerCase();
-        }
-
-        function statusPriorityRank(statusKey) {
-          const rank = { out: 0, low: 1, ok: 2, good: 3, not_checked: 4 };
-          return rank[statusKey] ?? 99;
-        }
-
-        function getLatestTimestamp(el) {
-          const raw = el.getAttribute("data-latest-ts");
-          if (!raw) return Number.NEGATIVE_INFINITY;
-          const parsed = Number(raw);
-          return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
-        }
-
-        function compareRestockElements(a, b, sortMode) {
-          const itemA = a.getAttribute("data-item") || "";
-          const itemB = b.getAttribute("data-item") || "";
-          const venueA = a.getAttribute("data-venue") || "";
-          const venueB = b.getAttribute("data-venue") || "";
-          const statusA = a.getAttribute("data-status-key") || "";
-          const statusB = b.getAttribute("data-status-key") || "";
-
-          if (sortMode === "venue") {
-            return venueA.localeCompare(venueB) || itemA.localeCompare(itemB);
+        function updateRestockResultCount() {
+          if (!restockResultCount) return;
+          if (!restockTotalCount) {
+            restockResultCount.textContent = "0 result(s)";
+            return;
           }
-          if (sortMode === "status_priority") {
-            return (
-              statusPriorityRank(statusA) - statusPriorityRank(statusB)
-              || venueA.localeCompare(venueB)
-              || itemA.localeCompare(itemB)
+          restockResultCount.textContent = `Showing ${restockLoadedCount} of ${restockTotalCount} result(s)`;
+        }
+
+        function getStatusClass(statusKey) {
+          if (statusKey === "good") return "status-good";
+          if (statusKey === "ok") return "status-ok";
+          if (statusKey === "low") return "status-low";
+          if (statusKey === "out") return "status-out";
+          return "status-na";
+        }
+
+        function createRestockTableRow(row) {
+          const tr = document.createElement("tr");
+          tr.className = "restock-table-row";
+
+          const itemTd = document.createElement("td");
+          itemTd.className = "fw-semibold";
+          itemTd.textContent = row.item_name;
+
+          const statusTd = document.createElement("td");
+          const statusSpan = document.createElement("span");
+          statusSpan.className = `status-pill ${getStatusClass(row.status?.key)}`;
+          const icon = document.createElement("i");
+          icon.className = `bi ${row.status?.icon_class || ""}`;
+          statusSpan.appendChild(icon);
+          statusSpan.append(` ${row.status?.text || ""}`);
+          statusTd.appendChild(statusSpan);
+
+          const venueTd = document.createElement("td");
+          venueTd.textContent = row.venue_name;
+
+          const latestTd = document.createElement("td");
+          latestTd.className = "text-nowrap";
+          if (row.latest_check_missing) {
+            const muted = document.createElement("span");
+            muted.className = "text-muted";
+            muted.textContent = "No check yet";
+            latestTd.appendChild(muted);
+          } else {
+            latestTd.textContent = row.latest_check_text || "";
+          }
+
+          const actionTd = document.createElement("td");
+          const actionLink = document.createElement("a");
+          actionLink.className = "btn btn-aolrc-primary restock-action-btn";
+          actionLink.href = row.quick_check_url;
+          actionLink.textContent = "View / Update";
+          actionTd.appendChild(actionLink);
+
+          tr.appendChild(itemTd);
+          tr.appendChild(statusTd);
+          tr.appendChild(venueTd);
+          tr.appendChild(latestTd);
+          tr.appendChild(actionTd);
+          return tr;
+        }
+
+        function createRestockMobileCard(row) {
+          const article = document.createElement("article");
+          article.className = "restock-mobile-card";
+
+          const topRow = document.createElement("div");
+          topRow.className = "d-flex align-items-start justify-content-between gap-2 mb-2";
+
+          const itemName = document.createElement("div");
+          itemName.className = "restock-mobile-item fw-semibold";
+          itemName.textContent = row.item_name;
+          topRow.appendChild(itemName);
+
+          const statusSpan = document.createElement("span");
+          statusSpan.className = `status-pill ${getStatusClass(row.status?.key)}`;
+          const icon = document.createElement("i");
+          icon.className = `bi ${row.status?.icon_class || ""}`;
+          statusSpan.appendChild(icon);
+          statusSpan.append(` ${row.status?.text || ""}`);
+          topRow.appendChild(statusSpan);
+          article.appendChild(topRow);
+
+          const metaWrap = document.createElement("div");
+          metaWrap.className = "restock-mobile-meta";
+
+          const venueRow = document.createElement("div");
+          venueRow.className = "restock-mobile-meta-row";
+          const venueLabel = document.createElement("span");
+          venueLabel.className = "restock-mobile-label";
+          venueLabel.textContent = "Venue";
+          const venueValue = document.createElement("span");
+          venueValue.className = "restock-mobile-value";
+          venueValue.textContent = row.venue_name;
+          venueRow.appendChild(venueLabel);
+          venueRow.appendChild(venueValue);
+          metaWrap.appendChild(venueRow);
+
+          const checkRow = document.createElement("div");
+          checkRow.className = "restock-mobile-meta-row";
+          const checkLabel = document.createElement("span");
+          checkLabel.className = "restock-mobile-label";
+          checkLabel.textContent = "Latest check";
+          const checkValue = document.createElement("span");
+          checkValue.className = "restock-mobile-value";
+          if (row.latest_check_missing) {
+            const muted = document.createElement("span");
+            muted.className = "text-muted";
+            muted.textContent = "No check yet";
+            checkValue.appendChild(muted);
+          } else {
+            checkValue.textContent = row.latest_check_text || "";
+          }
+          checkRow.appendChild(checkLabel);
+          checkRow.appendChild(checkValue);
+          metaWrap.appendChild(checkRow);
+          article.appendChild(metaWrap);
+
+          const actionLink = document.createElement("a");
+          actionLink.className = "btn btn-aolrc-primary restock-mobile-action-btn mt-2";
+          actionLink.href = row.quick_check_url;
+          actionLink.textContent = "View / Update";
+          article.appendChild(actionLink);
+          return article;
+        }
+
+        function updateRestockLoadMoreUi() {
+          if (restockLoadMoreSpinner) {
+            restockLoadMoreSpinner.classList.toggle("d-none", !restockLoadingMore);
+          }
+          if (restockLoadMoreArea) {
+            restockLoadMoreArea.classList.toggle(
+              "d-none",
+              !restockHasMore && !restockLoadingMore && restockLoadMoreError?.classList.contains("d-none")
             );
           }
-          if (sortMode === "last_checked") {
-            const tsA = getLatestTimestamp(a);
-            const tsB = getLatestTimestamp(b);
-            const noneA = tsA === Number.NEGATIVE_INFINITY ? 1 : 0;
-            const noneB = tsB === Number.NEGATIVE_INFINITY ? 1 : 0;
-            return (
-              noneA - noneB
-              || (tsB - tsA)
-              || itemA.localeCompare(itemB)
-              || venueA.localeCompare(venueB)
-            );
-          }
-          return itemA.localeCompare(itemB) || venueA.localeCompare(venueB);
         }
 
-        function matchesSearch(el, query) {
-          if (!query) return true;
-          const item = el.getAttribute("data-item") || "";
-          const venue = el.getAttribute("data-venue") || "";
-          const statusText = el.getAttribute("data-status-text") || "";
-          return item.includes(query) || venue.includes(query) || statusText.includes(query);
+        function buildRestockLoadUrl(offset) {
+          const url = new URL(restockApiUrl, window.location.origin);
+          if (restockForm) {
+            const formData = new FormData(restockForm);
+            formData.forEach((value, key) => {
+              url.searchParams.append(key, value.toString());
+            });
+          }
+          url.searchParams.set("offset", String(offset));
+          url.searchParams.set("limit", String(restockPageSize));
+          url.searchParams.set("next", `${window.location.pathname}${window.location.search}`);
+          return url;
         }
 
-        function syncRestockUrl() {
-          const url = new URL(window.location.href);
-          const searchValue = (restockSearch?.value || "").trim();
-          const sortValue = getRestockSortValue();
-          url.searchParams.set("tab", "restocking");
+        async function loadMoreRestockRows() {
+          if (restockLoadingMore || !restockHasMore || restockLoadErrored) return;
+          restockLoadingMore = true;
+          restockLoadErrored = false;
+          if (restockLoadMoreError) restockLoadMoreError.classList.add("d-none");
+          updateRestockLoadMoreUi();
 
-          if (searchValue) url.searchParams.set("restock_search", searchValue);
-          else url.searchParams.delete("restock_search");
+          try {
+            const response = await fetch(buildRestockLoadUrl(restockLoadedCount), {
+              headers: { Accept: "application/json" },
+            });
+            if (!response.ok) {
+              throw new Error(`Failed to load more rows (${response.status})`);
+            }
+            const payload = await response.json();
+            const rows = Array.isArray(payload.rows) ? payload.rows : [];
+            if (restockTableBody && restockTableEmptyRow) {
+              rows.forEach((row) => {
+                restockTableBody.insertBefore(createRestockTableRow(row), restockTableEmptyRow);
+              });
+            }
+            if (restockMobileList && restockMobileEmpty) {
+              rows.forEach((row) => {
+                restockMobileList.insertBefore(createRestockMobileCard(row), restockMobileEmpty);
+              });
+            }
 
-          if (sortValue && sortValue !== "status_priority") url.searchParams.set("restock_sort", sortValue);
-          else url.searchParams.delete("restock_sort");
-
-          window.history.replaceState({}, "", url);
+            restockLoadedCount += rows.length;
+            restockTotalCount = Number(payload.total_count ?? restockTotalCount);
+            restockHasMore = Boolean(payload.has_more);
+            if (restockTableEmptyRow) {
+              restockTableEmptyRow.classList.toggle("d-none", restockLoadedCount > 0);
+            }
+            if (restockMobileEmpty) {
+              restockMobileEmpty.classList.toggle("d-none", restockLoadedCount > 0);
+            }
+            updateRestockResultCount();
+          } catch (error) {
+            restockLoadErrored = true;
+            if (restockLoadMoreError) restockLoadMoreError.classList.remove("d-none");
+          } finally {
+            restockLoadingMore = false;
+            updateRestockLoadMoreUi();
+          }
         }
 
-        function applyRestockLiveView() {
-          const query = getRestockSearchValue();
-          const sortMode = getRestockSortValue();
-          const visibleTableRows = restockTableRows.filter((row) => matchesSearch(row, query));
-          const visibleMobileCards = restockMobileCards.filter((card) => matchesSearch(card, query));
-
-          visibleTableRows.sort((a, b) => compareRestockElements(a, b, sortMode));
-          visibleMobileCards.sort((a, b) => compareRestockElements(a, b, sortMode));
-
-          if (restockTableBody) {
-            visibleTableRows.forEach((row) => restockTableBody.appendChild(row));
-          }
-          if (restockMobileList) {
-            visibleMobileCards.forEach((card) => restockMobileList.appendChild(card));
-          }
-
-          restockTableRows.forEach((row) => {
-            row.style.display = visibleTableRows.includes(row) ? "" : "none";
+        if (restockLoadMoreRetry) {
+          restockLoadMoreRetry.addEventListener("click", () => {
+            restockLoadErrored = false;
+            loadMoreRestockRows();
           });
-          restockMobileCards.forEach((card) => {
-            card.style.display = visibleMobileCards.includes(card) ? "" : "none";
-          });
+        }
 
-          if (restockTableEmptyRow) {
-            restockTableEmptyRow.classList.toggle("d-none", visibleTableRows.length > 0);
-          }
-          if (restockMobileEmpty) {
-            restockMobileEmpty.classList.toggle("d-none", visibleMobileCards.length > 0);
-          }
-          if (restockResultCount) {
-            restockResultCount.textContent = `${visibleTableRows.length} result(s)`;
-          }
+        if (restockLoadMoreSentinel && "IntersectionObserver" in window) {
+          const loadObserver = new IntersectionObserver(
+            (entries) => {
+              entries.forEach((entry) => {
+                if (!entry.isIntersecting) return;
+                loadMoreRestockRows();
+              });
+            },
+            { root: null, rootMargin: "220px 0px 220px 0px" }
+          );
+          loadObserver.observe(restockLoadMoreSentinel);
         }
 
         if (restockSort) {
           restockSort.addEventListener("change", () => {
-            syncRestockUrl();
-            applyRestockLiveView();
+            submitRestockForm();
           });
         }
 
         if (restockSearch) {
-          restockSearch.addEventListener("input", () => {
-            syncRestockUrl();
-            applyRestockLiveView();
-          });
           restockSearch.addEventListener("keydown", (event) => {
             if (event.key !== "Enter") return;
             event.preventDefault();
+            submitRestockForm();
+          });
+          restockSearch.addEventListener("blur", () => {
+            const initialValue = (restockSearch.defaultValue || "").trim();
+            const currentValue = (restockSearch.value || "").trim();
+            if (currentValue === initialValue) return;
+            submitRestockForm();
           });
         }
 
-        applyRestockLiveView();
+        updateRestockResultCount();
+        updateRestockLoadMoreUi();
 
         function setFiltersToggleLabel(isOpen) {
           if (!filtersToggleLabel) return;

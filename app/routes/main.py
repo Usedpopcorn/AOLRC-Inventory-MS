@@ -1,9 +1,10 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from sqlalchemy import func, and_
 from app import db
 from app.models import Venue, VenueItem, Item, Check, CheckLine
 
 main_bp = Blueprint("main", __name__)
+RESTOCK_PAGE_SIZE = 50
 
 RESTOCK_STATUS_META = {
     "good": {"text": "Good", "icon_class": "bi-check-circle-fill"},
@@ -117,13 +118,21 @@ def build_venue_rows(include_inactive=False):
     return venue_rows
 
 
-def build_restock_rows(statuses=None, item_ids=None, venue_ids=None, search="", sort="status_priority"):
+def build_restock_rows(
+    statuses=None,
+    item_ids=None,
+    venue_ids=None,
+    search="",
+    sort="status_priority",
+    limit=None,
+    offset=0,
+):
     if statuses is None:
         selected_statuses = list(RESTOCK_STATUS_META.keys())
     else:
         selected_statuses = [s for s in statuses if s in RESTOCK_STATUS_META]
     if not selected_statuses:
-        return []
+        return {"rows": [], "total_count": 0, "has_more": False}
     selected_statuses_set = set(selected_statuses)
     search_query = (search or "").strip().lower()
     if sort in {"item", "item_asc", "item_desc"}:
@@ -176,11 +185,11 @@ def build_restock_rows(statuses=None, item_ids=None, venue_ids=None, search="", 
 
     if item_ids is not None:
         if not item_ids:
-            return []
+            return {"rows": [], "total_count": 0, "has_more": False}
         query = query.filter(VenueItem.item_id.in_(item_ids))
     if venue_ids is not None:
         if not venue_ids:
-            return []
+            return {"rows": [], "total_count": 0, "has_more": False}
         query = query.filter(VenueItem.venue_id.in_(venue_ids))
 
     rows = []
@@ -239,7 +248,35 @@ def build_restock_rows(statuses=None, item_ids=None, venue_ids=None, search="", 
     else:
         rows.sort(key=lambda row: (row["item_name"].lower(), row["venue_name"].lower()))
 
-    return rows
+    total_count = len(rows)
+    normalized_offset = max(int(offset or 0), 0)
+    if limit is None:
+        paged_rows = rows[normalized_offset:]
+    else:
+        normalized_limit = max(int(limit), 0)
+        paged_rows = rows[normalized_offset : normalized_offset + normalized_limit]
+    has_more = (normalized_offset + len(paged_rows)) < total_count
+    return {"rows": paged_rows, "total_count": total_count, "has_more": has_more}
+
+
+def serialize_restock_row(row, next_path):
+    latest_check_at = row["latest_check_at"]
+    return {
+        "venue_id": row["venue_id"],
+        "venue_name": row["venue_name"],
+        "item_id": row["item_id"],
+        "item_name": row["item_name"],
+        "latest_check_text": (
+            latest_check_at.strftime("%Y-%m-%d %I:%M %p") if latest_check_at else "No check yet"
+        ),
+        "latest_check_missing": latest_check_at is None,
+        "status": row["status"],
+        "quick_check_url": url_for(
+            "venue_items.quick_check",
+            venue_id=row["venue_id"],
+            next=next_path,
+        ),
+    }
 
 
 @main_bp.route("/")
@@ -305,13 +342,18 @@ def dashboard():
     if restock_params_seen and requested_tab is None:
         active_tab = "restocking"
 
-    restock_rows = build_restock_rows(
+    initial_restock_page = build_restock_rows(
         statuses=restock_statuses if restock_status_submitted else None,
         item_ids=restock_item_ids if restock_item_submitted else None,
         venue_ids=restock_venue_ids if restock_venue_submitted else None,
         search=restock_search,
         sort=restock_sort,
+        limit=RESTOCK_PAGE_SIZE,
+        offset=0,
     )
+    restock_rows = initial_restock_page["rows"]
+    restock_total_count = initial_restock_page["total_count"]
+    restock_has_more = initial_restock_page["has_more"]
 
     restock_item_rows = (
         db.session.query(Item.id, Item.name)
@@ -377,6 +419,9 @@ def dashboard():
         restock_venue_submitted=restock_venue_submitted,
         restock_active_filter_count=restock_active_filter_count,
         restock_filter_counts=restock_filter_counts,
+        restock_page_size=RESTOCK_PAGE_SIZE,
+        restock_total_count=restock_total_count,
+        restock_has_more=restock_has_more,
         restock_filters={
             "statuses": restock_statuses,
             "item_ids": restock_item_ids,
@@ -384,6 +429,75 @@ def dashboard():
             "search": restock_search,
             "sort": restock_sort,
         },
+    )
+
+
+@main_bp.route("/dashboard/restocking_rows")
+def dashboard_restocking_rows():
+    restock_status_submitted = "restock_status_submitted" in request.args
+    restock_item_submitted = "restock_item_submitted" in request.args
+    restock_venue_submitted = "restock_venue_submitted" in request.args
+
+    requested_statuses = [normalize_status(s) for s in request.args.getlist("restock_status")]
+    restock_statuses = []
+    for status_key in requested_statuses:
+        if status_key in RESTOCK_STATUS_META and status_key not in restock_statuses:
+            restock_statuses.append(status_key)
+    if not restock_status_submitted:
+        restock_statuses = list(RESTOCK_STATUS_META.keys())
+
+    restock_item_ids = []
+    for raw_item_id in request.args.getlist("restock_item_id"):
+        if raw_item_id.isdigit():
+            item_id = int(raw_item_id)
+            if item_id not in restock_item_ids:
+                restock_item_ids.append(item_id)
+
+    restock_venue_ids = []
+    for raw_venue_id in request.args.getlist("restock_venue_id"):
+        if raw_venue_id.isdigit():
+            venue_id = int(raw_venue_id)
+            if venue_id not in restock_venue_ids:
+                restock_venue_ids.append(venue_id)
+
+    restock_search = (request.args.get("restock_search", "") or "").strip()
+    restock_sort = request.args.get("restock_sort", "status_priority")
+    if restock_sort in {"item_asc", "item_desc"}:
+        restock_sort = "item"
+    elif restock_sort in {"venue_asc", "venue_desc"}:
+        restock_sort = "venue"
+    elif restock_sort not in {"item", "venue", "status_priority", "last_checked"}:
+        restock_sort = "status_priority"
+
+    raw_limit = request.args.get("limit", str(RESTOCK_PAGE_SIZE))
+    raw_offset = request.args.get("offset", "0")
+    try:
+        limit = max(1, min(int(raw_limit), 200))
+    except ValueError:
+        limit = RESTOCK_PAGE_SIZE
+    try:
+        offset = max(int(raw_offset), 0)
+    except ValueError:
+        offset = 0
+
+    page = build_restock_rows(
+        statuses=restock_statuses if restock_status_submitted else None,
+        item_ids=restock_item_ids if restock_item_submitted else None,
+        venue_ids=restock_venue_ids if restock_venue_submitted else None,
+        search=restock_search,
+        sort=restock_sort,
+        limit=limit,
+        offset=offset,
+    )
+    next_path = request.args.get("next") or url_for("main.dashboard", tab="restocking")
+    return jsonify(
+        {
+            "rows": [serialize_restock_row(row, next_path) for row in page["rows"]],
+            "total_count": page["total_count"],
+            "offset": offset,
+            "limit": limit,
+            "has_more": page["has_more"],
+        }
     )
 
 @main_bp.route("/venues", methods=["GET", "POST"])

@@ -775,6 +775,10 @@ body.restock-filters-open {
     grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
   }
 
+  #restockFiltersToggle {
+    min-width: 9.75rem;
+  }
+
   .restock-action-row {
     display: flex;
     flex-wrap: wrap;
