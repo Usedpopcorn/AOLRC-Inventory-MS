@@ -12,21 +12,21 @@
 
 <ul class="nav nav-pills dash-tabs mb-3" id="dashTabs" role="tablist">
   <li class="nav-item" role="presentation">
-    <button class="nav-link active py-2" id="venues-tab" data-bs-toggle="tab" data-bs-target="#venues"
+    <button class="nav-link py-2 {{ 'active' if active_tab == 'venues' else '' }}" id="venues-tab" data-bs-toggle="tab" data-bs-target="#venues"
             type="button" role="tab">
       <i class="bi bi-house-door-fill d-none d-md-inline"></i>
       <span>Venues</span>
     </button>
   </li>
   <li class="nav-item" role="presentation">
-    <button class="nav-link py-2" id="restocking-tab" data-bs-toggle="tab" data-bs-target="#restocking"
+    <button class="nav-link py-2 {{ 'active' if active_tab == 'restocking' else '' }}" id="restocking-tab" data-bs-toggle="tab" data-bs-target="#restocking"
             type="button" role="tab">
       <i class="bi bi-box-seam d-none d-md-inline"></i>
       <span>Restocking</span>
     </button>
   </li>
   <li class="nav-item" role="presentation">
-    <button class="nav-link py-2" id="activity-tab" data-bs-toggle="tab" data-bs-target="#activity"
+    <button class="nav-link py-2 {{ 'active' if active_tab == 'activity' else '' }}" id="activity-tab" data-bs-toggle="tab" data-bs-target="#activity"
             type="button" role="tab">
       <i class="bi bi-clock-history d-none d-md-inline"></i>
       <span>Activity Log</span>
@@ -34,33 +34,105 @@
   </li>
 </ul>
 
+<script>
+  (() => {
+    const tabButtons = Array.from(document.querySelectorAll("#dashTabs [data-bs-toggle='tab']"));
+    if (!tabButtons.length) return;
+
+    tabButtons.forEach((btn) => {
+      btn.addEventListener("shown.bs.tab", (event) => {
+        const targetId = event.target?.getAttribute("data-bs-target");
+        if (!targetId || !targetId.startsWith("#")) return;
+        const tabId = targetId.slice(1);
+        const nextTab =
+          tabId === "venues" || tabId === "restocking" || tabId === "activity" ? tabId : "venues";
+
+        const url = new URL(window.location.href);
+        url.searchParams.set("tab", nextTab);
+        window.history.replaceState({}, "", url);
+      });
+    });
+  })();
+</script>
+
 <div class="tab-content">
   <!-- Venues TAB -->
-  <div class="tab-pane fade show active" id="venues" role="tabpanel">
+  <div class="tab-pane fade {{ 'show active' if active_tab == 'venues' else '' }}" id="venues" role="tabpanel">
     <div class="card mb-3">
-      <div class="card-body d-flex flex-column flex-md-row gap-2 align-items-stretch align-items-md-center justify-content-between">
-        <div class="d-flex flex-column flex-sm-row gap-2 align-items-stretch align-items-sm-center">
-          <input id="venueSearch" class="form-control" style="max-width: 320px;" placeholder="Search venues...">
-          <select id="statusFilter" class="form-select" style="max-width: 220px;">
-                 <option value="all">All Statuses</option>
-                 <option value="good">Good</option>
-                 <option value="ok">OK</option>
-                 <option value="low">Low</option>
-                 <option value="out">Out</option>
-                 <option value="not_checked">Not Checked</option>
-           </select>
-            </div>
+      <div class="card-body d-flex flex-column gap-3">
+        <div class="dashboard-toolbar-inline">
+          <div class="restock-input-row">
+            <input
+              id="venueSearch"
+              class="form-control w-100 restock-compact-control"
+              placeholder="Search venues..."
+              aria-label="Search venues"
+            >
+            <select
+              id="statusFilter"
+              class="form-select w-100 restock-compact-control"
+              aria-label="Filter venues by status"
+            >
+              <option value="all">All Statuses</option>
+              <option value="good">Good</option>
+              <option value="ok">OK</option>
+              <option value="low">Low</option>
+              <option value="out">Out</option>
+              <option value="not_checked">Not Checked</option>
+            </select>
+          </div>
 
-        <a class="btn btn-aolrc-accent"
-           href="{{ url_for('main.venues') }}">
-           Edit Venues
-         </a>
-       </div>
+          <div class="venue-action-row">
+            <a class="btn btn-aolrc-accent restock-toolbar-btn" href="{{ url_for('main.venues') }}">
+              Edit Venues
+            </a>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="card">
       <div class="card-body">
-        <div class="table-responsive">
+        <div class="text-muted small mb-2">{{ venue_rows|length }} result(s)</div>
+
+        <div class="d-md-none d-flex flex-column gap-2" id="venuesMobileList">
+          {% for row in venue_rows %}
+            {% set v = row.venue %}
+            <article
+              class="venue-mobile-card"
+              data-name="{{ v.name|lower }}"
+              data-status="{{ row.badge.key }}"
+            >
+              <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                <div class="venue-mobile-item fw-semibold">{{ v.name }}</div>
+                <span class="status-pill
+                  {{ 'status-good' if row.badge.key == 'good' else '' }}
+                  {{ 'status-ok' if row.badge.key == 'ok' else '' }}
+                  {{ 'status-low' if row.badge.key == 'low' else '' }}
+                  {{ 'status-out' if row.badge.key == 'out' else '' }}
+                  {{ 'status-na' if row.badge.key == 'not_checked' else '' }}">
+                  <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
+                </span>
+              </div>
+              <div class="venue-mobile-meta">
+                <div class="venue-mobile-meta-row venue-mobile-meta-row-solo">
+                  <span class="venue-mobile-value venue-mobile-value-solo">{{ row.tooltip }}</span>
+                </div>
+              </div>
+              <a
+                class="btn btn-aolrc-primary venue-mobile-action-btn mt-2"
+                href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}"
+              >
+                View / Update
+              </a>
+            </article>
+          {% endfor %}
+          <div id="venuesMobileEmpty" class="text-muted venue-mobile-empty {{ 'd-none' if venue_rows else '' }}">
+            No venues match your current filters.
+          </div>
+        </div>
+
+        <div class="table-responsive d-none d-md-block">
           <table class="table align-middle" id="venuesTable">
             <thead>
               <tr>
@@ -72,7 +144,11 @@
             <tbody>
               {% for row in venue_rows %}
                 {% set v = row.venue %}
-                <tr data-status="{{ row.badge.key }}">
+                <tr
+                  class="venue-table-row"
+                  data-name="{{ v.name|lower }}"
+                  data-status="{{ row.badge.key }}"
+                >
                   <td class="venue-name">
                     <div class="fw-semibold">{{ v.name }}</div>
                   </td>
@@ -90,7 +166,7 @@
                   </td>
 
                   <td>
-                    <a class="btn btn-sm btn-aolrc-primary"
+                    <a class="btn btn-aolrc-primary restock-action-btn"
                        href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}">
                       View / Update
                     </a>
@@ -108,14 +184,35 @@
     <script>
       const searchEl = document.getElementById("venueSearch");
       const filterEl = document.getElementById("statusFilter");
-      const rows = Array.from(document.querySelectorAll("#venuesTable tbody tr"));
+      const tableRows = Array.from(document.querySelectorAll("#venuesTable tbody .venue-table-row"));
+      const mobileCards = Array.from(document.querySelectorAll("#venuesMobileList .venue-mobile-card"));
+      const mobileEmpty = document.getElementById("venuesMobileEmpty");
+      const venueUrl = new URL(window.location.href);
+      const initialVenueQuery = venueUrl.searchParams.get("venue_q");
+      const initialVenueStatus = venueUrl.searchParams.get("venue_status");
+      if (initialVenueQuery !== null) searchEl.value = initialVenueQuery;
+      if (initialVenueStatus !== null) filterEl.value = initialVenueStatus;
+
+      function syncVenueFilterUrl() {
+        const nextUrl = new URL(window.location.href);
+        const nextQuery = (searchEl.value || "").trim();
+        const nextStatus = filterEl.value || "all";
+
+        if (nextQuery) nextUrl.searchParams.set("venue_q", nextQuery);
+        else nextUrl.searchParams.delete("venue_q");
+
+        if (nextStatus !== "all") nextUrl.searchParams.set("venue_status", nextStatus);
+        else nextUrl.searchParams.delete("venue_status");
+
+        window.history.replaceState({}, "", nextUrl);
+      }
 
       function applyFilters() {
         const q = (searchEl.value || "").trim().toLowerCase();
         const status = filterEl.value;
 
-        rows.forEach(tr => {
-          const name = (tr.querySelector(".venue-name")?.innerText || "").toLowerCase();
+        tableRows.forEach((tr) => {
+          const name = tr.getAttribute("data-name") || "";
           const rowStatus = tr.getAttribute("data-status") || "unknown";
 
           const matchSearch = !q || name.includes(q);
@@ -123,27 +220,739 @@
 
           tr.style.display = (matchSearch && matchStatus) ? "" : "none";
         });
+
+        let visibleCards = 0;
+        mobileCards.forEach((card) => {
+          const name = card.getAttribute("data-name") || "";
+          const rowStatus = card.getAttribute("data-status") || "unknown";
+
+          const matchSearch = !q || name.includes(q);
+          const matchStatus = (status === "all") || (rowStatus === status);
+
+          const isVisible = matchSearch && matchStatus;
+          card.style.display = isVisible ? "" : "none";
+          if (isVisible) visibleCards += 1;
+        });
+
+        if (mobileEmpty) {
+          mobileEmpty.classList.toggle("d-none", visibleCards > 0);
+        }
       }
 
       searchEl.addEventListener("input", applyFilters);
+      searchEl.addEventListener("input", syncVenueFilterUrl);
       filterEl.addEventListener("change", applyFilters);
+      filterEl.addEventListener("change", syncVenueFilterUrl);
+      applyFilters();
     </script>
   </div>
 
-  <!-- Restocking TAB (placeholder) -->
-  <div class="tab-pane fade" id="restocking" role="tabpanel">
+  <!-- Restocking TAB -->
+  <div class="tab-pane fade {{ 'show active' if active_tab == 'restocking' else '' }}" id="restocking" role="tabpanel">
+    <form method="get" action="{{ url_for('main.dashboard') }}" id="restockForm" class="d-flex flex-column gap-3">
+      <input type="hidden" name="tab" value="restocking">
+      <input type="hidden" name="restock_status_submitted" value="1">
+      <input type="hidden" name="restock_item_submitted" value="1">
+      <input type="hidden" name="restock_venue_submitted" value="1">
+
+      <div class="card mb-3">
+        <div class="card-body d-flex flex-column gap-3">
+          <div class="dashboard-toolbar-inline">
+            <div class="restock-input-row">
+              <input
+                id="restockSearch"
+                name="restock_search"
+                class="form-control w-100 restock-compact-control"
+                placeholder="Search..."
+                aria-label="Search restocking results"
+                value="{{ restock_filters.search }}"
+              >
+              <select
+                id="restockSort"
+                name="restock_sort"
+                class="form-select w-100 restock-compact-control"
+                aria-label="Sort restocking results"
+              >
+                <option value="item" {{ 'selected' if restock_filters.sort == 'item' else '' }}>Sort: Item</option>
+                <option value="venue" {{ 'selected' if restock_filters.sort == 'venue' else '' }}>Sort: Venue</option>
+                <option value="status_priority" {{ 'selected' if restock_filters.sort == 'status_priority' else '' }}>Sort: Priority</option>
+                <option value="last_checked" {{ 'selected' if restock_filters.sort == 'last_checked' else '' }}>Sort: Last Checked</option>
+              </select>
+            </div>
+
+            <div class="restock-action-row">
+              <a href="{{ url_for('main.dashboard', tab='restocking') }}" class="btn btn-danger restock-toolbar-btn restock-reset-btn">
+                <span class="d-sm-none">Reset</span>
+                <span class="d-none d-sm-inline">Reset Filters</span>
+              </a>
+              <div class="restock-filters-toggle-wrap">
+                <button
+                  id="restockFiltersToggle"
+                  type="button"
+                  class="btn btn-primary restock-toolbar-btn"
+                  data-bs-toggle="collapse"
+                  data-bs-target="#restockFilters"
+                  aria-expanded="false"
+                  aria-controls="restockFilters"
+                >
+                  <span id="restockFiltersToggleLabel">Edit Filters</span>
+                  <span
+                    id="restockActiveFilterBadge"
+                    class="badge rounded-pill text-bg-secondary ms-1 {{ 'd-none' if not restock_active_filter_count else '' }}"
+                  >
+                    {{ restock_active_filter_count }}
+                  </span>
+                </button>
+              </div>
+              <div
+                id="restockSaveFiltersTooltipWrap"
+                class="restock-update-toggle-wrap"
+                data-bs-toggle="tooltip"
+                data-bs-trigger="hover focus"
+                data-bs-placement="top"
+                data-bs-title="No new filter changes to apply"
+                title="No new filter changes to apply"
+                tabindex="0"
+              >
+                <button
+                  id="restockSaveFiltersBtn"
+                  type="submit"
+                  class="btn btn-aolrc-accent restock-toolbar-btn"
+                  disabled
+                  aria-disabled="true"
+                >
+                  <span class="d-sm-none">Apply</span>
+                  <span class="d-none d-sm-inline">Apply Filters</span>
+                </button>
+                <span id="restockUnsavedHint" class="restock-unsaved-hint">* filter changes not saved</span>
+              </div>
+            </div>
+          </div>
+
+          <div id="restockFilterBackdrop" class="restock-filter-backdrop"></div>
+          <div class="collapse restock-filters-shell" id="restockFilters">
+            <div class="restock-filters-sheet">
+              <div class="restock-filters-sheet-head d-md-none">
+                <div class="fw-semibold">Filters</div>
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary btn-sm"
+                  data-bs-toggle="collapse"
+                  data-bs-target="#restockFilters"
+                  aria-label="Close filters"
+                >
+                  Close
+                </button>
+              </div>
+              <div class="restock-filters-sheet-body">
+                <div class="restock-filter-stack">
+                  <div class="restock-filter-panel">
+                    <button
+                      type="button"
+                      class="btn btn-outline-secondary w-100 restock-section-toggle d-md-none"
+                      data-bs-toggle="collapse"
+                      data-bs-target="#statusFilterPanel"
+                      aria-expanded="false"
+                      aria-controls="statusFilterPanel"
+                    >
+                      <span class="fw-semibold d-inline-flex align-items-center gap-1">
+                        Statuses
+                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="statusOptions">{{ restock_filter_counts['statuses']['selected'] }}/{{ restock_filter_counts['statuses']['total'] }}</span>
+                      </span>
+                      <i class="bi bi-chevron-down"></i>
+                    </button>
+                    <div class="d-none d-md-flex justify-content-between align-items-center gap-2 mb-2">
+                      <div class="fw-semibold d-inline-flex align-items-center gap-1">
+                        Statuses
+                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="statusOptions">{{ restock_filter_counts['statuses']['selected'] }}/{{ restock_filter_counts['statuses']['total'] }}</span>
+                      </div>
+                      <div class="d-flex gap-2 restock-filter-actions">
+                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="all" data-target="statusOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="clear" data-target="statusOptions">Clear all</button>
+                      </div>
+                    </div>
+                    <div class="collapse d-md-block mt-2 mt-md-0" id="statusFilterPanel">
+                      <div class="d-flex gap-2 restock-filter-actions mb-2 d-md-none">
+                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="all" data-target="statusOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="clear" data-target="statusOptions">Clear all</button>
+                      </div>
+                      <input type="text" class="form-control mb-2" data-filter-search="statusOptions" placeholder="Search statuses...">
+                      <div class="restock-filter-options" id="statusOptions">
+                        {% for status_key, status_meta in restock_status_options.items() %}
+                          <div class="form-check">
+                            <input
+                              class="form-check-input"
+                              type="checkbox"
+                              id="status_{{ status_key }}"
+                              name="restock_status"
+                              value="{{ status_key }}"
+                              {{ 'checked' if status_key in restock_filters.statuses else '' }}
+                            >
+                            <label class="form-check-label" for="status_{{ status_key }}">
+                              {{ status_meta.text }}
+                            </label>
+                          </div>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="restock-filter-panel">
+                    <button
+                      type="button"
+                      class="btn btn-outline-secondary w-100 restock-section-toggle d-md-none"
+                      data-bs-toggle="collapse"
+                      data-bs-target="#itemFilterPanel"
+                      aria-expanded="false"
+                      aria-controls="itemFilterPanel"
+                    >
+                      <span class="fw-semibold d-inline-flex align-items-center gap-1">
+                        Items
+                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="itemOptions">{{ restock_filter_counts['items']['selected'] }}/{{ restock_filter_counts['items']['total'] }}</span>
+                      </span>
+                      <i class="bi bi-chevron-down"></i>
+                    </button>
+                    <div class="d-none d-md-flex justify-content-between align-items-center gap-2 mb-2">
+                      <div class="fw-semibold d-inline-flex align-items-center gap-1">
+                        Items
+                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="itemOptions">{{ restock_filter_counts['items']['selected'] }}/{{ restock_filter_counts['items']['total'] }}</span>
+                      </div>
+                      <div class="d-flex gap-2 restock-filter-actions">
+                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="all" data-target="itemOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="clear" data-target="itemOptions">Clear all</button>
+                      </div>
+                    </div>
+                    <div class="collapse d-md-block mt-2 mt-md-0" id="itemFilterPanel">
+                      <div class="d-flex gap-2 restock-filter-actions mb-2 d-md-none">
+                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="all" data-target="itemOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="clear" data-target="itemOptions">Clear all</button>
+                      </div>
+                      <input type="text" class="form-control mb-2" data-filter-search="itemOptions" placeholder="Search items...">
+                      <div class="restock-filter-options" id="itemOptions">
+                        {% for item in restock_items %}
+                          <div class="form-check">
+                            <input
+                              class="form-check-input"
+                              type="checkbox"
+                              id="item_{{ item.id }}"
+                              name="restock_item_id"
+                              value="{{ item.id }}"
+                            {{ 'checked' if (not restock_item_submitted) or (item.id in restock_filters.item_ids) else '' }}
+                            >
+                            <label class="form-check-label" for="item_{{ item.id }}">
+                              {{ item.name }}
+                            </label>
+                          </div>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="restock-filter-panel">
+                    <button
+                      type="button"
+                      class="btn btn-outline-secondary w-100 restock-section-toggle d-md-none"
+                      data-bs-toggle="collapse"
+                      data-bs-target="#venueFilterPanel"
+                      aria-expanded="false"
+                      aria-controls="venueFilterPanel"
+                    >
+                      <span class="fw-semibold d-inline-flex align-items-center gap-1">
+                        Venues
+                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="venueOptions">{{ restock_filter_counts['venues']['selected'] }}/{{ restock_filter_counts['venues']['total'] }}</span>
+                      </span>
+                      <i class="bi bi-chevron-down"></i>
+                    </button>
+                    <div class="d-none d-md-flex justify-content-between align-items-center gap-2 mb-2">
+                      <div class="fw-semibold d-inline-flex align-items-center gap-1">
+                        Venues
+                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="venueOptions">{{ restock_filter_counts['venues']['selected'] }}/{{ restock_filter_counts['venues']['total'] }}</span>
+                      </div>
+                      <div class="d-flex gap-2 restock-filter-actions">
+                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="all" data-target="venueOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="clear" data-target="venueOptions">Clear all</button>
+                      </div>
+                    </div>
+                    <div class="collapse d-md-block mt-2 mt-md-0" id="venueFilterPanel">
+                      <div class="d-flex gap-2 restock-filter-actions mb-2 d-md-none">
+                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="all" data-target="venueOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="clear" data-target="venueOptions">Clear all</button>
+                      </div>
+                      <input type="text" class="form-control mb-2" data-filter-search="venueOptions" placeholder="Search venues...">
+                      <div class="restock-filter-options" id="venueOptions">
+                        {% for venue in restock_venues %}
+                          <div class="form-check">
+                            <input
+                              class="form-check-input"
+                              type="checkbox"
+                              id="venue_{{ venue.id }}"
+                              name="restock_venue_id"
+                              value="{{ venue.id }}"
+                            {{ 'checked' if (not restock_venue_submitted) or (venue.id in restock_filters.venue_ids) else '' }}
+                            >
+                            <label class="form-check-label" for="venue_{{ venue.id }}">
+                              {{ venue.name }}
+                            </label>
+                          </div>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </form>
+
     <div class="card">
       <div class="card-body">
-        <h2 class="h5">Restocking</h2>
-        <p class="text-muted mb-0">
-          Coming soon: a list of all items marked Low/Out across venues, with quick filters and notes.
-        </p>
+        <div id="restockResultCount" class="text-muted small mb-2">{{ restock_rows|length }} result(s)</div>
+        <div class="d-md-none d-flex flex-column gap-2" id="restockMobileList">
+          {% for row in restock_rows %}
+            <article
+              class="restock-mobile-card"
+              data-item="{{ row.item_name|lower }}"
+              data-venue="{{ row.venue_name|lower }}"
+              data-status-key="{{ row.status.key }}"
+              data-status-text="{{ row.status.text|lower }}"
+              data-latest-ts="{{ row.latest_check_at.timestamp() if row.latest_check_at else '' }}"
+            >
+              <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                <div class="restock-mobile-item fw-semibold">{{ row.item_name }}</div>
+                <span class="status-pill
+                  {{ 'status-good' if row.status.key == 'good' else '' }}
+                  {{ 'status-ok' if row.status.key == 'ok' else '' }}
+                  {{ 'status-low' if row.status.key == 'low' else '' }}
+                  {{ 'status-out' if row.status.key == 'out' else '' }}
+                  {{ 'status-na' if row.status.key == 'not_checked' else '' }}">
+                  <i class="bi {{ row.status.icon_class }}"></i> {{ row.status.text }}
+                </span>
+              </div>
+              <div class="restock-mobile-meta">
+                <div class="restock-mobile-meta-row">
+                  <span class="restock-mobile-label">Venue</span>
+                  <span class="restock-mobile-value">{{ row.venue_name }}</span>
+                </div>
+                <div class="restock-mobile-meta-row">
+                  <span class="restock-mobile-label">Latest check</span>
+                  <span class="restock-mobile-value">
+                    {% if row.latest_check_at %}
+                      {{ row.latest_check_at.strftime("%Y-%m-%d %I:%M %p") }}
+                    {% else %}
+                      <span class="text-muted">No check yet</span>
+                    {% endif %}
+                  </span>
+                </div>
+              </div>
+              <a
+                class="btn btn-aolrc-primary restock-mobile-action-btn mt-2"
+                href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, next=request.full_path) }}"
+              >
+                View / Update
+              </a>
+            </article>
+          {% endfor %}
+          <div id="restockMobileEmpty" class="text-muted restock-mobile-empty {{ 'd-none' if restock_rows else '' }}">
+            No restocking matches found for your current criteria.
+          </div>
+        </div>
+
+        <div class="table-responsive d-none d-md-block">
+          <table class="table align-middle" id="restockTable">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Status</th>
+                <th>Venue</th>
+                <th>Latest Check</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in restock_rows %}
+                <tr
+                  class="restock-table-row"
+                  data-item="{{ row.item_name|lower }}"
+                  data-venue="{{ row.venue_name|lower }}"
+                  data-status-key="{{ row.status.key }}"
+                  data-status-text="{{ row.status.text|lower }}"
+                  data-latest-ts="{{ row.latest_check_at.timestamp() if row.latest_check_at else '' }}"
+                >
+                  <td class="fw-semibold">{{ row.item_name }}</td>
+                  <td>
+                    <span class="status-pill
+                      {{ 'status-good' if row.status.key == 'good' else '' }}
+                      {{ 'status-ok' if row.status.key == 'ok' else '' }}
+                      {{ 'status-low' if row.status.key == 'low' else '' }}
+                      {{ 'status-out' if row.status.key == 'out' else '' }}
+                      {{ 'status-na' if row.status.key == 'not_checked' else '' }}">
+                      <i class="bi {{ row.status.icon_class }}"></i> {{ row.status.text }}
+                    </span>
+                  </td>
+                  <td>{{ row.venue_name }}</td>
+                  <td class="text-nowrap">
+                    {% if row.latest_check_at %}
+                      {{ row.latest_check_at.strftime("%Y-%m-%d %I:%M %p") }}
+                    {% else %}
+                      <span class="text-muted">No check yet</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <a
+                      class="btn btn-aolrc-primary restock-action-btn"
+                      href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, next=request.full_path) }}"
+                    >
+                      View / Update
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+              <tr id="restockTableEmptyRow" class="{{ 'd-none' if restock_rows else '' }}">
+                <td colspan="5" class="text-muted">No restocking matches found for your current criteria.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
+
+    <script>
+      (() => {
+        const restockForm = document.getElementById("restockForm");
+        const restockSearch = document.getElementById("restockSearch");
+        const restockSort = document.getElementById("restockSort");
+        const filtersToggle = document.getElementById("restockFiltersToggle");
+        const filtersToggleLabel = document.getElementById("restockFiltersToggleLabel");
+        const filtersCollapse = document.getElementById("restockFilters");
+        const filtersBackdrop = document.getElementById("restockFilterBackdrop");
+        const unsavedHint = document.getElementById("restockUnsavedHint");
+        const saveFiltersBtn = document.getElementById("restockSaveFiltersBtn");
+        const saveFiltersTooltipWrap = document.getElementById("restockSaveFiltersTooltipWrap");
+        const mobileFilterMq = window.matchMedia("(max-width: 767.98px)");
+        let saveFiltersTooltip = null;
+
+        if (saveFiltersTooltipWrap && window.bootstrap && window.bootstrap.Tooltip) {
+          saveFiltersTooltip = window.bootstrap.Tooltip.getOrCreateInstance(saveFiltersTooltipWrap);
+        }
+
+        function submitRestockForm() {
+          if (!restockForm) return;
+          if (restockForm.requestSubmit) {
+            restockForm.requestSubmit();
+            return;
+          }
+          restockForm.submit();
+        }
+
+        const restockResultCount = document.getElementById("restockResultCount");
+        const restockTableBody = document.querySelector("#restockTable tbody");
+        const restockTableRows = Array.from(document.querySelectorAll("#restockTable tbody .restock-table-row"));
+        const restockTableEmptyRow = document.getElementById("restockTableEmptyRow");
+        const restockMobileList = document.getElementById("restockMobileList");
+        const restockMobileCards = Array.from(document.querySelectorAll("#restockMobileList .restock-mobile-card"));
+        const restockMobileEmpty = document.getElementById("restockMobileEmpty");
+
+        function getRestockSortValue() {
+          if (!restockSort) return "status_priority";
+          const value = restockSort.value || "status_priority";
+          if (["item", "venue", "status_priority", "last_checked"].includes(value)) return value;
+          return "status_priority";
+        }
+
+        function getRestockSearchValue() {
+          if (!restockSearch) return "";
+          return (restockSearch.value || "").trim().toLowerCase();
+        }
+
+        function statusPriorityRank(statusKey) {
+          const rank = { out: 0, low: 1, ok: 2, good: 3, not_checked: 4 };
+          return rank[statusKey] ?? 99;
+        }
+
+        function getLatestTimestamp(el) {
+          const raw = el.getAttribute("data-latest-ts");
+          if (!raw) return Number.NEGATIVE_INFINITY;
+          const parsed = Number(raw);
+          return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+        }
+
+        function compareRestockElements(a, b, sortMode) {
+          const itemA = a.getAttribute("data-item") || "";
+          const itemB = b.getAttribute("data-item") || "";
+          const venueA = a.getAttribute("data-venue") || "";
+          const venueB = b.getAttribute("data-venue") || "";
+          const statusA = a.getAttribute("data-status-key") || "";
+          const statusB = b.getAttribute("data-status-key") || "";
+
+          if (sortMode === "venue") {
+            return venueA.localeCompare(venueB) || itemA.localeCompare(itemB);
+          }
+          if (sortMode === "status_priority") {
+            return (
+              statusPriorityRank(statusA) - statusPriorityRank(statusB)
+              || venueA.localeCompare(venueB)
+              || itemA.localeCompare(itemB)
+            );
+          }
+          if (sortMode === "last_checked") {
+            const tsA = getLatestTimestamp(a);
+            const tsB = getLatestTimestamp(b);
+            const noneA = tsA === Number.NEGATIVE_INFINITY ? 1 : 0;
+            const noneB = tsB === Number.NEGATIVE_INFINITY ? 1 : 0;
+            return (
+              noneA - noneB
+              || (tsB - tsA)
+              || itemA.localeCompare(itemB)
+              || venueA.localeCompare(venueB)
+            );
+          }
+          return itemA.localeCompare(itemB) || venueA.localeCompare(venueB);
+        }
+
+        function matchesSearch(el, query) {
+          if (!query) return true;
+          const item = el.getAttribute("data-item") || "";
+          const venue = el.getAttribute("data-venue") || "";
+          const statusText = el.getAttribute("data-status-text") || "";
+          return item.includes(query) || venue.includes(query) || statusText.includes(query);
+        }
+
+        function syncRestockUrl() {
+          const url = new URL(window.location.href);
+          const searchValue = (restockSearch?.value || "").trim();
+          const sortValue = getRestockSortValue();
+          url.searchParams.set("tab", "restocking");
+
+          if (searchValue) url.searchParams.set("restock_search", searchValue);
+          else url.searchParams.delete("restock_search");
+
+          if (sortValue && sortValue !== "status_priority") url.searchParams.set("restock_sort", sortValue);
+          else url.searchParams.delete("restock_sort");
+
+          window.history.replaceState({}, "", url);
+        }
+
+        function applyRestockLiveView() {
+          const query = getRestockSearchValue();
+          const sortMode = getRestockSortValue();
+          const visibleTableRows = restockTableRows.filter((row) => matchesSearch(row, query));
+          const visibleMobileCards = restockMobileCards.filter((card) => matchesSearch(card, query));
+
+          visibleTableRows.sort((a, b) => compareRestockElements(a, b, sortMode));
+          visibleMobileCards.sort((a, b) => compareRestockElements(a, b, sortMode));
+
+          if (restockTableBody) {
+            visibleTableRows.forEach((row) => restockTableBody.appendChild(row));
+          }
+          if (restockMobileList) {
+            visibleMobileCards.forEach((card) => restockMobileList.appendChild(card));
+          }
+
+          restockTableRows.forEach((row) => {
+            row.style.display = visibleTableRows.includes(row) ? "" : "none";
+          });
+          restockMobileCards.forEach((card) => {
+            card.style.display = visibleMobileCards.includes(card) ? "" : "none";
+          });
+
+          if (restockTableEmptyRow) {
+            restockTableEmptyRow.classList.toggle("d-none", visibleTableRows.length > 0);
+          }
+          if (restockMobileEmpty) {
+            restockMobileEmpty.classList.toggle("d-none", visibleMobileCards.length > 0);
+          }
+          if (restockResultCount) {
+            restockResultCount.textContent = `${visibleTableRows.length} result(s)`;
+          }
+        }
+
+        if (restockSort) {
+          restockSort.addEventListener("change", () => {
+            syncRestockUrl();
+            applyRestockLiveView();
+          });
+        }
+
+        if (restockSearch) {
+          restockSearch.addEventListener("input", () => {
+            syncRestockUrl();
+            applyRestockLiveView();
+          });
+          restockSearch.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+          });
+        }
+
+        applyRestockLiveView();
+
+        function setFiltersToggleLabel(isOpen) {
+          if (!filtersToggleLabel) return;
+          if (mobileFilterMq.matches) {
+            filtersToggleLabel.textContent = "Filters";
+            return;
+          }
+          filtersToggleLabel.textContent = isOpen ? "Hide Filters" : "Edit Filters";
+        }
+
+        function syncFilterSheetState(isOpen) {
+          if (!mobileFilterMq.matches) {
+            document.body.classList.remove("restock-filters-open");
+            if (filtersBackdrop) filtersBackdrop.classList.remove("show");
+            return;
+          }
+          document.body.classList.toggle("restock-filters-open", isOpen);
+          if (filtersBackdrop) filtersBackdrop.classList.toggle("show", isOpen);
+        }
+
+        if (filtersToggle && filtersCollapse) {
+          filtersCollapse.addEventListener("shown.bs.collapse", () => {
+            setFiltersToggleLabel(true);
+            syncFilterSheetState(true);
+          });
+          filtersCollapse.addEventListener("hidden.bs.collapse", () => {
+            setFiltersToggleLabel(false);
+            syncFilterSheetState(false);
+          });
+
+          setFiltersToggleLabel(filtersCollapse.classList.contains("show"));
+
+          if (filtersCollapse.classList.contains("show")) {
+            syncFilterSheetState(true);
+          }
+
+          mobileFilterMq.addEventListener("change", () => {
+            syncFilterSheetState(filtersCollapse.classList.contains("show"));
+            setFiltersToggleLabel(filtersCollapse.classList.contains("show"));
+          });
+        }
+
+        if (filtersBackdrop && filtersCollapse) {
+          filtersBackdrop.addEventListener("click", () => {
+            if (!filtersCollapse.classList.contains("show")) return;
+            if (window.bootstrap && window.bootstrap.Collapse) {
+              window.bootstrap.Collapse.getOrCreateInstance(filtersCollapse).hide();
+            }
+          });
+        }
+
+        function getOptionRows(targetId) {
+          const container = document.getElementById(targetId);
+          if (!container) return [];
+          return Array.from(container.querySelectorAll(".form-check"));
+        }
+
+        function getOptionCheckboxes(targetId) {
+          const container = document.getElementById(targetId);
+          if (!container) return [];
+          return Array.from(container.querySelectorAll("input[type='checkbox']"));
+        }
+
+        function updateSectionCountBadge(targetId) {
+          const checkboxes = getOptionCheckboxes(targetId);
+          const total = checkboxes.length;
+          const selected = checkboxes.filter((input) => input.checked).length;
+          document.querySelectorAll(`[data-filter-count-target="${targetId}"]`).forEach((badge) => {
+            badge.textContent = `${selected}/${total}`;
+          });
+        }
+
+        const trackedFilterGroups = ["statusOptions", "itemOptions", "venueOptions"];
+        const initialFilterSelectionState = {};
+
+        function restoreFilterSelectionsFromServerState() {
+          trackedFilterGroups.forEach((targetId) => {
+            getOptionCheckboxes(targetId).forEach((input) => {
+              input.checked = input.defaultChecked;
+            });
+          });
+        }
+
+        function serializeSelectedValues(targetId) {
+          return getOptionCheckboxes(targetId)
+            .filter((input) => input.checked)
+            .map((input) => input.value)
+            .sort()
+            .join("|");
+        }
+
+        function updateUnsavedHint() {
+          const hasUnsavedChanges = trackedFilterGroups.some(
+            (targetId) => serializeSelectedValues(targetId) !== initialFilterSelectionState[targetId]
+          );
+          if (unsavedHint) {
+            unsavedHint.classList.toggle("is-visible", hasUnsavedChanges);
+          }
+          if (saveFiltersBtn) {
+            saveFiltersBtn.disabled = !hasUnsavedChanges;
+            saveFiltersBtn.setAttribute("aria-disabled", hasUnsavedChanges ? "false" : "true");
+            saveFiltersBtn.style.pointerEvents = hasUnsavedChanges ? "" : "none";
+          }
+          if (saveFiltersTooltipWrap) {
+            if (hasUnsavedChanges) {
+              saveFiltersTooltipWrap.removeAttribute("title");
+            } else {
+              saveFiltersTooltipWrap.setAttribute("title", "No new filter changes to apply");
+            }
+          }
+          if (saveFiltersTooltip) {
+            if (hasUnsavedChanges) {
+              saveFiltersTooltip.hide();
+              saveFiltersTooltip.disable();
+            } else {
+              saveFiltersTooltip.enable();
+            }
+          }
+        }
+
+        restoreFilterSelectionsFromServerState();
+
+        trackedFilterGroups.forEach((targetId) => {
+          initialFilterSelectionState[targetId] = serializeSelectedValues(targetId);
+          getOptionCheckboxes(targetId).forEach((input) => {
+            input.addEventListener("change", () => {
+              updateSectionCountBadge(targetId);
+              updateUnsavedHint();
+            });
+          });
+          updateSectionCountBadge(targetId);
+        });
+        updateUnsavedHint();
+
+        document.querySelectorAll("[data-filter-action]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const targetId = btn.getAttribute("data-target");
+            const action = btn.getAttribute("data-filter-action");
+            if (!targetId || !action) return;
+            getOptionRows(targetId).forEach((row) => {
+              const input = row.querySelector("input[type='checkbox']");
+              if (!input) return;
+              input.checked = action === "all";
+            });
+            updateSectionCountBadge(targetId);
+            updateUnsavedHint();
+          });
+        });
+
+        document.querySelectorAll("[data-filter-search]").forEach((input) => {
+          input.addEventListener("input", () => {
+            const targetId = input.getAttribute("data-filter-search");
+            const query = (input.value || "").trim().toLowerCase();
+            if (!targetId) return;
+            getOptionRows(targetId).forEach((row) => {
+              const labelText = (row.querySelector("label")?.textContent || "").toLowerCase();
+              row.style.display = !query || labelText.includes(query) ? "" : "none";
+            });
+          });
+        });
+      })();
+    </script>
   </div>
 
   <!-- Activity TAB (placeholder) -->
-  <div class="tab-pane fade" id="activity" role="tabpanel">
+  <div class="tab-pane fade {{ 'show active' if active_tab == 'activity' else '' }}" id="activity" role="tabpanel">
     <div class="card">
       <div class="card-body">
         <h2 class="h5">Activity Log</h2>

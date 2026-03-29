@@ -10,6 +10,7 @@ Hard requirements:
 
 2) Keep layouts simple and “scan-friendly”:
    - Prefer one primary action per screen (gold .btn-aolrc-accent).
+   - Utility/edit actions may use Bootstrap blue (`.btn-primary`) for consistency with settings pages.
    - Secondary actions should be outline buttons or links.
    - Avoid dense toolbars: collapse rarely-used controls behind a button/collapse or a “More” menu.
 
@@ -29,7 +30,7 @@ Hard requirements:
 
 6) Styling consistency:
    - No inline brand colors. Use CSS vars and classes in static/css/styles.css:
-     --aolrc-purple, --aolrc-gold; .btn-aolrc-primary, .btn-aolrc-accent; .badge-core.
+    --aolrc-purple, --aolrc-gold, --bs-primary; .btn-aolrc-primary, .btn-aolrc-accent, .btn-primary; .badge-core.
    - Keep contrast high. Never use hover/focus states that reduce readability.
 
 Implementation checklist (must verify before finalizing):

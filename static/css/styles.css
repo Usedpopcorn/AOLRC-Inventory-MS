@@ -232,6 +232,27 @@ html {
     color: var(--aolrc-purple);
   }
 }
+@media (max-width: 767.98px) {
+  .dash-tabs {
+    overflow-x: hidden;
+  }
+
+  .dash-tabs .nav-item {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .dash-tabs .nav-link {
+    white-space: normal;
+    line-height: 1.15;
+    text-align: center;
+  }
+
+  .dash-tabs .nav-link span {
+    overflow-wrap: anywhere;
+  }
+}
+
 @media (min-width: 768px) {
   .dash-tabs {
     flex-wrap: wrap;
@@ -406,6 +427,402 @@ html {
 .status-low  { color: #fd7e14; }   /* orange */
 .status-out  { color: #dc3545; }   /* red */
 .status-na   { color: #111; }      /* black for Not Checked */
+
+.restock-filter-stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.restock-filter-panel {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: var(--bs-body-bg);
+}
+
+.restock-filter-options {
+  display: grid;
+  gap: 0.5rem;
+  max-height: 180px;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.restock-filter-options .form-check {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+.restock-filter-actions .btn {
+  min-height: 44px;
+}
+
+.restock-section-toggle {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.restock-section-toggle .badge,
+.restock-filter-panel .fw-semibold .badge {
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.restock-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.dashboard-toolbar-inline {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.restock-compact-control {
+  min-height: 44px;
+}
+
+.restock-action-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.venue-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.restock-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.95rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.restock-filters-toggle-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.restock-update-toggle-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+#restockSaveFiltersBtn:disabled {
+  background: #d1d5db !important;
+  background-image: none !important;
+  border-color: #c4c9d1 !important;
+  color: #6b7280 !important;
+  opacity: 1;
+  filter: none;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.restock-unsaved-hint {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.68rem;
+  line-height: 1;
+  color: var(--bs-danger);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.restock-unsaved-hint.is-visible {
+  opacity: 0.9;
+}
+
+.restock-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  line-height: 1.2;
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+  white-space: nowrap;
+}
+
+.restock-mobile-card,
+.venue-mobile-card {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.75rem;
+  background: var(--bs-body-bg);
+  padding: 0.75rem;
+}
+
+.restock-mobile-item,
+.venue-mobile-item {
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.restock-mobile-meta,
+.venue-mobile-meta {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.restock-mobile-meta-row,
+.venue-mobile-meta-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 0.4rem;
+  align-items: start;
+}
+
+.restock-mobile-label,
+.venue-mobile-label {
+  color: var(--bs-secondary-color);
+  font-size: 0.85rem;
+}
+
+.restock-mobile-value,
+.venue-mobile-value {
+  text-align: right;
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.venue-mobile-meta-row-solo {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.venue-mobile-value-solo {
+  text-align: center;
+}
+
+.restock-mobile-action-btn,
+.venue-mobile-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  line-height: 1.2;
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+  width: 100%;
+}
+
+.restock-mobile-empty,
+.venue-mobile-empty {
+  border: 1px dashed var(--bs-border-color);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+}
+
+body.restock-filters-open {
+  overflow: hidden;
+}
+
+.restock-filter-backdrop {
+  display: none;
+}
+
+@media (max-width: 767.98px) {
+  .restock-input-row .restock-compact-control.form-select {
+    min-height: 48px;
+    height: 48px;
+    line-height: 1.4;
+    padding-top: 0.55rem;
+    padding-bottom: 0.55rem;
+  }
+
+  .restock-mobile-card .status-pill,
+  .venue-mobile-card .status-pill {
+    white-space: normal;
+    text-align: right;
+    justify-content: flex-end;
+  }
+
+  .restock-filter-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(17, 17, 17, 0.35);
+    z-index: 1040;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.16s ease;
+    display: block;
+  }
+
+  .restock-filter-backdrop.show {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .restock-filters-shell.collapse.show,
+  .restock-filters-shell.collapsing {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 1050;
+    margin: 0;
+    display: block;
+  }
+
+  .restock-filters-sheet {
+    background: var(--bs-body-bg);
+    border-top-left-radius: 1rem;
+    border-top-right-radius: 1rem;
+    border: 1px solid var(--bs-border-color);
+    border-bottom: 0;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.18);
+    max-height: min(88vh, 640px);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .restock-filters-sheet-head {
+    padding: 0.65rem 0.75rem;
+    border-bottom: 1px solid var(--bs-border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .restock-filters-sheet-body {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 0.75rem;
+    min-height: 0;
+  }
+
+  .restock-filter-options {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+}
+
+@media (min-width: 768px) {
+  .dashboard-toolbar-inline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .dashboard-toolbar-inline .restock-input-row {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 680px;
+  }
+
+  .dashboard-toolbar-inline .restock-action-row,
+  .dashboard-toolbar-inline .venue-action-row {
+    flex: 0 0 auto;
+  }
+
+  body.restock-filters-open {
+    overflow: auto;
+  }
+
+  .restock-filter-backdrop {
+    display: none;
+  }
+
+  .restock-filters-sheet {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    max-height: none;
+    display: block;
+  }
+
+  .restock-filters-sheet-head {
+    display: none;
+  }
+
+  .restock-filters-sheet-body {
+    overflow: visible;
+    padding: 0;
+  }
+
+  .restock-filter-stack {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .restock-filter-options {
+    max-height: 220px;
+  }
+
+  .restock-input-row {
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 576px) {
+  .restock-input-row {
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  }
+
+  .restock-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .restock-action-row .restock-toolbar-btn {
+    width: auto;
+    padding: 0.5rem 0.9rem;
+  }
+
+  .venue-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .venue-action-row .restock-toolbar-btn {
+    width: auto;
+    padding: 0.5rem 0.9rem;
+  }
+}
+
+@media (min-width: 768px) {
+  .restock-action-row {
+    flex-wrap: nowrap;
+  }
+
+  .venue-action-row {
+    flex-wrap: nowrap;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .restock-action-row .restock-filters-toggle-wrap,
+  .restock-action-row .restock-update-toggle-wrap {
+    display: flex;
+    width: 100%;
+  }
+
+  .restock-action-row .restock-toolbar-btn {
+    width: 100%;
+  }
+
+  .restock-action-btn {
+    width: 100%;
+  }
+}
 
 /* Offcanvas nav hover */
 .offcanvas .nav-link:hover{

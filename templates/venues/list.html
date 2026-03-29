@@ -143,6 +143,31 @@
     const searchEl = document.getElementById("venueSearch");
     const statusEl = document.getElementById("statusFilter");
     const venueTypeEl = document.getElementById("venueTypeFilter");
+    const filtersUrl = new URL(window.location.href);
+    const initialQuery = filtersUrl.searchParams.get("venue_q");
+    const initialStatus = filtersUrl.searchParams.get("venue_status");
+    const initialType = filtersUrl.searchParams.get("venue_type");
+    if (initialQuery !== null) searchEl.value = initialQuery;
+    if (initialStatus !== null) statusEl.value = initialStatus;
+    if (initialType !== null) venueTypeEl.value = initialType;
+
+    function syncFiltersUrl() {
+      const nextUrl = new URL(window.location.href);
+      const query = (searchEl.value || "").trim();
+      const status = statusEl.value || "all";
+      const venueType = venueTypeEl.value || "all";
+
+      if (query) nextUrl.searchParams.set("venue_q", query);
+      else nextUrl.searchParams.delete("venue_q");
+
+      if (status !== "all") nextUrl.searchParams.set("venue_status", status);
+      else nextUrl.searchParams.delete("venue_status");
+
+      if (venueType !== "all") nextUrl.searchParams.set("venue_type", venueType);
+      else nextUrl.searchParams.delete("venue_type");
+
+      window.history.replaceState({}, "", nextUrl);
+    }
 
     function applyFilters() {
       const q = (searchEl.value || "").trim().toLowerCase();
@@ -165,7 +190,11 @@
     }
 
     searchEl.addEventListener("input", applyFilters);
+    searchEl.addEventListener("input", syncFiltersUrl);
     statusEl.addEventListener("change", applyFilters);
+    statusEl.addEventListener("change", syncFiltersUrl);
     venueTypeEl.addEventListener("change", applyFilters);
+    venueTypeEl.addEventListener("change", syncFiltersUrl);
+    applyFilters();
   </script>
 {% endblock %}
