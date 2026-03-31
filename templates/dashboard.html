@@ -692,7 +692,7 @@
 
         let restockLoadedCount = document.querySelectorAll("#restockTable tbody .restock-table-row").length;
         let restockVisibleCount = restockLoadedCount;
-        let restockTotalCount = Number(restockResultCount?.getAttribute("data-total") || restockLoadedCount || 0);
+        let restockTotalCount = Number(restockResultCount?.getAttribute("data-total") ?? restockLoadedCount ?? 0);
         let restockHasMore = restockLoadedCount < restockTotalCount;
         let restockLoadingMore = false;
         let restockRefreshing = false;
