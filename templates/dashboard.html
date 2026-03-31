@@ -190,6 +190,7 @@
       const mobileCards = Array.from(document.querySelectorAll("#venuesMobileList .venue-mobile-card"));
       const mobileEmpty = document.getElementById("venuesMobileEmpty");
       const venueResultCount = document.getElementById("venueResultCount");
+      const venueMobileMq = window.matchMedia("(max-width: 767.98px)");
       const venueUrl = new URL(window.location.href);
       const initialVenueQuery = venueUrl.searchParams.get("venue_q");
       const initialVenueStatus = venueUrl.searchParams.get("venue_status");
@@ -245,8 +246,9 @@
         }
 
         if (venueResultCount) {
-          const label = visibleRows === 1 ? "result" : "results";
-          venueResultCount.textContent = `${visibleRows} ${label}`;
+          const resultCount = venueMobileMq.matches ? visibleCards : visibleRows;
+          const label = resultCount === 1 ? "result" : "results";
+          venueResultCount.textContent = `${resultCount} ${label}`;
         }
       }
 
@@ -691,7 +693,6 @@
         const restockStatusRank = { out: 0, low: 1, ok: 2, good: 3, not_checked: 4 };
 
         let restockLoadedCount = document.querySelectorAll("#restockTable tbody .restock-table-row").length;
-        let restockVisibleCount = restockLoadedCount;
         let restockTotalCount = Number(restockResultCount?.getAttribute("data-total") ?? restockLoadedCount ?? 0);
         let restockHasMore = restockLoadedCount < restockTotalCount;
         let restockLoadingMore = false;
@@ -832,17 +833,18 @@
             if (isVisible) visibleRows += 1;
           });
 
+          let visibleCards = 0;
           mobileCards.forEach((card) => {
             const isVisible = getRestockSearchRank(card, searchQuery) !== null;
             card.style.display = isVisible ? "" : "none";
+            if (isVisible) visibleCards += 1;
           });
 
-          restockVisibleCount = visibleRows;
           if (restockTableEmptyRow) {
             restockTableEmptyRow.classList.toggle("d-none", visibleRows > 0);
           }
           if (restockMobileEmpty) {
-            restockMobileEmpty.classList.toggle("d-none", visibleRows > 0);
+            restockMobileEmpty.classList.toggle("d-none", visibleCards > 0);
           }
           updateRestockResultCount();
         }
@@ -1029,7 +1031,6 @@
             }
 
             restockLoadedCount += rows.length;
-            restockVisibleCount = restockLoadedCount;
             restockTotalCount = Number(payload.total_count ?? restockTotalCount);
             restockHasMore = Boolean(payload.has_more);
             if (restockTableEmptyRow) {
@@ -1086,7 +1087,6 @@
             }
 
             restockLoadedCount = rows.length;
-            restockVisibleCount = rows.length;
             restockTotalCount = Number(payload.total_count ?? rows.length);
             restockHasMore = Boolean(payload.has_more);
 
