@@ -1,0 +1,30 @@
+---
+description: Keep restocking search relevance consistent between backend and frontend; avoid count fallback bugs.
+alwaysApply: true
+---
+
+# Restocking Search + Count Safety
+
+When changing Dashboard Restocking search/sort/filter behavior:
+
+1) One shared search contract
+- Keep backend (`app/routes/main.py`) and frontend (`templates/dashboard.html`) matching.
+- If search ranking changes in one layer, update the other in the same task.
+
+2) Relevance order (default)
+- Prefer item prefix and item word-boundary matches before generic contains.
+- Venue and status matches should rank below item matches unless explicitly requested otherwise.
+- Apply user-selected sort as a tie-breaker, not as a replacement for relevance when a search query is present.
+
+3) UI/live view must mirror API semantics
+- Client-side live filtering/sorting should produce the same visible ordering as the API first page.
+- Avoid client logic that can temporarily show contradictory order/results after input.
+
+4) Count correctness
+- Never use `||` for numeric payload fallbacks where `0` is valid (for example `total_count`).
+- Use nullish fallback (`??`) for payload counts to preserve real zero-result states.
+
+5) Verification checklist
+- Query with single-character search (for example `y`) and confirm prefix-first ordering.
+- Verify zero-result state shows `0 result(s)` after API refresh.
+- Confirm mobile and desktop show the same result ordering for the same query/sort.

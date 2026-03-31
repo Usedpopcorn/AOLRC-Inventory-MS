@@ -1,3 +1,5 @@
+import re
+
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from sqlalchemy import func, and_
 from app import db
@@ -22,6 +24,37 @@ def normalize_status(status):
     if value not in RESTOCK_STATUS_META:
         return "not_checked"
     return value
+
+
+def _word_boundary_match(text, query):
+    return bool(re.search(rf"(^|\W){re.escape(query)}", text))
+
+
+def restock_search_rank(row, search_query):
+    if not search_query:
+        return 0
+
+    item_text = (row.get("item_name") or "").lower()
+    venue_text = (row.get("venue_name") or "").lower()
+    status_text = (row.get("status", {}).get("text") or "").lower()
+
+    if item_text.startswith(search_query):
+        return 0
+    if _word_boundary_match(item_text, search_query):
+        return 1
+    if search_query in item_text:
+        return 2
+    if venue_text.startswith(search_query):
+        return 3
+    if _word_boundary_match(venue_text, search_query):
+        return 4
+    if search_query in venue_text:
+        return 5
+    if status_text.startswith(search_query):
+        return 6
+    if search_query in status_text:
+        return 7
+    return None
 
 
 def build_venue_rows(include_inactive=False):
@@ -214,39 +247,36 @@ def build_restock_rows(
             }
         )
 
-    if search_query:
-        rows = [
-            row
-            for row in rows
-            if (
-                search_query in row["item_name"].lower()
-                or search_query in row["venue_name"].lower()
-                or search_query in row["status"]["text"].lower()
-            )
-        ]
-
     status_rank = {"out": 0, "low": 1, "ok": 2, "good": 3, "not_checked": 4}
-    if sort_mode == "venue":
-        rows.sort(key=lambda row: (row["venue_name"].lower(), row["item_name"].lower()))
-    elif sort_mode == "status_priority":
-        rows.sort(
-            key=lambda row: (
+    def base_sort_key(row):
+        if sort_mode == "venue":
+            return (row["venue_name"].lower(), row["item_name"].lower())
+        if sort_mode == "status_priority":
+            return (
                 status_rank.get(row["status"]["key"], 99),
                 row["venue_name"].lower(),
                 row["item_name"].lower(),
             )
-        )
-    elif sort_mode == "last_checked":
-        rows.sort(
-            key=lambda row: (
+        if sort_mode == "last_checked":
+            return (
                 1 if row["latest_check_at"] is None else 0,
                 -(row["latest_check_at"].timestamp()) if row["latest_check_at"] else 0,
                 row["item_name"].lower(),
                 row["venue_name"].lower(),
             )
-        )
+        return (row["item_name"].lower(), row["venue_name"].lower())
+
+    if search_query:
+        ranked_rows = []
+        for row in rows:
+            rank = restock_search_rank(row, search_query)
+            if rank is None:
+                continue
+            ranked_rows.append((rank, row))
+        ranked_rows.sort(key=lambda pair: (pair[0], base_sort_key(pair[1])))
+        rows = [pair[1] for pair in ranked_rows]
     else:
-        rows.sort(key=lambda row: (row["item_name"].lower(), row["venue_name"].lower()))
+        rows.sort(key=base_sort_key)
 
     total_count = len(rows)
     normalized_offset = max(int(offset or 0), 0)
@@ -266,6 +296,7 @@ def serialize_restock_row(row, next_path):
         "venue_name": row["venue_name"],
         "item_id": row["item_id"],
         "item_name": row["item_name"],
+        "latest_check_ts": latest_check_at.timestamp() if latest_check_at else None,
         "latest_check_text": (
             latest_check_at.strftime("%Y-%m-%d %I:%M %p") if latest_check_at else "No check yet"
         ),

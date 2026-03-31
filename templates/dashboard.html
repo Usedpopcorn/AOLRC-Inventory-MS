@@ -93,7 +93,9 @@
 
     <div class="card">
       <div class="card-body">
-        <div class="text-muted small mb-2">{{ venue_rows|length }} result(s)</div>
+        <div id="venueResultCount" class="text-muted small mb-2">
+          {{ venue_rows|length }} {{ "result" if venue_rows|length == 1 else "results" }}
+        </div>
 
         <div class="d-md-none d-flex flex-column gap-2" id="venuesMobileList">
           {% for row in venue_rows %}
@@ -187,6 +189,7 @@
       const tableRows = Array.from(document.querySelectorAll("#venuesTable tbody .venue-table-row"));
       const mobileCards = Array.from(document.querySelectorAll("#venuesMobileList .venue-mobile-card"));
       const mobileEmpty = document.getElementById("venuesMobileEmpty");
+      const venueResultCount = document.getElementById("venueResultCount");
       const venueUrl = new URL(window.location.href);
       const initialVenueQuery = venueUrl.searchParams.get("venue_q");
       const initialVenueStatus = venueUrl.searchParams.get("venue_status");
@@ -210,6 +213,7 @@
       function applyFilters() {
         const q = (searchEl.value || "").trim().toLowerCase();
         const status = filterEl.value;
+        let visibleRows = 0;
 
         tableRows.forEach((tr) => {
           const name = tr.getAttribute("data-name") || "";
@@ -218,7 +222,9 @@
           const matchSearch = !q || name.includes(q);
           const matchStatus = (status === "all") || (rowStatus === status);
 
-          tr.style.display = (matchSearch && matchStatus) ? "" : "none";
+          const isVisible = matchSearch && matchStatus;
+          tr.style.display = isVisible ? "" : "none";
+          if (isVisible) visibleRows += 1;
         });
 
         let visibleCards = 0;
@@ -236,6 +242,11 @@
 
         if (mobileEmpty) {
           mobileEmpty.classList.toggle("d-none", visibleCards > 0);
+        }
+
+        if (venueResultCount) {
+          const label = visibleRows === 1 ? "result" : "results";
+          venueResultCount.textContent = `${visibleRows} ${label}`;
         }
       }
 
@@ -514,9 +525,9 @@
           data-total="{{ restock_total_count }}"
         >
           {% if restock_total_count %}
-            Showing {{ restock_rows|length }} of {{ restock_total_count }} result(s)
+            {{ restock_total_count }} {{ "result" if restock_total_count == 1 else "results" }}
           {% else %}
-            0 result(s)
+            0 results
           {% endif %}
         </div>
         <div class="d-md-none d-flex flex-column gap-2" id="restockMobileList">
@@ -571,6 +582,13 @@
 
         <div class="table-responsive d-none d-md-block">
           <table class="table align-middle" id="restockTable">
+            <colgroup>
+              <col style="width: 24%;">
+              <col style="width: 16%;">
+              <col style="width: 22%;">
+              <col style="width: 20%;">
+              <col style="width: 18%;">
+            </colgroup>
             <thead>
               <tr>
                 <th>Item</th>
@@ -659,40 +677,174 @@
           saveFiltersTooltip = window.bootstrap.Tooltip.getOrCreateInstance(saveFiltersTooltipWrap);
         }
 
-        function submitRestockForm() {
-          if (!restockForm) return;
-          if (restockForm.requestSubmit) {
-            restockForm.requestSubmit();
-            return;
-          }
-          restockForm.submit();
-        }
-
         const restockResultCount = document.getElementById("restockResultCount");
         const restockTableBody = document.querySelector("#restockTable tbody");
-        const restockTableRows = Array.from(document.querySelectorAll("#restockTable tbody .restock-table-row"));
         const restockTableEmptyRow = document.getElementById("restockTableEmptyRow");
         const restockMobileList = document.getElementById("restockMobileList");
-        const restockMobileCards = Array.from(document.querySelectorAll("#restockMobileList .restock-mobile-card"));
         const restockMobileEmpty = document.getElementById("restockMobileEmpty");
         const restockLoadMoreArea = document.getElementById("restockLoadMoreArea");
         const restockLoadMoreSpinner = document.getElementById("restockLoadMoreSpinner");
         const restockLoadMoreError = document.getElementById("restockLoadMoreError");
         const restockLoadMoreRetry = document.getElementById("restockLoadMoreRetry");
         const restockLoadMoreSentinel = document.getElementById("restockLoadMoreSentinel");
-        let restockLoadedCount = restockTableRows.length;
+        const restockSearchDebounceMs = 200;
+        const restockStatusRank = { out: 0, low: 1, ok: 2, good: 3, not_checked: 4 };
+
+        let restockLoadedCount = document.querySelectorAll("#restockTable tbody .restock-table-row").length;
+        let restockVisibleCount = restockLoadedCount;
         let restockTotalCount = Number(restockResultCount?.getAttribute("data-total") || restockLoadedCount || 0);
         let restockHasMore = restockLoadedCount < restockTotalCount;
         let restockLoadingMore = false;
+        let restockRefreshing = false;
         let restockLoadErrored = false;
+        let restockRefreshController = null;
+        let restockSearchDebounceHandle = null;
 
         function updateRestockResultCount() {
           if (!restockResultCount) return;
           if (!restockTotalCount) {
-            restockResultCount.textContent = "0 result(s)";
+            restockResultCount.textContent = "0 results";
             return;
           }
-          restockResultCount.textContent = `Showing ${restockLoadedCount} of ${restockTotalCount} result(s)`;
+          const label = restockTotalCount === 1 ? "result" : "results";
+          restockResultCount.textContent = `${restockTotalCount} ${label}`;
+        }
+
+        function getRestockTableRows() {
+          return Array.from(document.querySelectorAll("#restockTable tbody .restock-table-row"));
+        }
+
+        function getRestockMobileCards() {
+          return Array.from(document.querySelectorAll("#restockMobileList .restock-mobile-card"));
+        }
+
+        function normalizeRestockSortMode(rawSort) {
+          if (rawSort === "item" || rawSort === "item_asc" || rawSort === "item_desc") return "item";
+          if (rawSort === "venue" || rawSort === "venue_asc" || rawSort === "venue_desc") return "venue";
+          if (rawSort === "last_checked") return "last_checked";
+          return "status_priority";
+        }
+
+        function hasWordBoundaryPrefix(text, query) {
+          if (!query) return false;
+          const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          return new RegExp(`(^|\\W)${safeQuery}`).test(text);
+        }
+
+        function getRestockSearchRank(element, query) {
+          if (!query) return 0;
+          const itemText = (element.getAttribute("data-item") || "").toLowerCase();
+          const venueText = (element.getAttribute("data-venue") || "").toLowerCase();
+          const statusText = (element.getAttribute("data-status-text") || "").toLowerCase();
+
+          if (itemText.startsWith(query)) return 0;
+          if (hasWordBoundaryPrefix(itemText, query)) return 1;
+          if (itemText.includes(query)) return 2;
+          if (venueText.startsWith(query)) return 3;
+          if (hasWordBoundaryPrefix(venueText, query)) return 4;
+          if (venueText.includes(query)) return 5;
+          if (statusText.startsWith(query)) return 6;
+          if (statusText.includes(query)) return 7;
+          return null;
+        }
+
+        function getRestockLatestTimestamp(element) {
+          const rawValue = Number(element?.getAttribute("data-latest-ts") || "");
+          return Number.isFinite(rawValue) ? rawValue : Number.NEGATIVE_INFINITY;
+        }
+
+        function compareRestockElements(a, b, sortMode, searchQuery = "") {
+          const itemA = (a.getAttribute("data-item") || "").toLowerCase();
+          const itemB = (b.getAttribute("data-item") || "").toLowerCase();
+          const venueA = (a.getAttribute("data-venue") || "").toLowerCase();
+          const venueB = (b.getAttribute("data-venue") || "").toLowerCase();
+          const statusA = a.getAttribute("data-status-key") || "not_checked";
+          const statusB = b.getAttribute("data-status-key") || "not_checked";
+
+          if (searchQuery) {
+            const rankA = getRestockSearchRank(a, searchQuery);
+            const rankB = getRestockSearchRank(b, searchQuery);
+            const normalizedRankA = rankA == null ? Number.POSITIVE_INFINITY : rankA;
+            const normalizedRankB = rankB == null ? Number.POSITIVE_INFINITY : rankB;
+            if (normalizedRankA !== normalizedRankB) return normalizedRankA - normalizedRankB;
+          }
+
+          if (sortMode === "venue") {
+            if (venueA !== venueB) return venueA.localeCompare(venueB);
+            return itemA.localeCompare(itemB);
+          }
+          if (sortMode === "last_checked") {
+            const tsA = getRestockLatestTimestamp(a);
+            const tsB = getRestockLatestTimestamp(b);
+            if (tsA !== tsB) return tsB - tsA;
+            if (itemA !== itemB) return itemA.localeCompare(itemB);
+            return venueA.localeCompare(venueB);
+          }
+          if (sortMode === "status_priority") {
+            const rankA = restockStatusRank[statusA] ?? 99;
+            const rankB = restockStatusRank[statusB] ?? 99;
+            if (rankA !== rankB) return rankA - rankB;
+            if (venueA !== venueB) return venueA.localeCompare(venueB);
+            return itemA.localeCompare(itemB);
+          }
+          if (itemA !== itemB) return itemA.localeCompare(itemB);
+          return venueA.localeCompare(venueB);
+        }
+
+        function syncRestockSearchSortUrl() {
+          const nextUrl = new URL(window.location.href);
+          nextUrl.searchParams.set("tab", "restocking");
+
+          const nextSearch = (restockSearch?.value || "").trim();
+          if (nextSearch) nextUrl.searchParams.set("restock_search", nextSearch);
+          else nextUrl.searchParams.delete("restock_search");
+
+          const nextSort = normalizeRestockSortMode(restockSort?.value || "status_priority");
+          nextUrl.searchParams.set("restock_sort", nextSort);
+
+          window.history.replaceState({}, "", nextUrl);
+        }
+
+        function applyRestockLiveView() {
+          const searchQuery = (restockSearch?.value || "").trim().toLowerCase();
+          const sortMode = normalizeRestockSortMode(restockSort?.value || "status_priority");
+          const tableRows = getRestockTableRows();
+          const mobileCards = getRestockMobileCards();
+
+          tableRows.sort((a, b) => compareRestockElements(a, b, sortMode, searchQuery));
+          mobileCards.sort((a, b) => compareRestockElements(a, b, sortMode, searchQuery));
+
+          if (restockTableBody && restockTableEmptyRow) {
+            tableRows.forEach((row) => {
+              restockTableBody.insertBefore(row, restockTableEmptyRow);
+            });
+          }
+          if (restockMobileList && restockMobileEmpty) {
+            mobileCards.forEach((card) => {
+              restockMobileList.insertBefore(card, restockMobileEmpty);
+            });
+          }
+
+          let visibleRows = 0;
+          tableRows.forEach((row) => {
+            const isVisible = getRestockSearchRank(row, searchQuery) !== null;
+            row.style.display = isVisible ? "" : "none";
+            if (isVisible) visibleRows += 1;
+          });
+
+          mobileCards.forEach((card) => {
+            const isVisible = getRestockSearchRank(card, searchQuery) !== null;
+            card.style.display = isVisible ? "" : "none";
+          });
+
+          restockVisibleCount = visibleRows;
+          if (restockTableEmptyRow) {
+            restockTableEmptyRow.classList.toggle("d-none", visibleRows > 0);
+          }
+          if (restockMobileEmpty) {
+            restockMobileEmpty.classList.toggle("d-none", visibleRows > 0);
+          }
+          updateRestockResultCount();
         }
 
         function getStatusClass(statusKey) {
@@ -706,6 +858,11 @@
         function createRestockTableRow(row) {
           const tr = document.createElement("tr");
           tr.className = "restock-table-row";
+          tr.setAttribute("data-item", (row.item_name || "").toLowerCase());
+          tr.setAttribute("data-venue", (row.venue_name || "").toLowerCase());
+          tr.setAttribute("data-status-key", row.status?.key || "not_checked");
+          tr.setAttribute("data-status-text", (row.status?.text || "").toLowerCase());
+          tr.setAttribute("data-latest-ts", row.latest_check_missing ? "" : String(row.latest_check_ts || ""));
 
           const itemTd = document.createElement("td");
           itemTd.className = "fw-semibold";
@@ -752,6 +909,11 @@
         function createRestockMobileCard(row) {
           const article = document.createElement("article");
           article.className = "restock-mobile-card";
+          article.setAttribute("data-item", (row.item_name || "").toLowerCase());
+          article.setAttribute("data-venue", (row.venue_name || "").toLowerCase());
+          article.setAttribute("data-status-key", row.status?.key || "not_checked");
+          article.setAttribute("data-status-text", (row.status?.text || "").toLowerCase());
+          article.setAttribute("data-latest-ts", row.latest_check_missing ? "" : String(row.latest_check_ts || ""));
 
           const topRow = document.createElement("div");
           topRow.className = "d-flex align-items-start justify-content-between gap-2 mb-2";
@@ -840,7 +1002,7 @@
         }
 
         async function loadMoreRestockRows() {
-          if (restockLoadingMore || !restockHasMore || restockLoadErrored) return;
+          if (restockLoadingMore || restockRefreshing || !restockHasMore || restockLoadErrored) return;
           restockLoadingMore = true;
           restockLoadErrored = false;
           if (restockLoadMoreError) restockLoadMoreError.classList.add("d-none");
@@ -867,6 +1029,7 @@
             }
 
             restockLoadedCount += rows.length;
+            restockVisibleCount = restockLoadedCount;
             restockTotalCount = Number(payload.total_count ?? restockTotalCount);
             restockHasMore = Boolean(payload.has_more);
             if (restockTableEmptyRow) {
@@ -883,6 +1046,83 @@
             restockLoadingMore = false;
             updateRestockLoadMoreUi();
           }
+        }
+
+        async function refreshRestockFirstPage() {
+          if (restockRefreshController) {
+            restockRefreshController.abort();
+          }
+          const controller = new AbortController();
+          restockRefreshController = controller;
+          restockRefreshing = true;
+          restockLoadingMore = true;
+          restockLoadErrored = false;
+          if (restockLoadMoreError) restockLoadMoreError.classList.add("d-none");
+          updateRestockLoadMoreUi();
+
+          try {
+            const response = await fetch(buildRestockLoadUrl(0), {
+              headers: { Accept: "application/json" },
+              signal: controller.signal,
+            });
+            if (!response.ok) {
+              throw new Error(`Failed to refresh rows (${response.status})`);
+            }
+            const payload = await response.json();
+            const rows = Array.isArray(payload.rows) ? payload.rows : [];
+
+            getRestockTableRows().forEach((row) => row.remove());
+            getRestockMobileCards().forEach((card) => card.remove());
+
+            if (restockTableBody && restockTableEmptyRow) {
+              rows.forEach((row) => {
+                restockTableBody.insertBefore(createRestockTableRow(row), restockTableEmptyRow);
+              });
+            }
+            if (restockMobileList && restockMobileEmpty) {
+              rows.forEach((row) => {
+                restockMobileList.insertBefore(createRestockMobileCard(row), restockMobileEmpty);
+              });
+            }
+
+            restockLoadedCount = rows.length;
+            restockVisibleCount = rows.length;
+            restockTotalCount = Number(payload.total_count ?? rows.length);
+            restockHasMore = Boolean(payload.has_more);
+
+            if (restockTableEmptyRow) {
+              restockTableEmptyRow.classList.toggle("d-none", rows.length > 0);
+            }
+            if (restockMobileEmpty) {
+              restockMobileEmpty.classList.toggle("d-none", rows.length > 0);
+            }
+            updateRestockResultCount();
+          } catch (error) {
+            if (error?.name === "AbortError") return;
+            restockLoadErrored = true;
+            if (restockLoadMoreError) restockLoadMoreError.classList.remove("d-none");
+          } finally {
+            if (restockRefreshController === controller) {
+              restockRefreshController = null;
+            }
+            restockRefreshing = false;
+            restockLoadingMore = false;
+            updateRestockLoadMoreUi();
+          }
+        }
+
+        function queueRestockRefresh(immediate = false) {
+          if (restockSearchDebounceHandle) {
+            window.clearTimeout(restockSearchDebounceHandle);
+            restockSearchDebounceHandle = null;
+          }
+          if (immediate) {
+            refreshRestockFirstPage();
+            return;
+          }
+          restockSearchDebounceHandle = window.setTimeout(() => {
+            refreshRestockFirstPage();
+          }, restockSearchDebounceMs);
         }
 
         if (restockLoadMoreRetry) {
@@ -907,21 +1147,24 @@
 
         if (restockSort) {
           restockSort.addEventListener("change", () => {
-            submitRestockForm();
+            applyRestockLiveView();
+            syncRestockSearchSortUrl();
+            queueRestockRefresh(true);
           });
         }
 
         if (restockSearch) {
+          restockSearch.addEventListener("input", () => {
+            applyRestockLiveView();
+            syncRestockSearchSortUrl();
+            queueRestockRefresh(false);
+          });
           restockSearch.addEventListener("keydown", (event) => {
             if (event.key !== "Enter") return;
             event.preventDefault();
-            submitRestockForm();
-          });
-          restockSearch.addEventListener("blur", () => {
-            const initialValue = (restockSearch.defaultValue || "").trim();
-            const currentValue = (restockSearch.value || "").trim();
-            if (currentValue === initialValue) return;
-            submitRestockForm();
+            applyRestockLiveView();
+            syncRestockSearchSortUrl();
+            queueRestockRefresh(true);
           });
         }
 

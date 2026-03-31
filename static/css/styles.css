@@ -560,6 +560,20 @@ html {
   white-space: nowrap;
 }
 
+#restockTable {
+  table-layout: fixed;
+  width: 100%;
+}
+
+#restockTable th,
+#restockTable td {
+  overflow-wrap: anywhere;
+}
+
+.restock-table-row td.text-nowrap {
+  white-space: nowrap;
+}
+
 .restock-mobile-card,
 .venue-mobile-card {
   border: 1px solid var(--bs-border-color);
