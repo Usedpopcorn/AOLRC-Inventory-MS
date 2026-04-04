@@ -8,6 +8,7 @@
   <div class="card-body">
     <h2 class="h5">Add an item</h2>
     <form method="post" class="row g-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="col-md-6">
         <input class="form-control" name="name" placeholder="Item name (e.g., Yoga Mats)">
       </div>
@@ -62,6 +63,7 @@
                 <form method="post"
                       action="{{ url_for('admin.activate_item', item_id=it.id) }}"
                       class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="btn btn-sm btn-outline-success" type="submit">
                     Activate
                   </button>

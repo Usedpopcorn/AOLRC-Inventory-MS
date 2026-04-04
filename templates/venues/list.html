@@ -29,49 +29,54 @@
         </select>
       </div>
 
-      <button class="btn btn-aolrc-accent"
-              data-bs-toggle="collapse" data-bs-target="#addVenueCollapse"
-              aria-expanded="false" aria-controls="addVenueCollapse">
-        Add Venue
-      </button>
+      {% if current_user.is_admin %}
+        <button class="btn btn-aolrc-accent"
+                data-bs-toggle="collapse" data-bs-target="#addVenueCollapse"
+                aria-expanded="false" aria-controls="addVenueCollapse">
+          Add Venue
+        </button>
+      {% endif %}
     </div>
   </div>
 
   <!-- Collapsible Add Venue form -->
-  <div class="collapse mb-4" id="addVenueCollapse">
-    <div class="card">
-      <div class="card-body">
-        <h2 class="h5 mb-2">Add a venue</h2>
+  {% if current_user.is_admin %}
+    <div class="collapse mb-4" id="addVenueCollapse">
+      <div class="card">
+        <div class="card-body">
+          <h2 class="h5 mb-2">Add a venue</h2>
 
-        <form method="post" class="row g-2 align-items-end">
-          <div class="col-lg-6">
-            <label class="form-label mb-1">Venue name</label>
-            <input class="form-control" type="text" name="name" placeholder="e.g., Veda 5">
+          <form method="post" class="row g-2 align-items-end">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-lg-6">
+              <label class="form-label mb-1">Venue name</label>
+              <input class="form-control" type="text" name="name" placeholder="e.g., Veda 5">
+            </div>
+
+            <div class="col-lg-4">
+              <label class="form-label mb-1">Venue type</label>
+              <select class="form-select" name="is_core">
+                <option value="false" selected>Other (can be deleted later)</option>
+                <option value="true">Primary (cannot be deleted)</option>
+               </select>
+            </div>
+
+            <div class="col-12">
+              <div class="form-text">
+                 Primary venues are protected from deletion; other venues are editable/removable.
+             </div>
           </div>
 
-          <div class="col-lg-4">
-            <label class="form-label mb-1">Venue type</label>
-            <select class="form-select" name="is_core">
-              <option value="false" selected>Other (can be deleted later)</option>
-              <option value="true">Primary (cannot be deleted)</option>
-             </select>
-          </div>
-
-          <div class="col-12">
-            <div class="form-text">
-               Primary venues are protected from deletion; other venues are editable/removable.
-           </div>
+            <div class="col-lg-2">
+              <button class="btn w-100 btn-aolrc-accent">
+                Create
+              </button>
+            </div>
+          </form>
         </div>
-
-          <div class="col-lg-2">
-            <button class="btn w-100 btn-aolrc-accent">
-              Create
-            </button>
-          </div>
-        </form>
       </div>
     </div>
-  </div>
+  {% endif %}
 
   <!-- Existing venues table -->
   <div class="card">
@@ -120,12 +125,14 @@
                   <div class="venue-action-group">
                     <a class="btn btn-sm btn-aolrc-primary"
                        href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}">
-                      View / Update
+                      {{ "View / Update" if current_user.is_staff else "View" }}
                     </a>
-                    <a class="icon-btn-plain icon-btn-sm"
-                       href="{{ url_for('venue_settings.settings', venue_id=v.id) }}">
-                      <i class="bi bi-gear-fill"></i>
-                    </a>
+                    {% if current_user.is_admin %}
+                      <a class="icon-btn-plain icon-btn-sm"
+                         href="{{ url_for('venue_settings.settings', venue_id=v.id) }}">
+                        <i class="bi bi-gear-fill"></i>
+                      </a>
+                    {% endif %}
                   </div>
                 </td>
                   

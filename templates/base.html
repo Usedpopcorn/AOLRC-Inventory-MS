@@ -26,12 +26,25 @@
     </button>
 
     <!-- Desktop nav (normal inline links) -->
-    <div class="d-none d-lg-flex ms-auto">
+    <div class="d-none d-lg-flex ms-auto align-items-center gap-3">
       <div class="navbar-nav">
-        <a class="nav-link" href="{{ url_for('main.dashboard') }}">Dashboard</a>
-        <a class="nav-link" href="{{ url_for('main.venues') }}">Venues</a>
-        <a class="nav-link" href="{{ url_for('admin.items') }}">Admin</a>
+        {% if current_user.is_authenticated %}
+          <a class="nav-link" href="{{ url_for('main.dashboard') }}">Dashboard</a>
+          <a class="nav-link" href="{{ url_for('main.venues') }}">Venues</a>
+          <a class="nav-link" href="{{ url_for('auth.account') }}">Account</a>
+          {% if current_user.is_admin %}
+            <a class="nav-link" href="{{ url_for('admin.items') }}">Admin</a>
+          {% endif %}
+        {% else %}
+          <a class="nav-link" href="{{ url_for('auth.login') }}">Sign In</a>
+        {% endif %}
       </div>
+      {% if current_user.is_authenticated %}
+        <form method="post" action="{{ url_for('auth.logout') }}" class="m-0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm btn-outline-light">Sign Out</button>
+        </form>
+      {% endif %}
     </div>
   </div>
 </nav>
@@ -45,22 +58,43 @@
 
   <div class="offcanvas-body">
     <div class="nav flex-column gap-1">
-      <a class="nav-link text-white px-0" href="{{ url_for('main.dashboard') }}">
-        Dashboard
-      </a>
-      <a class="nav-link text-white px-0" href="{{ url_for('main.venues') }}">
-        Venues
-      </a>
-      <a class="nav-link text-white px-0" href="{{ url_for('admin.items') }}">
-        Admin
-      </a>
+      {% if current_user.is_authenticated %}
+        <a class="nav-link text-white px-0" href="{{ url_for('main.dashboard') }}">
+          Dashboard
+        </a>
+        <a class="nav-link text-white px-0" href="{{ url_for('main.venues') }}">
+          Venues
+        </a>
+        <a class="nav-link text-white px-0" href="{{ url_for('auth.account') }}">
+          Account
+        </a>
+        {% if current_user.is_admin %}
+          <a class="nav-link text-white px-0" href="{{ url_for('admin.items') }}">
+            Admin
+          </a>
+        {% endif %}
+      {% else %}
+        <a class="nav-link text-white px-0" href="{{ url_for('auth.login') }}">
+          Sign In
+        </a>
+      {% endif %}
     </div>
 
     <hr class="border-light opacity-25">
 
     <div class="text-white-50 small">
-      AOLRC Inventory Management
+      {% if current_user.is_authenticated %}
+        {{ current_user.email }} ({{ current_user.role|capitalize }})
+      {% else %}
+        AOLRC Inventory Management
+      {% endif %}
     </div>
+    {% if current_user.is_authenticated %}
+      <form method="post" action="{{ url_for('auth.logout') }}" class="mt-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-light w-100" type="submit">Sign Out</button>
+      </form>
+    {% endif %}
   </div>
 </div>
 
@@ -96,6 +130,7 @@
       offcanvas.hide();
     });
   });
+
 </script>
 </body>
 </html>

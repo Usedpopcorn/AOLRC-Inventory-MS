@@ -1,5 +1,53 @@
 from datetime import datetime, timezone
+from flask_login import UserMixin
 from . import db
+
+VALID_ROLES = ("viewer", "staff", "admin")
+
+
+def normalize_role(raw_role):
+    role = (raw_role or "").strip().lower()
+    if role not in VALID_ROLES:
+        return "viewer"
+    return role
+
+
+class User(UserMixin, db.Model):
+    __tablename__ = "users"
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    display_name = db.Column(db.String(120), nullable=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default="viewer")
+    active = db.Column(db.Boolean, default=True, nullable=False)
+    failed_login_attempts = db.Column(db.Integer, nullable=False, default=0)
+    locked_until = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    def get_id(self):
+        return str(self.id)
+
+    @property
+    def is_active(self):
+        return self.active
+
+    def has_role(self, *roles):
+        return self.role in {normalize_role(r) for r in roles}
+
+    @property
+    def is_admin(self):
+        return self.role == "admin"
+
+    @property
+    def is_staff(self):
+        return self.role in {"staff", "admin"}
 
 class Venue(db.Model):
     __tablename__ = "venues"

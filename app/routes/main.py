@@ -1,8 +1,10 @@
 import re
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask_login import current_user
 from sqlalchemy import func, and_
 from app import db
+from app.authz import roles_required
 from app.models import Venue, VenueItem, Item, Check, CheckLine
 
 main_bp = Blueprint("main", __name__)
@@ -316,6 +318,7 @@ def home():
 
 
 @main_bp.route("/dashboard")
+@roles_required("viewer", "staff", "admin")
 def dashboard():
     requested_tab = request.args.get("tab")
     active_tab = requested_tab or "venues"
@@ -464,6 +467,7 @@ def dashboard():
 
 
 @main_bp.route("/dashboard/restocking_rows")
+@roles_required("viewer", "staff", "admin")
 def dashboard_restocking_rows():
     restock_status_submitted = "restock_status_submitted" in request.args
     restock_item_submitted = "restock_item_submitted" in request.args
@@ -532,8 +536,13 @@ def dashboard_restocking_rows():
     )
 
 @main_bp.route("/venues", methods=["GET", "POST"])
+@roles_required("viewer", "staff", "admin")
 def venues():
     if request.method == "POST":
+        if not current_user.has_role("admin"):
+            flash("Only admins can create venues.", "error")
+            return redirect(url_for("main.venues"))
+
         name = request.form.get("name", "").strip()
 
         if not name:

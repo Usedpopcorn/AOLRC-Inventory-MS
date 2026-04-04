@@ -83,9 +83,11 @@
           </div>
 
           <div class="venue-action-row">
-            <a class="btn btn-aolrc-accent restock-toolbar-btn" href="{{ url_for('main.venues') }}">
-              Edit Venues
-            </a>
+            {% if current_user.is_admin %}
+              <a class="btn btn-aolrc-accent restock-toolbar-btn" href="{{ url_for('main.venues') }}">
+                Edit Venues
+              </a>
+            {% endif %}
           </div>
         </div>
       </div>
@@ -125,7 +127,7 @@
                 class="btn btn-aolrc-primary venue-mobile-action-btn mt-2"
                 href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}"
               >
-                View / Update
+                {{ "View / Update" if current_user.is_staff else "View" }}
               </a>
             </article>
           {% endfor %}
@@ -170,7 +172,7 @@
                   <td>
                     <a class="btn btn-aolrc-primary restock-action-btn"
                        href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}">
-                      View / Update
+                      {{ "View / Update" if current_user.is_staff else "View" }}
                     </a>
                   </td>
                 </tr>
@@ -573,7 +575,7 @@
                 class="btn btn-aolrc-primary restock-mobile-action-btn mt-2"
                 href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, next=request.full_path) }}"
               >
-                View / Update
+                {{ "View / Update" if current_user.is_staff else "View" }}
               </a>
             </article>
           {% endfor %}
@@ -634,7 +636,7 @@
                       class="btn btn-aolrc-primary restock-action-btn"
                       href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, next=request.full_path) }}"
                     >
-                      View / Update
+                      {{ "View / Update" if current_user.is_staff else "View" }}
                     </a>
                   </td>
                 </tr>
@@ -673,6 +675,7 @@
         const mobileFilterMq = window.matchMedia("(max-width: 767.98px)");
         const restockApiUrl = "{{ url_for('main.dashboard_restocking_rows') }}";
         const restockPageSize = {{ restock_page_size }};
+        const canEditChecks = {{ "true" if current_user.is_staff else "false" }};
         let saveFiltersTooltip = null;
 
         if (saveFiltersTooltipWrap && window.bootstrap && window.bootstrap.Tooltip) {
@@ -897,7 +900,7 @@
           const actionLink = document.createElement("a");
           actionLink.className = "btn btn-aolrc-primary restock-action-btn";
           actionLink.href = row.quick_check_url;
-          actionLink.textContent = "View / Update";
+          actionLink.textContent = canEditChecks ? "View / Update" : "View";
           actionTd.appendChild(actionLink);
 
           tr.appendChild(itemTd);
@@ -972,7 +975,7 @@
           const actionLink = document.createElement("a");
           actionLink.className = "btn btn-aolrc-primary restock-mobile-action-btn mt-2";
           actionLink.href = row.quick_check_url;
-          actionLink.textContent = "View / Update";
+          actionLink.textContent = canEditChecks ? "View / Update" : "View";
           article.appendChild(actionLink);
           return article;
         }

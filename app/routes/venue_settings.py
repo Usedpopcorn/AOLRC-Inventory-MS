@@ -1,11 +1,13 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from app import db
+from app.authz import roles_required
 from app.models import Venue
 
 venue_settings_bp = Blueprint("venue_settings", __name__, url_prefix="/venues")
 
 
 @venue_settings_bp.route("/<int:venue_id>/settings", methods=["GET", "POST"])
+@roles_required("admin")
 def settings(venue_id):
     venue = Venue.query.get_or_404(venue_id)
 

@@ -1,11 +1,13 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from app import db
+from app.authz import roles_required
 from app.models import Item, VenueItem, Venue
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 
 @admin_bp.route("/items", methods=["GET", "POST"])
+@roles_required("admin")
 def items():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -37,6 +39,7 @@ def items():
 
 
 @admin_bp.route("/items/<int:item_id>/deactivate", methods=["GET", "POST"])
+@roles_required("admin")
 def deactivate_item(item_id):
     it = Item.query.get_or_404(item_id)
 
@@ -67,6 +70,7 @@ def deactivate_item(item_id):
 
 
 @admin_bp.post("/items/<int:item_id>/activate")
+@roles_required("admin")
 def activate_item(item_id):
     it = Item.query.get_or_404(item_id)
     it.active = True

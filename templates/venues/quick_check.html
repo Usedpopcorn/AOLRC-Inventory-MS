@@ -4,7 +4,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <a class="btn btn-outline-secondary" href="{{ next_url }}">Back</a>
-  {% if items|length > 0 %}
+  {% if items|length > 0 and current_user.is_staff %}
     <button class="btn btn-aolrc-accent" type="submit" form="quick-check-form">Save Changes</button>
   {% endif %}
 </div>
@@ -23,7 +23,12 @@
 {% if items|length == 0 %}
   <div class="alert alert-info">No supplies are tracked for this venue yet.</div>
 {% else %}
+{% set is_view_only = not current_user.is_staff %}
+{% if is_view_only %}
+  <div class="alert alert-info">You have view-only access. Statuses and counts cannot be changed.</div>
+{% endif %}
 <form method="post" id="quick-check-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="next" value="{{ next_url }}">
   {% set is_counts_mode = (selected_mode == "raw_counts") %}
   <div class="card">
@@ -32,7 +37,7 @@
         <div class="small text-muted">Choose check mode</div>
         <div class="mode-select-wrap">
           <label class="visually-hidden" for="check_mode">Check mode</label>
-          <select class="form-select" id="check_mode" name="check_mode" aria-label="Check mode">
+          <select class="form-select" id="check_mode" name="check_mode" aria-label="Check mode" {{ "disabled" if is_view_only else "" }}>
             <option value="status" {% if not is_counts_mode %}selected{% endif %}>Quick Status</option>
             <option value="raw_counts" {% if is_counts_mode %}selected{% endif %}>Raw Counts</option>
           </select>
@@ -60,15 +65,15 @@
 
         <div class="status-seg status-mode-only{% if is_counts_mode %} d-none{% endif %}" role="group" aria-label="Status for {{ it.name }}">
           <button type="button" class="status-seg-btn status-seg-good status-btn"
-                  data-item="{{ it.id }}" data-value="good">Good</button>
+                  data-item="{{ it.id }}" data-value="good" {{ "disabled" if is_view_only else "" }}>Good</button>
           <button type="button" class="status-seg-btn status-seg-ok status-btn"
-                  data-item="{{ it.id }}" data-value="ok">OK</button>
+                  data-item="{{ it.id }}" data-value="ok" {{ "disabled" if is_view_only else "" }}>OK</button>
           <button type="button" class="status-seg-btn status-seg-low status-btn"
-                  data-item="{{ it.id }}" data-value="low">Low</button>
+                  data-item="{{ it.id }}" data-value="low" {{ "disabled" if is_view_only else "" }}>Low</button>
           <button type="button" class="status-seg-btn status-seg-out status-btn"
-                  data-item="{{ it.id }}" data-value="out">Out</button>
+                  data-item="{{ it.id }}" data-value="out" {{ "disabled" if is_view_only else "" }}>Out</button>
           <button type="button" class="status-seg-btn status-seg-na status-btn"
-                  data-item="{{ it.id }}" data-value="not_checked">—</button>
+                  data-item="{{ it.id }}" data-value="not_checked" {{ "disabled" if is_view_only else "" }}>—</button>
         </div>
 
         <div class="raw-count-wrap counts-mode-only{% if not is_counts_mode %} d-none{% endif %}">
@@ -82,14 +87,17 @@
             id="count_{{ it.id }}"
             name="count_{{ it.id }}"
             value="{{ latest_counts[it.id] }}"
+            {{ "disabled" if is_view_only else "" }}
           >
         </div>
       </div>
       {% endfor %}
 
-      <button class="btn mt-3 w-100 btn-aolrc-accent" type="submit">
-        Save Changes
-      </button>
+      {% if current_user.is_staff %}
+        <button class="btn mt-3 w-100 btn-aolrc-accent" type="submit">
+          Save Changes
+        </button>
+      {% endif %}
     </div>
   </div>
 </form>

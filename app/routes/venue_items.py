@@ -1,5 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask_login import current_user
 from app import db
+from app.authz import roles_required
 from app.models import (
     Venue,
     Item,
@@ -14,6 +16,7 @@ from app.models import (
 venue_items_bp = Blueprint("venue_items", __name__, url_prefix="/venues")
 
 @venue_items_bp.route("/<int:venue_id>/supplies", methods=["GET", "POST"])
+@roles_required("staff", "admin")
 def supplies(venue_id):
     venue = Venue.query.get_or_404(venue_id)
     next_url = request.values.get("next") or url_for("venue_settings.settings", venue_id=venue.id)
@@ -64,6 +67,7 @@ def supplies(venue_id):
     )
 
 @venue_items_bp.route("/<int:venue_id>/check", methods=["GET", "POST"])
+@roles_required("viewer", "staff", "admin")
 def quick_check(venue_id):
     venue = Venue.query.get_or_404(venue_id)
 
@@ -83,6 +87,10 @@ def quick_check(venue_id):
         selected_mode = "status"
 
     if request.method == "POST":
+        if not current_user.has_role("staff", "admin"):
+            flash("You have view-only access.", "error")
+            return redirect(url_for("venue_items.quick_check", venue_id=venue.id, next=next_url, mode=selected_mode))
+
         selected_mode = (request.form.get("check_mode") or "status").strip().lower()
         if selected_mode not in ("status", "raw_counts"):
             selected_mode = "status"

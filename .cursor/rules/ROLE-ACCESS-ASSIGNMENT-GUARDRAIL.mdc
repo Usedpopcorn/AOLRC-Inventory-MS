@@ -1,0 +1,34 @@
+---
+description: Enforce viewer/staff/admin access mapping for all new features
+alwaysApply: true
+---
+
+# Role Access Assignment Guardrail
+
+For every new feature, route, action, or UI control, assign access by role before implementation.
+
+## Canonical roles
+- `viewer`: read-only access; cannot create/update/delete.
+- `staff`: operational updates (statuses, raw counts, routine supply updates).
+- `admin`: full management (admin pages, add/edit/delete venues/items, user/account management).
+
+## Required implementation pattern
+1) Define permission mapping in the task (`viewer`, `staff`, `admin`) before coding.
+2) Enforce access server-side first using route guards/decorators (`roles_required(...)`).
+3) Mirror permissions in templates by hiding/disabling controls for unauthorized roles.
+4) Never rely on UI visibility as security; unauthorized server actions must be blocked.
+
+## Route/action defaults
+- New read-only pages/endpoints: allow `viewer`, `staff`, `admin`.
+- New mutating operational actions: allow `staff`, `admin`.
+- New management/admin actions: allow `admin` only.
+
+## Verification checklist (required)
+- Unauthenticated users are redirected to login.
+- `viewer` cannot trigger mutating actions.
+- `staff` cannot access admin-only actions.
+- `admin` can access all intended actions.
+- Mobile and desktop UI show consistent role-based controls.
+
+## Development safety
+- Any dev-only bypass (for example quick-login buttons) must be gated to development mode and easy to remove.
