@@ -48,16 +48,8 @@ def deactivate_item(item_id):
     venue_ids = [l.venue_id for l in active_links]
     venues = Venue.query.filter(Venue.id.in_(venue_ids)).order_by(Venue.name.asc()).all() if venue_ids else []
 
-    # GET: show confirmation page if it’s in use
+    # GET: confirmation page only (no mutations on GET)
     if request.method == "GET":
-        if len(venues) == 0:
-            # Safe to deactivate immediately
-            it.active = False
-            db.session.commit()
-            flash("Item deactivated.", "success")
-            return redirect(url_for("admin.items"))
-
-        # Needs confirmation
         return render_template("admin/confirm_deactivate_item.html", item=it, venues=venues)
 
     # POST: user confirmed “Deactivate anyway”
