@@ -84,7 +84,7 @@
       <h2 class="h5">Existing venues</h2>
 
       <div class="table-responsive">
-        <table class="table align-middle">
+        <table class="table align-middle js-dynamic-zebra" id="venuesListTable">
           <thead>
             <tr>
               <th>Venue</th>
@@ -176,6 +176,16 @@
       window.history.replaceState({}, "", nextUrl);
     }
 
+    function applyVisibleZebraRows(rows) {
+      let visibleIndex = 0;
+      rows.forEach((row) => {
+        row.classList.remove("zebra-alt");
+        if (row.style.display === "none") return;
+        if (visibleIndex % 2 === 0) row.classList.add("zebra-alt");
+        visibleIndex += 1;
+      });
+    }
+
     function applyFilters() {
       const q = (searchEl.value || "").trim().toLowerCase();
       const st = statusEl.value;
@@ -194,6 +204,7 @@
 
         tr.style.display = (matchSearch && matchStatus && matchVenueType) ? "" : "none";
       });
+      applyVisibleZebraRows(rows);
     }
 
     searchEl.addEventListener("input", applyFilters);

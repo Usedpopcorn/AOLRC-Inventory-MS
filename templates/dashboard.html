@@ -139,7 +139,7 @@
         </div>
 
         <div class="table-responsive d-none d-md-block">
-          <table class="table align-middle" id="venuesTable">
+          <table class="table align-middle js-dynamic-zebra" id="venuesTable">
             <thead>
               <tr>
                 <th>Venue</th>
@@ -215,6 +215,16 @@
         window.history.replaceState({}, "", nextUrl);
       }
 
+      function applyVisibleZebraRows(rows) {
+        let visibleIndex = 0;
+        rows.forEach((row) => {
+          row.classList.remove("zebra-alt");
+          if (row.style.display === "none") return;
+          if (visibleIndex % 2 === 0) row.classList.add("zebra-alt");
+          visibleIndex += 1;
+        });
+      }
+
       function applyFilters() {
         const q = (searchEl.value || "").trim().toLowerCase();
         const status = filterEl.value;
@@ -231,6 +241,7 @@
           tr.style.display = isVisible ? "" : "none";
           if (isVisible) visibleRows += 1;
         });
+        applyVisibleZebraRows(tableRows);
 
         let visibleCards = 0;
         mobileCards.forEach((card) => {
@@ -587,7 +598,7 @@
         </div>
 
         <div class="table-responsive d-none d-md-block">
-          <table class="table align-middle" id="restockTable">
+          <table class="table align-middle js-dynamic-zebra" id="restockTable">
             <colgroup>
               <col style="width: 24%;">
               <col style="width: 16%;">
@@ -797,6 +808,16 @@
           return venueA.localeCompare(venueB);
         }
 
+        function applyVisibleZebraRows(rows) {
+          let visibleIndex = 0;
+          rows.forEach((row) => {
+            row.classList.remove("zebra-alt");
+            if (row.style.display === "none") return;
+            if (visibleIndex % 2 === 0) row.classList.add("zebra-alt");
+            visibleIndex += 1;
+          });
+        }
+
         function syncRestockSearchSortUrl() {
           const nextUrl = new URL(window.location.href);
           nextUrl.searchParams.set("tab", "restocking");
@@ -837,6 +858,7 @@
             row.style.display = isVisible ? "" : "none";
             if (isVisible) visibleRows += 1;
           });
+          applyVisibleZebraRows(tableRows);
 
           let visibleCards = 0;
           mobileCards.forEach((card) => {
@@ -1045,6 +1067,7 @@
               restockMobileEmpty.classList.toggle("d-none", restockLoadedCount > 0);
             }
             updateRestockResultCount();
+            applyRestockLiveView();
           } catch (error) {
             restockLoadErrored = true;
             if (restockLoadMoreError) restockLoadMoreError.classList.remove("d-none");
@@ -1102,6 +1125,7 @@
               restockMobileEmpty.classList.toggle("d-none", rows.length > 0);
             }
             updateRestockResultCount();
+            applyRestockLiveView();
           } catch (error) {
             if (error?.name === "AbortError") return;
             restockLoadErrored = true;
@@ -1175,6 +1199,7 @@
 
         updateRestockResultCount();
         updateRestockLoadMoreUi();
+        applyRestockLiveView();
 
         function setFiltersToggleLabel(isOpen) {
           if (!filtersToggleLabel) return;

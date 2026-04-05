@@ -313,7 +313,15 @@ html {
   padding-top: 0.9rem;
   padding-bottom: 0.9rem;
 }
-.table tbody tr:nth-of-type(odd) > * {
+.table:not(.js-dynamic-zebra) tbody tr:nth-of-type(odd) > * {
+  background-color: var(--aolrc-row-alt-bg);
+}
+
+/* Dynamic tables recalculate parity after filtering/searching. */
+.table.js-dynamic-zebra tbody tr:nth-of-type(odd) > * {
+  background-color: var(--bs-table-bg);
+}
+.table.js-dynamic-zebra tbody tr.zebra-alt > * {
   background-color: var(--aolrc-row-alt-bg);
 }
 
