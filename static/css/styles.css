@@ -26,6 +26,7 @@
     rgba(255, 255, 255, 0.05) 52%,
     rgba(0, 0, 0, 0.05) 100%
   );
+  --aolrc-row-alt-bg: rgba(132, 96, 140, 0.07);
   --aolrc-purple-text-gradient: linear-gradient(
     180deg,
     rgba(255, 255, 255, 0.16) 0%,
@@ -313,7 +314,7 @@ html {
   padding-bottom: 0.9rem;
 }
 .table tbody tr:nth-of-type(odd) > * {
-  background-color: rgba(132, 96, 140, 0.04);
+  background-color: var(--aolrc-row-alt-bg);
 }
 
 /* Status segmented control */
@@ -405,7 +406,7 @@ html {
   border-radius: 0.75rem;
 }
 .supply-status-row-alt {
-  background-color: rgba(132, 96, 140, 0.04);
+  background-color: var(--aolrc-row-alt-bg);
 }
 
 /* Status pills (no fill, colored text) */

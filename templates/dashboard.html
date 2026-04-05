@@ -14,8 +14,10 @@
   <li class="nav-item" role="presentation">
     <button class="nav-link py-2 {{ 'active' if active_tab == 'venues' else '' }}" id="venues-tab" data-bs-toggle="tab" data-bs-target="#venues"
             type="button" role="tab">
-      <i class="bi bi-house-door-fill d-none d-md-inline"></i>
-      <span>Venues</span>
+      <span class="d-inline-flex align-items-center gap-1 ms-1" aria-hidden="true">
+        <i class="bi bi-clipboard-check"></i>
+      </span>
+      <span>Venue Status</span>
     </button>
   </li>
   <li class="nav-item" role="presentation">
