@@ -1,6 +1,8 @@
 import os
 from datetime import timedelta
 
+DEFAULT_SECRET_KEY = "dev-secret-change-me"
+
 
 def _env_flag(name, default=False):
     raw = os.getenv(name)
@@ -19,8 +21,13 @@ def _env_int(name, default):
         return default
 
 
+def is_development_environment():
+    runtime_env = (os.getenv("FLASK_ENV") or "").strip().lower()
+    return runtime_env in {"", "development"}
+
+
 class Config:
-    SECRET_KEY = "dev-secret-change-me"
+    SECRET_KEY = DEFAULT_SECRET_KEY
     SQLALCHEMY_DATABASE_URI = "sqlite:///local.db"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SESSION_COOKIE_HTTPONLY = True

@@ -52,13 +52,12 @@
             </td>
             <td>
               {% if it.active %}
-                <form method="get"
-                        action="{{ url_for('admin.deactivate_item', item_id=it.id) }}"
-                        class="d-inline">
-                    <button class="btn btn-sm btn-outline-danger" type="submit">Deactivate</button>
-                </form>
-                  </button>
-                </form>
+                <a
+                  class="btn btn-sm btn-outline-danger"
+                  href="{{ url_for('admin.deactivate_item', item_id=it.id) }}"
+                >
+                  Deactivate
+                </a>
               {% else %}
                 <form method="post"
                       action="{{ url_for('admin.activate_item', item_id=it.id) }}"

@@ -2,7 +2,7 @@ import os
 import click
 from urllib.parse import urlparse
 
-from flask import Flask, flash, redirect, request, url_for
+from flask import Flask, flash, jsonify, redirect, request, url_for
 from flask_wtf.csrf import CSRFError, CSRFProtect
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -10,7 +10,7 @@ from flask_login import LoginManager
 from werkzeug.security import generate_password_hash
 from dotenv import load_dotenv
 
-from .config import Config
+from .config import Config, DEFAULT_SECRET_KEY, is_development_environment
 
 db = SQLAlchemy()
 migrate = Migrate()
@@ -33,6 +33,15 @@ def load_user(user_id):
         return None
     return User.query.get(parsed_user_id)
 
+
+@login_manager.unauthorized_handler
+def handle_unauthorized():
+    from .authz import wants_json_response
+
+    if wants_json_response():
+        return jsonify({"error": "authentication required", "code": "unauthenticated"}), 401
+    return redirect(url_for("auth.login", next=request.url))
+
 def create_app():
     load_dotenv(override=True)  # loads variables from .env into the environment
 
@@ -44,6 +53,15 @@ def create_app():
     app.config.from_object(Config)
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", app.config["SECRET_KEY"])
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", app.config["SQLALCHEMY_DATABASE_URI"])
+    if (
+        app.config["SECRET_KEY"] == DEFAULT_SECRET_KEY
+        and not app.debug
+        and not is_development_environment()
+    ):
+        raise RuntimeError(
+            "SECRET_KEY is using the default development value. "
+            "Set a unique SECRET_KEY before running outside development."
+        )
 
     db.init_app(app)
     migrate.init_app(app, db)
