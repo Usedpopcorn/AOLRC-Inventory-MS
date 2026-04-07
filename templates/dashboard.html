@@ -38,6 +38,27 @@
 
 <script>
   (() => {
+    const getActiveDashboardTab = () => {
+      const activeButton = document.querySelector("#dashTabs [data-bs-toggle='tab'].active");
+      const targetId = activeButton?.getAttribute("data-bs-target");
+      if (targetId === "#restocking") return "restocking";
+      if (targetId === "#activity") return "activity";
+      return "venues";
+    };
+
+    window.syncDashboardActionUrls = () => {
+      const currentUrl = new URL(window.location.href);
+      currentUrl.searchParams.set("tab", getActiveDashboardTab());
+      const currentNext = `${currentUrl.pathname}${currentUrl.search}`;
+      document.querySelectorAll("[data-dashboard-next-link]").forEach((link) => {
+        const baseHref = link.getAttribute("data-base-href");
+        if (!baseHref) return;
+        const nextHref = new URL(baseHref, window.location.origin);
+        nextHref.searchParams.set("next", currentNext);
+        link.href = nextHref.toString();
+      });
+    };
+
     const tabButtons = Array.from(document.querySelectorAll("#dashTabs [data-bs-toggle='tab']"));
     if (!tabButtons.length) return;
 
@@ -52,7 +73,16 @@
         const url = new URL(window.location.href);
         url.searchParams.set("tab", nextTab);
         window.history.replaceState({}, "", url);
+        window.syncDashboardActionUrls?.();
       });
+    });
+
+    window.addEventListener("popstate", () => {
+      window.syncDashboardActionUrls?.();
+    });
+
+    window.addEventListener("DOMContentLoaded", () => {
+      window.syncDashboardActionUrls?.();
     });
   })();
 </script>
@@ -127,6 +157,8 @@
               </div>
               <a
                 class="btn btn-aolrc-primary venue-mobile-action-btn mt-2"
+                data-dashboard-next-link
+                data-base-href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}"
                 href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}"
               >
                 {{ "View / Update" if current_user.is_staff else "View" }}
@@ -173,6 +205,8 @@
 
                   <td>
                     <a class="btn btn-aolrc-primary restock-action-btn"
+                       data-dashboard-next-link
+                       data-base-href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}"
                        href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}">
                       {{ "View / Update" if current_user.is_staff else "View" }}
                     </a>
@@ -213,6 +247,7 @@
         else nextUrl.searchParams.delete("venue_status");
 
         window.history.replaceState({}, "", nextUrl);
+        window.syncDashboardActionUrls?.();
       }
 
       function applyVisibleZebraRows(rows) {
@@ -271,6 +306,7 @@
       searchEl.addEventListener("input", syncVenueFilterUrl);
       filterEl.addEventListener("change", applyFilters);
       filterEl.addEventListener("change", syncVenueFilterUrl);
+      window.syncDashboardActionUrls?.();
       applyFilters();
     </script>
   </div>
@@ -586,6 +622,8 @@
               </div>
               <a
                 class="btn btn-aolrc-primary restock-mobile-action-btn mt-2"
+                data-dashboard-next-link
+                data-base-href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id) }}"
                 href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, next=request.full_path) }}"
               >
                 {{ "View / Update" if current_user.is_staff else "View" }}
@@ -647,6 +685,8 @@
                   <td>
                     <a
                       class="btn btn-aolrc-primary restock-action-btn"
+                      data-dashboard-next-link
+                      data-base-href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id) }}"
                       href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, next=request.full_path) }}"
                     >
                       {{ "View / Update" if current_user.is_staff else "View" }}
@@ -830,6 +870,7 @@
           nextUrl.searchParams.set("restock_sort", nextSort);
 
           window.history.replaceState({}, "", nextUrl);
+          window.syncDashboardActionUrls?.();
         }
 
         function applyRestockLiveView() {
@@ -923,6 +964,10 @@
           const actionTd = document.createElement("td");
           const actionLink = document.createElement("a");
           actionLink.className = "btn btn-aolrc-primary restock-action-btn";
+          actionLink.setAttribute("data-dashboard-next-link", "");
+          const actionBaseUrl = new URL(row.quick_check_url, window.location.origin);
+          actionBaseUrl.searchParams.delete("next");
+          actionLink.setAttribute("data-base-href", `${actionBaseUrl.pathname}${actionBaseUrl.search}`);
           actionLink.href = row.quick_check_url;
           actionLink.textContent = canEditChecks ? "View / Update" : "View";
           actionTd.appendChild(actionLink);
@@ -998,6 +1043,10 @@
 
           const actionLink = document.createElement("a");
           actionLink.className = "btn btn-aolrc-primary restock-mobile-action-btn mt-2";
+          actionLink.setAttribute("data-dashboard-next-link", "");
+          const actionBaseUrl = new URL(row.quick_check_url, window.location.origin);
+          actionBaseUrl.searchParams.delete("next");
+          actionLink.setAttribute("data-base-href", `${actionBaseUrl.pathname}${actionBaseUrl.search}`);
           actionLink.href = row.quick_check_url;
           actionLink.textContent = canEditChecks ? "View / Update" : "View";
           article.appendChild(actionLink);
@@ -1068,6 +1117,7 @@
             }
             updateRestockResultCount();
             applyRestockLiveView();
+            window.syncDashboardActionUrls?.();
           } catch (error) {
             restockLoadErrored = true;
             if (restockLoadMoreError) restockLoadMoreError.classList.remove("d-none");
@@ -1126,6 +1176,7 @@
             }
             updateRestockResultCount();
             applyRestockLiveView();
+            window.syncDashboardActionUrls?.();
           } catch (error) {
             if (error?.name === "AbortError") return;
             restockLoadErrored = true;
@@ -1199,6 +1250,7 @@
 
         updateRestockResultCount();
         updateRestockLoadMoreUi();
+        window.syncDashboardActionUrls?.();
         applyRestockLiveView();
 
         function setFiltersToggleLabel(isOpen) {
@@ -1364,16 +1416,337 @@
     </script>
   </div>
 
-  <!-- Activity TAB (placeholder) -->
+  <!-- Activity TAB -->
   <div class="tab-pane fade {{ 'show active' if active_tab == 'activity' else '' }}" id="activity" role="tabpanel">
+    <div class="card mb-3">
+      <form method="get" action="{{ url_for('main.dashboard') }}" id="activityForm" class="card-body d-flex flex-column gap-3">
+        <input type="hidden" name="tab" value="activity">
+        <div class="dashboard-toolbar-inline">
+          <div class="activity-toolbar">
+            <div class="activity-toolbar-row activity-toolbar-row-top">
+              <input
+                id="activitySearch"
+                name="activity_q"
+                class="form-control w-100 restock-compact-control"
+                placeholder="Search activity..."
+                aria-label="Search activity log"
+                value="{{ activity_filters.search }}"
+              >
+              <div class="activity-date-range">
+                <div class="input-group">
+                  <span class="input-group-text">From</span>
+                  <input
+                    id="activityStartDate"
+                    name="activity_start"
+                    type="date"
+                    class="form-control restock-compact-control"
+                    aria-label="Filter activity from date"
+                    value="{{ activity_filters.start_date }}"
+                  >
+                </div>
+                <div class="input-group">
+                  <span class="input-group-text">To</span>
+                  <input
+                    id="activityEndDate"
+                    name="activity_end"
+                    type="date"
+                    class="form-control restock-compact-control"
+                    aria-label="Filter activity to date"
+                    value="{{ activity_filters.end_date }}"
+                  >
+                </div>
+              </div>
+            </div>
+            <div class="activity-toolbar-row activity-toolbar-row-bottom">
+              <select
+                id="activityTypeFilter"
+                name="activity_type"
+                class="form-select w-100 restock-compact-control"
+                aria-label="Filter activity log by change type"
+              >
+                <option value="all" {{ 'selected' if activity_filters.type == 'all' else '' }}>All Types</option>
+                <option value="status" {{ 'selected' if activity_filters.type == 'status' else '' }}>Status Changes</option>
+                <option value="raw_count" {{ 'selected' if activity_filters.type == 'raw_count' else '' }}>Raw Count Changes</option>
+              </select>
+              <select
+                id="activitySort"
+                name="activity_sort"
+                class="form-select w-100 restock-compact-control"
+                aria-label="Sort activity log"
+              >
+                <option value="newest" {{ 'selected' if activity_filters.sort == 'newest' else '' }}>Sort: Newest</option>
+                <option value="oldest" {{ 'selected' if activity_filters.sort == 'oldest' else '' }}>Sort: Oldest</option>
+                <option value="venue" {{ 'selected' if activity_filters.sort == 'venue' else '' }}>Sort: Venue</option>
+                <option value="item" {{ 'selected' if activity_filters.sort == 'item' else '' }}>Sort: Item</option>
+                <option value="actor" {{ 'selected' if activity_filters.sort == 'actor' else '' }}>Sort: Changed By</option>
+                <option value="type" {{ 'selected' if activity_filters.sort == 'type' else '' }}>Sort: Change Type</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+
     <div class="card">
       <div class="card-body">
-        <h2 class="h5">Activity Log</h2>
-        <p class="text-muted mb-0">
-          Coming soon: history of venue checks and admin changes (items activated/deactivated, etc.).
-        </p>
+        <div id="activityResultCount" class="text-muted small mb-2">
+          {% if activity_pagination.total_count %}
+            Showing {{ activity_pagination.showing_from }}-{{ activity_pagination.showing_to }} of {{ activity_pagination.total_count }} {{ "result" if activity_pagination.total_count == 1 else "results" }}
+          {% else %}
+            0 results
+          {% endif %}
+        </div>
+
+        <div class="d-md-none d-flex flex-column gap-2" id="activityMobileList">
+          {% for row in activity_rows %}
+            <article class="activity-mobile-card">
+              <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                <div class="activity-mobile-item fw-semibold">{{ row.item_name }}</div>
+                <span class="activity-type-badge {{ row.type_meta.badge_class }}">
+                  <i class="bi {{ row.type_meta.icon_class }}"></i> {{ row.type_meta.text }}
+                </span>
+              </div>
+
+              <div class="activity-mobile-meta">
+                <div class="activity-mobile-meta-row">
+                  <span class="activity-mobile-label">Venue</span>
+                  <span class="activity-mobile-value">{{ row.venue_name }}</span>
+                </div>
+                <div class="activity-mobile-meta-row">
+                  <span class="activity-mobile-label">Change</span>
+                  <span class="activity-mobile-value">
+                    <span class="activity-change justify-content-end">
+                      {% if row.type_key == 'status' %}
+                        {% if row.old_status_key %}
+                          <span class="status-pill
+                            {{ 'status-good' if row.old_status_key == 'good' else '' }}
+                            {{ 'status-ok' if row.old_status_key == 'ok' else '' }}
+                            {{ 'status-low' if row.old_status_key == 'low' else '' }}
+                            {{ 'status-out' if row.old_status_key == 'out' else '' }}
+                            {{ 'status-na' if row.old_status_key == 'not_checked' else '' }}">
+                            <i class="bi {{ restock_status_options[row.old_status_key].icon_class }}"></i> {{ row.old_value_text }}
+                          </span>
+                        {% else %}
+                          <span class="activity-value-chip activity-value-empty">{{ row.old_value_text }}</span>
+                        {% endif %}
+                        <i class="bi bi-arrow-right activity-change-arrow"></i>
+                        <span class="status-pill
+                          {{ 'status-good' if row.new_status_key == 'good' else '' }}
+                          {{ 'status-ok' if row.new_status_key == 'ok' else '' }}
+                          {{ 'status-low' if row.new_status_key == 'low' else '' }}
+                          {{ 'status-out' if row.new_status_key == 'out' else '' }}
+                          {{ 'status-na' if row.new_status_key == 'not_checked' else '' }}">
+                          <i class="bi {{ restock_status_options[row.new_status_key].icon_class }}"></i> {{ row.new_value_text }}
+                        </span>
+                      {% else %}
+                        <span class="activity-value-chip {{ 'activity-value-empty' if row.old_value_missing else '' }}">{{ row.old_value_text }}</span>
+                        <i class="bi bi-arrow-right activity-change-arrow"></i>
+                        <span class="activity-value-chip">{{ row.new_value_text }}</span>
+                      {% endif %}
+                    </span>
+                  </span>
+                </div>
+                <div class="activity-mobile-meta-row">
+                  <span class="activity-mobile-label">Changed by</span>
+                  <span class="activity-mobile-value">{{ row.actor_name }}</span>
+                </div>
+                <div class="activity-mobile-meta-row">
+                  <span class="activity-mobile-label">When</span>
+                  <span class="activity-mobile-value">{{ row.changed_at_text }}</span>
+                </div>
+              </div>
+
+              <div class="activity-detail-text mt-2">{{ row.detail_text }}</div>
+            </article>
+          {% endfor %}
+          <div id="activityMobileEmpty" class="text-muted activity-mobile-empty {{ 'd-none' if activity_rows else '' }}">
+            No activity matches your current filters.
+          </div>
+        </div>
+
+        <div class="table-responsive d-none d-md-block">
+          <table class="table align-middle" id="activityTable">
+            <thead>
+              <tr>
+                <th style="width: 170px;">When</th>
+                <th style="width: 140px;">Type</th>
+                <th>Venue</th>
+                <th>Item</th>
+                <th style="width: 320px;">Change</th>
+                <th style="width: 170px;">Changed By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in activity_rows %}
+                <tr class="activity-table-row">
+                  <td class="text-nowrap">{{ row.changed_at_text }}</td>
+                  <td>
+                    <span class="activity-type-badge {{ row.type_meta.badge_class }}">
+                      <i class="bi {{ row.type_meta.icon_class }}"></i> {{ row.type_meta.text }}
+                    </span>
+                  </td>
+                  <td>{{ row.venue_name }}</td>
+                  <td class="fw-semibold">{{ row.item_name }}</td>
+                  <td>
+                    <div class="activity-change">
+                      {% if row.type_key == 'status' %}
+                        {% if row.old_status_key %}
+                          <span class="status-pill
+                            {{ 'status-good' if row.old_status_key == 'good' else '' }}
+                            {{ 'status-ok' if row.old_status_key == 'ok' else '' }}
+                            {{ 'status-low' if row.old_status_key == 'low' else '' }}
+                            {{ 'status-out' if row.old_status_key == 'out' else '' }}
+                            {{ 'status-na' if row.old_status_key == 'not_checked' else '' }}">
+                            <i class="bi {{ restock_status_options[row.old_status_key].icon_class }}"></i> {{ row.old_value_text }}
+                          </span>
+                        {% else %}
+                          <span class="activity-value-chip activity-value-empty">{{ row.old_value_text }}</span>
+                        {% endif %}
+                        <i class="bi bi-arrow-right activity-change-arrow"></i>
+                        <span class="status-pill
+                          {{ 'status-good' if row.new_status_key == 'good' else '' }}
+                          {{ 'status-ok' if row.new_status_key == 'ok' else '' }}
+                          {{ 'status-low' if row.new_status_key == 'low' else '' }}
+                          {{ 'status-out' if row.new_status_key == 'out' else '' }}
+                          {{ 'status-na' if row.new_status_key == 'not_checked' else '' }}">
+                          <i class="bi {{ restock_status_options[row.new_status_key].icon_class }}"></i> {{ row.new_value_text }}
+                        </span>
+                      {% else %}
+                        <span class="activity-value-chip {{ 'activity-value-empty' if row.old_value_missing else '' }}">{{ row.old_value_text }}</span>
+                        <i class="bi bi-arrow-right activity-change-arrow"></i>
+                        <span class="activity-value-chip">{{ row.new_value_text }}</span>
+                      {% endif %}
+                    </div>
+                    <div class="activity-detail-text">{{ row.detail_text }}</div>
+                  </td>
+                  <td>{{ row.actor_name }}</td>
+                </tr>
+              {% endfor %}
+              <tr id="activityTableEmpty" class="{{ 'd-none' if activity_rows else '' }}">
+                <td colspan="6" class="text-muted">No activity matches your current filters.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {% if activity_pagination.total_pages > 1 %}
+          <div class="activity-pagination mt-3">
+            {% if activity_pagination.has_prev %}
+              <a
+                class="btn btn-outline-secondary restock-toolbar-btn"
+                href="{{ activity_pagination.prev_url }}"
+              >
+                Previous
+              </a>
+            {% else %}
+              <span class="btn btn-outline-secondary restock-toolbar-btn disabled" aria-disabled="true">
+                Previous
+              </span>
+            {% endif %}
+            <form method="get" action="{{ url_for('main.dashboard') }}" id="activityPageJumpForm" class="activity-pagination-meta activity-page-inline-form text-muted small">
+              <input type="hidden" name="tab" value="activity">
+              <input type="hidden" name="activity_q" value="{{ activity_filters.search }}">
+              <input type="hidden" name="activity_start" value="{{ activity_filters.start_date }}">
+              <input type="hidden" name="activity_end" value="{{ activity_filters.end_date }}">
+              <input type="hidden" name="activity_type" value="{{ activity_filters.type }}">
+              <input type="hidden" name="activity_sort" value="{{ activity_filters.sort }}">
+              <span>Page</span>
+              <input
+                id="activityPageJumpInput"
+                name="activity_page"
+                type="number"
+                class="form-control restock-compact-control activity-page-inline-input"
+                min="1"
+                max="{{ activity_pagination.total_pages }}"
+                step="1"
+                value="{{ activity_pagination.current_page }}"
+                aria-label="Jump to activity page"
+              >
+              <span>of {{ activity_pagination.total_pages }}</span>
+            </form>
+            {% if activity_pagination.has_next %}
+              <a
+                class="btn btn-outline-secondary restock-toolbar-btn"
+                href="{{ activity_pagination.next_url }}"
+              >
+                Next
+              </a>
+            {% else %}
+              <span class="btn btn-outline-secondary restock-toolbar-btn disabled" aria-disabled="true">
+                Next
+              </span>
+            {% endif %}
+          </div>
+        {% endif %}
       </div>
     </div>
+
+    <script>
+      (() => {
+        const activityForm = document.getElementById("activityForm");
+        const activitySearch = document.getElementById("activitySearch");
+        const activityStartDate = document.getElementById("activityStartDate");
+        const activityEndDate = document.getElementById("activityEndDate");
+        const activityTypeFilter = document.getElementById("activityTypeFilter");
+        const activitySort = document.getElementById("activitySort");
+        const activityPageJumpForm = document.getElementById("activityPageJumpForm");
+        const activityPageJumpInput = document.getElementById("activityPageJumpInput");
+
+        if (!activityForm || !activitySearch || !activityStartDate || !activityEndDate || !activityTypeFilter || !activitySort) return;
+
+        function normalizeDateRangeFields() {
+          const startValue = activityStartDate.value || "";
+          const endValue = activityEndDate.value || "";
+          if (startValue && endValue && startValue > endValue) {
+            activityStartDate.value = endValue;
+            activityEndDate.value = startValue;
+          }
+        }
+
+        function submitActivityForm() {
+          normalizeDateRangeFields();
+          activityForm.requestSubmit();
+        }
+
+        activitySearch.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          submitActivityForm();
+        });
+        activitySearch.addEventListener("change", () => {
+          submitActivityForm();
+        });
+        activityStartDate.addEventListener("change", () => {
+          submitActivityForm();
+        });
+        activityEndDate.addEventListener("change", () => {
+          submitActivityForm();
+        });
+        activityTypeFilter.addEventListener("change", () => {
+          submitActivityForm();
+        });
+        activitySort.addEventListener("change", () => {
+          submitActivityForm();
+        });
+
+        if (activityPageJumpForm && activityPageJumpInput) {
+          activityPageJumpInput.addEventListener("change", () => {
+            activityPageJumpForm.requestSubmit();
+          });
+          activityPageJumpForm.addEventListener("submit", (event) => {
+            const minPage = Number(activityPageJumpInput.min || "1");
+            const maxPage = Number(activityPageJumpInput.max || activityPageJumpInput.value || "1");
+            const requestedPage = Number(activityPageJumpInput.value || minPage);
+            if (!Number.isFinite(requestedPage)) {
+              activityPageJumpInput.value = String(minPage);
+              return;
+            }
+            const normalizedPage = Math.min(Math.max(Math.trunc(requestedPage), minPage), maxPage);
+            activityPageJumpInput.value = String(normalizedPage);
+          });
+        }
+      })();
+    </script>
   </div>
 </div>
 {% endblock %}

@@ -96,7 +96,7 @@ def quick_check(venue_id):
             selected_mode = "status"
 
         if selected_mode == "raw_counts":
-            count_session = CountSession(venue_id=venue.id)
+            count_session = CountSession(venue_id=venue.id, user_id=current_user.id)
             db.session.add(count_session)
             db.session.flush()
 
@@ -147,7 +147,7 @@ def quick_check(venue_id):
             )
 
         # Create a new status check (existing behavior)
-        chk = Check(venue_id=venue.id)
+        chk = Check(venue_id=venue.id, user_id=current_user.id)
         db.session.add(chk)
         db.session.flush()  # assign chk.id
 
