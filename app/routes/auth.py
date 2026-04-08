@@ -90,7 +90,7 @@ def _build_account_activity(user_id, full_history=False, page=1):
 
     if full_history:
         return build_activity_page(actor_user_id=user_id, page=page)
-    return build_activity_page(actor_user_id=user_id, page=1, page_size=10)
+    return build_activity_page(actor_user_id=user_id, page=1, page_size=3)
 
 
 def _resolve_quick_login_user(quick_role):
@@ -204,18 +204,26 @@ def account():
     except ValueError:
         activity_page = 1
 
-    activity_data = _build_account_activity(
+    recent_activity_data = _build_account_activity(
         current_user.id,
-        full_history=show_full_activity,
-        page=activity_page,
+        full_history=False,
+        page=1,
     )
+    full_activity_data = None
+    if show_full_activity:
+        full_activity_data = _build_account_activity(
+            current_user.id,
+            full_history=True,
+            page=activity_page,
+        )
 
     return render_template(
         "auth/account.html",
         avatar_initials=_build_account_initials(current_user),
         avatar_url=_avatar_url_for_user(current_user),
-        account_activity_rows=activity_data["rows"],
-        account_activity_pagination=activity_data,
+        recent_activity_rows=recent_activity_data["rows"],
+        full_activity_rows=(full_activity_data["rows"] if full_activity_data else []),
+        full_activity_pagination=full_activity_data,
         show_full_activity=show_full_activity,
     )
 

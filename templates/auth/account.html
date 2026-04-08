@@ -63,12 +63,12 @@
             {% if show_full_activity %}
               <a class="small" href="{{ url_for('auth.account') }}">Collapse</a>
             {% else %}
-              <a class="small" href="{{ url_for('auth.account', activity_view='full') }}">View Full History</a>
+              <a class="small" href="{{ url_for('auth.account', activity_view='full', activity_page=1) }}">Expand</a>
             {% endif %}
           </div>
-          {% if account_activity_rows %}
+          {% if recent_activity_rows %}
             <div class="list-group">
-              {% for row in account_activity_rows %}
+              {% for row in recent_activity_rows %}
                 <div class="list-group-item px-2 py-2">
                   <div class="small fw-semibold">{{ row.type_meta.text }}: {{ row.detail_text }}</div>
                   <div class="text-muted small">{{ row.venue_name }} - {{ row.item_name }}</div>
@@ -76,17 +76,36 @@
                 </div>
               {% endfor %}
             </div>
-            {% if show_full_activity and account_activity_pagination.total_pages > 1 %}
-              <div class="d-flex justify-content-between align-items-center mt-2">
-                <div class="small text-muted">Page {{ account_activity_pagination.current_page }} of {{ account_activity_pagination.total_pages }}</div>
-                <div class="d-flex gap-2">
-                  {% if account_activity_pagination.has_prev %}
-                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('auth.account', activity_view='full', activity_page=account_activity_pagination.current_page - 1) }}">Prev</a>
+            {% if show_full_activity %}
+              <div class="mt-2">
+                <div class="small text-muted mb-2">Full History</div>
+                {% if full_activity_rows %}
+                  <div class="list-group">
+                    {% for row in full_activity_rows %}
+                      <div class="list-group-item px-2 py-2">
+                        <div class="small fw-semibold">{{ row.type_meta.text }}: {{ row.detail_text }}</div>
+                        <div class="text-muted small">{{ row.venue_name }} - {{ row.item_name }}</div>
+                        <div class="text-muted small">{{ row.changed_at_text }}</div>
+                      </div>
+                    {% endfor %}
+                  </div>
+                  {% if full_activity_pagination and full_activity_pagination.total_pages > 1 %}
+                    <div class="d-flex justify-content-between align-items-center mt-2">
+                      <div class="small text-muted">Page {{ full_activity_pagination.current_page }} of {{ full_activity_pagination.total_pages }}</div>
+                      <div class="d-flex gap-2">
+                        {% if full_activity_pagination.has_prev %}
+                          <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('auth.account', activity_view='full', activity_page=full_activity_pagination.current_page - 1) }}">Prev</a>
+                        {% endif %}
+                        {% if full_activity_pagination.has_next %}
+                          <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('auth.account', activity_view='full', activity_page=full_activity_pagination.current_page + 1) }}">Next</a>
+                        {% endif %}
+                      </div>
+                    </div>
                   {% endif %}
-                  {% if account_activity_pagination.has_next %}
-                    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('auth.account', activity_view='full', activity_page=account_activity_pagination.current_page + 1) }}">Next</a>
-                  {% endif %}
+                {% else %}
+                  <div class="text-muted small">No full activity history yet.</div>
                 </div>
+                {% endif %}
               </div>
             {% endif %}
           {% else %}
