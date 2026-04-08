@@ -33,6 +33,8 @@ ACTIVITY_TYPE_META = {
     },
 }
 
+ACTIVITY_SORT_OPTIONS = {"newest", "oldest", "venue", "item", "actor", "type"}
+
 
 def normalize_status(status):
     value = (status or "").strip().lower()
@@ -78,6 +80,13 @@ def normalize_activity_type(value):
     normalized = (value or "").strip().lower()
     if normalized not in ACTIVITY_TYPE_META:
         return "all"
+    return normalized
+
+
+def normalize_activity_sort(value):
+    normalized = (value or "newest").strip().lower()
+    if normalized not in ACTIVITY_SORT_OPTIONS:
+        return "newest"
     return normalized
 
 
@@ -411,28 +420,152 @@ def build_activity_page(
     }
 
 
+def parse_activity_request_args(args):
+    activity_search = (args.get("activity_q", "") or "").strip()
+    activity_type = normalize_activity_type(args.get("activity_type", "all"))
+    activity_sort = normalize_activity_sort(args.get("activity_sort", "newest"))
+    activity_start_date = parse_activity_date(args.get("activity_start", ""))
+    activity_end_date = parse_activity_date(args.get("activity_end", ""))
+    activity_start_date, activity_end_date = normalize_activity_date_range(
+        activity_start_date, activity_end_date
+    )
+    try:
+        activity_page = max(int(args.get("activity_page", "1")), 1)
+    except ValueError:
+        activity_page = 1
+
+    return {
+        "search": activity_search,
+        "type": activity_type,
+        "sort": activity_sort,
+        "start_date": activity_start_date,
+        "end_date": activity_end_date,
+        "page": activity_page,
+    }
+
+
+def build_activity_base_params(activity_filters):
+    params = {"tab": "activity"}
+    if activity_filters["search"]:
+        params["activity_q"] = activity_filters["search"]
+    if activity_filters["type"] != "all":
+        params["activity_type"] = activity_filters["type"]
+    if activity_filters["sort"] != "newest":
+        params["activity_sort"] = activity_filters["sort"]
+    if activity_filters["start_date"]:
+        params["activity_start"] = activity_filters["start_date"].isoformat()
+    if activity_filters["end_date"]:
+        params["activity_end"] = activity_filters["end_date"].isoformat()
+    return params
+
+
+def build_activity_pagination(activity_page_data, activity_filters):
+    activity_base_params = build_activity_base_params(activity_filters)
+
+    activity_prev_url = None
+    if activity_page_data["has_prev"]:
+        activity_prev_url = url_for(
+            "main.dashboard",
+            **activity_base_params,
+            activity_page=activity_page_data["current_page"] - 1,
+        )
+
+    activity_next_url = None
+    if activity_page_data["has_next"]:
+        activity_next_url = url_for(
+            "main.dashboard",
+            **activity_base_params,
+            activity_page=activity_page_data["current_page"] + 1,
+        )
+
+    return {
+        "page_size": activity_page_data["page_size"],
+        "current_page": activity_page_data["current_page"],
+        "total_pages": activity_page_data["total_pages"],
+        "total_count": activity_page_data["total_count"],
+        "showing_from": activity_page_data["showing_from"],
+        "showing_to": activity_page_data["showing_to"],
+        "has_prev": activity_page_data["has_prev"],
+        "has_next": activity_page_data["has_next"],
+        "prev_url": activity_prev_url,
+        "next_url": activity_next_url,
+    }
+
+
+def serialize_activity_filters(activity_filters):
+    return {
+        "search": activity_filters["search"],
+        "type": activity_filters["type"],
+        "sort": activity_filters["sort"],
+        "start_date": activity_filters["start_date"].isoformat() if activity_filters["start_date"] else "",
+        "end_date": activity_filters["end_date"].isoformat() if activity_filters["end_date"] else "",
+    }
+
+
 def build_venue_rows(include_inactive=False):
     q = Venue.query
     if not include_inactive:
         q = q.filter(Venue.active == True)
     venues = q.order_by(Venue.name.asc()).all()
+    if not venues:
+        return []
+
+    venue_ids = [v.id for v in venues]
+    tracked_totals = {
+        row.venue_id: row.total_tracked
+        for row in (
+            db.session.query(
+                VenueItem.venue_id.label("venue_id"),
+                func.count(VenueItem.item_id).label("total_tracked"),
+            )
+            .join(Item, Item.id == VenueItem.item_id)
+            .filter(
+                VenueItem.venue_id.in_(venue_ids),
+                VenueItem.active == True,
+                Item.active == True,
+            )
+            .group_by(VenueItem.venue_id)
+            .all()
+        )
+    }
+
+    latest_check_sq = (
+        db.session.query(
+            Check.venue_id.label("venue_id"),
+            func.max(Check.id).label("latest_check_id"),
+        )
+        .filter(Check.venue_id.in_(venue_ids))
+        .group_by(Check.venue_id)
+        .subquery()
+    )
+
+    latest_status_counts = {}
+    for row in (
+        db.session.query(
+            latest_check_sq.c.venue_id.label("venue_id"),
+            CheckLine.status.label("status"),
+            func.count(CheckLine.id).label("status_count"),
+        )
+        .join(CheckLine, CheckLine.check_id == latest_check_sq.c.latest_check_id)
+        .join(
+            VenueItem,
+            and_(
+                VenueItem.venue_id == latest_check_sq.c.venue_id,
+                VenueItem.item_id == CheckLine.item_id,
+                VenueItem.active == True,
+            ),
+        )
+        .join(Item, Item.id == VenueItem.item_id)
+        .filter(Item.active == True)
+        .group_by(latest_check_sq.c.venue_id, CheckLine.status)
+        .all()
+    ):
+        latest_status_counts.setdefault(row.venue_id, {})[normalize_status(row.status)] = row.status_count
+
     venue_rows = []
 
     for v in venues:
-        tracked_item_ids = [
-            r[0] for r in (
-                db.session.query(VenueItem.item_id)
-                .join(Item, Item.id == VenueItem.item_id)
-                .filter(
-                    VenueItem.venue_id == v.id,
-                    VenueItem.active == True,
-                    Item.active == True
-                )
-                .all()
-            )
-        ]
-
-        total_tracked = len(tracked_item_ids)
+        total_tracked = tracked_totals.get(v.id, 0)
         counts = {"good": 0, "ok": 0, "low": 0, "out": 0, "not_checked": 0}
 
         if total_tracked == 0:
@@ -445,30 +578,13 @@ def build_venue_rows(include_inactive=False):
             venue_rows.append({"venue": v, "badge": badge, "tooltip": tooltip})
             continue
 
-        latest_check_id = (
-            db.session.query(func.max(Check.id))
-            .filter(Check.venue_id == v.id)
-            .scalar()
-        )
-
-        if latest_check_id is None:
+        venue_status_counts = latest_status_counts.get(v.id)
+        if not venue_status_counts:
             counts["not_checked"] = total_tracked
         else:
-            rows = (
-                db.session.query(CheckLine.status, func.count(CheckLine.id))
-                .filter(
-                    CheckLine.check_id == latest_check_id,
-                    CheckLine.item_id.in_(tracked_item_ids)
-                )
-                .group_by(CheckLine.status)
-                .all()
-            )
-            for status, c in rows:
-                status = (status or "").strip().lower()
-                if status == "-":
-                    status = "not_checked"
+            for status, count in venue_status_counts.items():
                 if status in counts:
-                    counts[status] = c
+                    counts[status] = count
 
             counted = sum(counts.values())
             if counted < total_tracked:
@@ -677,20 +793,7 @@ def dashboard():
     if active_tab not in {"venues", "restocking", "activity"}:
         active_tab = "venues"
 
-    activity_search = (request.args.get("activity_q", "") or "").strip()
-    activity_type = normalize_activity_type(request.args.get("activity_type", "all"))
-    activity_sort = (request.args.get("activity_sort", "newest") or "newest").strip().lower()
-    activity_start_date = parse_activity_date(request.args.get("activity_start", ""))
-    activity_end_date = parse_activity_date(request.args.get("activity_end", ""))
-    activity_start_date, activity_end_date = normalize_activity_date_range(
-        activity_start_date, activity_end_date
-    )
-    try:
-        activity_page = max(int(request.args.get("activity_page", "1")), 1)
-    except ValueError:
-        activity_page = 1
-    if activity_sort not in {"newest", "oldest", "venue", "item", "actor", "type"}:
-        activity_sort = "newest"
+    activity_filters = parse_activity_request_args(request.args)
 
     restock_status_submitted = "restock_status_submitted" in request.args
     restock_item_submitted = "restock_item_submitted" in request.args
@@ -757,42 +860,32 @@ def dashboard():
     if activity_params_seen and requested_tab is None:
         active_tab = "activity"
 
-    activity_page_data = build_activity_page(
-        search=activity_search,
-        activity_type=activity_type,
-        start_date=activity_start_date,
-        end_date=activity_end_date,
-        sort=activity_sort,
-        page=activity_page,
-    )
-
-    activity_base_params = {"tab": "activity"}
-    if activity_search:
-        activity_base_params["activity_q"] = activity_search
-    if activity_type != "all":
-        activity_base_params["activity_type"] = activity_type
-    if activity_sort != "newest":
-        activity_base_params["activity_sort"] = activity_sort
-    if activity_start_date:
-        activity_base_params["activity_start"] = activity_start_date.isoformat()
-    if activity_end_date:
-        activity_base_params["activity_end"] = activity_end_date.isoformat()
-
-    activity_prev_url = None
-    if activity_page_data["has_prev"]:
-        activity_prev_url = url_for(
-            "main.dashboard",
-            **activity_base_params,
-            activity_page=activity_page_data["current_page"] - 1,
+    should_load_activity = active_tab == "activity" or activity_params_seen
+    if should_load_activity:
+        activity_page_data = build_activity_page(
+            search=activity_filters["search"],
+            activity_type=activity_filters["type"],
+            start_date=activity_filters["start_date"],
+            end_date=activity_filters["end_date"],
+            sort=activity_filters["sort"],
+            page=activity_filters["page"],
         )
-
-    activity_next_url = None
-    if activity_page_data["has_next"]:
-        activity_next_url = url_for(
-            "main.dashboard",
-            **activity_base_params,
-            activity_page=activity_page_data["current_page"] + 1,
-        )
+        activity_rows = activity_page_data["rows"]
+        activity_pagination = build_activity_pagination(activity_page_data, activity_filters)
+    else:
+        activity_rows = []
+        activity_pagination = {
+            "page_size": ACTIVITY_PAGE_SIZE,
+            "current_page": 1,
+            "total_pages": 1,
+            "total_count": 0,
+            "showing_from": 0,
+            "showing_to": 0,
+            "has_prev": False,
+            "has_next": False,
+            "prev_url": None,
+            "next_url": None,
+        }
 
     initial_restock_page = build_restock_rows(
         statuses=restock_statuses if restock_status_submitted else None,
@@ -874,26 +967,10 @@ def dashboard():
         restock_page_size=RESTOCK_PAGE_SIZE,
         restock_total_count=restock_total_count,
         restock_has_more=restock_has_more,
-        activity_rows=activity_page_data["rows"],
-        activity_filters={
-            "search": activity_search,
-            "type": activity_type,
-            "sort": activity_sort,
-            "start_date": activity_start_date.isoformat() if activity_start_date else "",
-            "end_date": activity_end_date.isoformat() if activity_end_date else "",
-        },
-        activity_pagination={
-            "page_size": activity_page_data["page_size"],
-            "current_page": activity_page_data["current_page"],
-            "total_pages": activity_page_data["total_pages"],
-            "total_count": activity_page_data["total_count"],
-            "showing_from": activity_page_data["showing_from"],
-            "showing_to": activity_page_data["showing_to"],
-            "has_prev": activity_page_data["has_prev"],
-            "has_next": activity_page_data["has_next"],
-            "prev_url": activity_prev_url,
-            "next_url": activity_next_url,
-        },
+        activity_rows=activity_rows,
+        activity_loaded=should_load_activity,
+        activity_filters=serialize_activity_filters(activity_filters),
+        activity_pagination=activity_pagination,
         restock_filters={
             "statuses": restock_statuses,
             "item_ids": restock_item_ids,
@@ -901,6 +978,27 @@ def dashboard():
             "search": restock_search,
             "sort": restock_sort,
         },
+    )
+
+
+@main_bp.route("/dashboard/activity_rows")
+@roles_required("viewer", "staff", "admin")
+def dashboard_activity_rows():
+    activity_filters = parse_activity_request_args(request.args)
+    activity_page_data = build_activity_page(
+        search=activity_filters["search"],
+        activity_type=activity_filters["type"],
+        start_date=activity_filters["start_date"],
+        end_date=activity_filters["end_date"],
+        sort=activity_filters["sort"],
+        page=activity_filters["page"],
+    )
+    return jsonify(
+        {
+            "rows": activity_page_data["rows"],
+            "filters": serialize_activity_filters(activity_filters),
+            "pagination": build_activity_pagination(activity_page_data, activity_filters),
+        }
     )
 
 

@@ -1417,10 +1417,11 @@
   </div>
 
   <!-- Activity TAB -->
-  <div class="tab-pane fade {{ 'show active' if active_tab == 'activity' else '' }}" id="activity" role="tabpanel">
+  <div class="tab-pane fade {{ 'show active' if active_tab == 'activity' else '' }}" id="activity" role="tabpanel" data-activity-loaded="{{ 'true' if activity_loaded else 'false' }}">
     <div class="card mb-3">
       <form method="get" action="{{ url_for('main.dashboard') }}" id="activityForm" class="card-body d-flex flex-column gap-3">
         <input type="hidden" name="tab" value="activity">
+        <input type="hidden" name="activity_page" id="activityPageField" value="{{ activity_pagination.current_page }}">
         <div class="dashboard-toolbar-inline">
           <div class="activity-toolbar">
             <div class="activity-toolbar-row activity-toolbar-row-top">
@@ -1495,6 +1496,44 @@
           {% else %}
             0 results
           {% endif %}
+        </div>
+        <div id="activityErrorState" class="text-danger small mb-2 d-none">
+          Could not update activity results.
+          <button id="activityRetryButton" type="button" class="btn btn-link btn-sm p-0 align-baseline">Retry</button>
+        </div>
+        <div id="activityPaginationTop" class="activity-pagination mb-3 {{ 'd-none' if activity_pagination.total_pages <= 1 else '' }}">
+          <a
+            id="activityPrevLinkTop"
+            class="btn btn-outline-secondary restock-toolbar-btn{{ ' disabled' if not activity_pagination.has_prev else '' }}"
+            href="{{ activity_pagination.prev_url or '#' }}"
+            aria-disabled="{{ 'false' if activity_pagination.has_prev else 'true' }}"
+            {% if not activity_pagination.has_prev %}tabindex="-1"{% endif %}
+          >
+            Previous
+          </a>
+          <div class="activity-pagination-meta activity-page-inline-form text-muted small">
+            <span>Page</span>
+            <input
+              id="activityPageJumpInputTop"
+              type="number"
+              class="form-control restock-compact-control activity-page-inline-input"
+              min="1"
+              max="{{ activity_pagination.total_pages }}"
+              step="1"
+              value="{{ activity_pagination.current_page }}"
+              aria-label="Jump to activity page from top pagination"
+            >
+            <span id="activityPageTotalTop">of {{ activity_pagination.total_pages }}</span>
+          </div>
+          <a
+            id="activityNextLinkTop"
+            class="btn btn-outline-secondary restock-toolbar-btn{{ ' disabled' if not activity_pagination.has_next else '' }}"
+            href="{{ activity_pagination.next_url or '#' }}"
+            aria-disabled="{{ 'false' if activity_pagination.has_next else 'true' }}"
+            {% if not activity_pagination.has_next %}tabindex="-1"{% endif %}
+          >
+            Next
+          </a>
         </div>
 
         <div class="d-md-none d-flex flex-column gap-2" id="activityMobileList">
@@ -1576,7 +1615,7 @@
                 <th style="width: 170px;">Changed By</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody id="activityTableBody">
               {% for row in activity_rows %}
                 <tr class="activity-table-row">
                   <td class="text-nowrap">{{ row.changed_at_text }}</td>
@@ -1629,55 +1668,40 @@
           </table>
         </div>
 
-        {% if activity_pagination.total_pages > 1 %}
-          <div class="activity-pagination mt-3">
-            {% if activity_pagination.has_prev %}
-              <a
-                class="btn btn-outline-secondary restock-toolbar-btn"
-                href="{{ activity_pagination.prev_url }}"
-              >
-                Previous
-              </a>
-            {% else %}
-              <span class="btn btn-outline-secondary restock-toolbar-btn disabled" aria-disabled="true">
-                Previous
-              </span>
-            {% endif %}
-            <form method="get" action="{{ url_for('main.dashboard') }}" id="activityPageJumpForm" class="activity-pagination-meta activity-page-inline-form text-muted small">
-              <input type="hidden" name="tab" value="activity">
-              <input type="hidden" name="activity_q" value="{{ activity_filters.search }}">
-              <input type="hidden" name="activity_start" value="{{ activity_filters.start_date }}">
-              <input type="hidden" name="activity_end" value="{{ activity_filters.end_date }}">
-              <input type="hidden" name="activity_type" value="{{ activity_filters.type }}">
-              <input type="hidden" name="activity_sort" value="{{ activity_filters.sort }}">
-              <span>Page</span>
-              <input
-                id="activityPageJumpInput"
-                name="activity_page"
-                type="number"
-                class="form-control restock-compact-control activity-page-inline-input"
-                min="1"
-                max="{{ activity_pagination.total_pages }}"
-                step="1"
-                value="{{ activity_pagination.current_page }}"
-                aria-label="Jump to activity page"
-              >
-              <span>of {{ activity_pagination.total_pages }}</span>
-            </form>
-            {% if activity_pagination.has_next %}
-              <a
-                class="btn btn-outline-secondary restock-toolbar-btn"
-                href="{{ activity_pagination.next_url }}"
-              >
-                Next
-              </a>
-            {% else %}
-              <span class="btn btn-outline-secondary restock-toolbar-btn disabled" aria-disabled="true">
-                Next
-              </span>
-            {% endif %}
+        <div id="activityPagination" class="activity-pagination mt-3 {{ 'd-none' if activity_pagination.total_pages <= 1 else '' }}">
+          <a
+            id="activityPrevLink"
+            class="btn btn-outline-secondary restock-toolbar-btn{{ ' disabled' if not activity_pagination.has_prev else '' }}"
+            href="{{ activity_pagination.prev_url or '#' }}"
+            aria-disabled="{{ 'false' if activity_pagination.has_prev else 'true' }}"
+            {% if not activity_pagination.has_prev %}tabindex="-1"{% endif %}
+          >
+            Previous
+          </a>
+          <div class="activity-pagination-meta activity-page-inline-form text-muted small">
+            <span>Page</span>
+            <input
+              id="activityPageJumpInput"
+              type="number"
+              class="form-control restock-compact-control activity-page-inline-input"
+              min="1"
+              max="{{ activity_pagination.total_pages }}"
+              step="1"
+              value="{{ activity_pagination.current_page }}"
+              aria-label="Jump to activity page"
+            >
+            <span id="activityPageTotal">of {{ activity_pagination.total_pages }}</span>
           </div>
-        {% endif %}
+          <a
+            id="activityNextLink"
+            class="btn btn-outline-secondary restock-toolbar-btn{{ ' disabled' if not activity_pagination.has_next else '' }}"
+            href="{{ activity_pagination.next_url or '#' }}"
+            aria-disabled="{{ 'false' if activity_pagination.has_next else 'true' }}"
+            {% if not activity_pagination.has_next %}tabindex="-1"{% endif %}
+          >
+            Next
+          </a>
+        </div>
       </div>
     </div>
 
@@ -1689,10 +1713,59 @@
         const activityEndDate = document.getElementById("activityEndDate");
         const activityTypeFilter = document.getElementById("activityTypeFilter");
         const activitySort = document.getElementById("activitySort");
-        const activityPageJumpForm = document.getElementById("activityPageJumpForm");
+        const activityPane = document.getElementById("activity");
+        const activityTabButton = document.getElementById("activity-tab");
+        const activityPageField = document.getElementById("activityPageField");
         const activityPageJumpInput = document.getElementById("activityPageJumpInput");
+        const activityResultCount = document.getElementById("activityResultCount");
+        const activityErrorState = document.getElementById("activityErrorState");
+        const activityRetryButton = document.getElementById("activityRetryButton");
+        const activityMobileList = document.getElementById("activityMobileList");
+        const activityMobileEmpty = document.getElementById("activityMobileEmpty");
+        const activityTableBody = document.getElementById("activityTableBody");
+        const activityTableEmpty = document.getElementById("activityTableEmpty");
+        const activityPaginationTop = document.getElementById("activityPaginationTop");
+        const activityPrevLinkTop = document.getElementById("activityPrevLinkTop");
+        const activityPagination = document.getElementById("activityPagination");
+        const activityPrevLink = document.getElementById("activityPrevLink");
+        const activityNextLinkTop = document.getElementById("activityNextLinkTop");
+        const activityNextLink = document.getElementById("activityNextLink");
+        const activityPageJumpInputTop = document.getElementById("activityPageJumpInputTop");
+        const activityPageTotalTop = document.getElementById("activityPageTotalTop");
+        const activityPageTotal = document.getElementById("activityPageTotal");
+        const activityApiUrl = "{{ url_for('main.dashboard_activity_rows') }}";
+        const activityStatusMeta = {{ restock_status_options|tojson }};
+        const activitySearchDebounceMs = 300;
+        let activityRefreshController = null;
+        let activitySearchDebounceHandle = null;
+        let activityHasLoaded = activityPane?.dataset.activityLoaded === "true";
 
-        if (!activityForm || !activitySearch || !activityStartDate || !activityEndDate || !activityTypeFilter || !activitySort) return;
+        if (
+          !activityForm ||
+          !activitySearch ||
+          !activityStartDate ||
+          !activityEndDate ||
+          !activityTypeFilter ||
+          !activitySort ||
+          !activityPane ||
+          !activityTabButton ||
+          !activityPageField ||
+          !activityPageJumpInput ||
+          !activityResultCount ||
+          !activityMobileList ||
+          !activityMobileEmpty ||
+          !activityTableBody ||
+          !activityTableEmpty ||
+          !activityPaginationTop ||
+          !activityPrevLinkTop ||
+          !activityPagination ||
+          !activityPrevLink ||
+          !activityNextLinkTop ||
+          !activityNextLink ||
+          !activityPageJumpInputTop ||
+          !activityPageTotalTop ||
+          !activityPageTotal
+        ) return;
 
         function normalizeDateRangeFields() {
           const startValue = activityStartDate.value || "";
@@ -1703,48 +1776,428 @@
           }
         }
 
-        function submitActivityForm() {
-          normalizeDateRangeFields();
-          activityForm.requestSubmit();
+        function setActivityError(isError) {
+          if (activityErrorState) {
+            activityErrorState.classList.toggle("d-none", !isError);
+          }
         }
 
+        function forcePageTopScroll() {
+          const root = document.scrollingElement || document.documentElement;
+          const resetScroll = () => {
+            window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+            if (root) root.scrollTop = 0;
+            document.documentElement.scrollTop = 0;
+            document.body.scrollTop = 0;
+          };
+
+          resetScroll();
+          window.requestAnimationFrame(resetScroll);
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(resetScroll);
+          });
+          window.setTimeout(resetScroll, 0);
+          window.setTimeout(resetScroll, 120);
+          window.setTimeout(resetScroll, 260);
+        }
+
+        function releaseBottomPagerFocus(triggerElement = null) {
+          if (triggerElement && typeof triggerElement.blur === "function") {
+            triggerElement.blur();
+          }
+
+          const activeElement = document.activeElement;
+          if (
+            activeElement &&
+            activityPagination.contains(activeElement) &&
+            typeof activeElement.blur === "function"
+          ) {
+            activeElement.blur();
+          }
+        }
+
+        function setPaginationLinkState(link, isEnabled, href) {
+          if (!link) return;
+          link.href = isEnabled && href ? href : "#";
+          link.classList.toggle("disabled", !isEnabled);
+          link.setAttribute("aria-disabled", isEnabled ? "false" : "true");
+          if (!isEnabled) link.setAttribute("tabindex", "-1");
+          else link.removeAttribute("tabindex");
+        }
+
+        function updateActivityPaginationUi(pagination) {
+          const totalPages = Number(pagination?.total_pages || 1);
+          const currentPage = Number(pagination?.current_page || 1);
+          activityPaginationTop.classList.toggle("d-none", totalPages <= 1);
+          activityPagination.classList.toggle("d-none", totalPages <= 1);
+          setPaginationLinkState(activityPrevLinkTop, Boolean(pagination?.has_prev), pagination?.prev_url);
+          setPaginationLinkState(activityPrevLink, Boolean(pagination?.has_prev), pagination?.prev_url);
+          setPaginationLinkState(activityNextLinkTop, Boolean(pagination?.has_next), pagination?.next_url);
+          setPaginationLinkState(activityNextLink, Boolean(pagination?.has_next), pagination?.next_url);
+          activityPageJumpInputTop.min = "1";
+          activityPageJumpInputTop.max = String(totalPages);
+          activityPageJumpInputTop.value = String(currentPage);
+          activityPageJumpInput.min = "1";
+          activityPageJumpInput.max = String(totalPages);
+          activityPageJumpInput.value = String(currentPage);
+          activityPageTotalTop.textContent = `of ${totalPages}`;
+          activityPageTotal.textContent = `of ${totalPages}`;
+          activityPageField.value = String(currentPage);
+        }
+
+        function updateActivityResultCount(pagination) {
+          const totalCount = Number(pagination?.total_count || 0);
+          if (!totalCount) {
+            activityResultCount.textContent = "0 results";
+            return;
+          }
+          const showingFrom = Number(pagination?.showing_from || 0);
+          const showingTo = Number(pagination?.showing_to || 0);
+          const label = totalCount === 1 ? "result" : "results";
+          activityResultCount.textContent = `Showing ${showingFrom}-${showingTo} of ${totalCount} ${label}`;
+        }
+
+        function updateActivityUrl() {
+          normalizeDateRangeFields();
+          const nextUrl = new URL(window.location.href);
+          nextUrl.searchParams.set("tab", "activity");
+
+          const nextSearch = (activitySearch.value || "").trim();
+          if (nextSearch) nextUrl.searchParams.set("activity_q", nextSearch);
+          else nextUrl.searchParams.delete("activity_q");
+
+          if (activityStartDate.value) nextUrl.searchParams.set("activity_start", activityStartDate.value);
+          else nextUrl.searchParams.delete("activity_start");
+
+          if (activityEndDate.value) nextUrl.searchParams.set("activity_end", activityEndDate.value);
+          else nextUrl.searchParams.delete("activity_end");
+
+          if ((activityTypeFilter.value || "all") !== "all") {
+            nextUrl.searchParams.set("activity_type", activityTypeFilter.value);
+          } else {
+            nextUrl.searchParams.delete("activity_type");
+          }
+
+          if ((activitySort.value || "newest") !== "newest") {
+            nextUrl.searchParams.set("activity_sort", activitySort.value);
+          } else {
+            nextUrl.searchParams.delete("activity_sort");
+          }
+
+          const nextPage = Math.max(Number(activityPageField.value || "1"), 1);
+          if (nextPage > 1) nextUrl.searchParams.set("activity_page", String(nextPage));
+          else nextUrl.searchParams.delete("activity_page");
+
+          window.history.replaceState({}, "", nextUrl);
+          window.syncDashboardActionUrls?.();
+        }
+
+        function buildActivityRequestUrl() {
+          normalizeDateRangeFields();
+          const nextUrl = new URL(activityApiUrl, window.location.origin);
+          const formData = new FormData(activityForm);
+          formData.forEach((value, key) => {
+            nextUrl.searchParams.append(key, value.toString());
+          });
+          return nextUrl;
+        }
+
+        function createStatusPill(statusKey, labelText) {
+          const pill = document.createElement("span");
+          pill.className = `status-pill ${statusKey === "good" ? "status-good" : ""}${statusKey === "ok" ? " status-ok" : ""}${statusKey === "low" ? " status-low" : ""}${statusKey === "out" ? " status-out" : ""}${statusKey === "not_checked" ? " status-na" : ""}`.trim();
+          const icon = document.createElement("i");
+          icon.className = `bi ${activityStatusMeta[statusKey]?.icon_class || ""}`.trim();
+          pill.appendChild(icon);
+          pill.append(` ${labelText}`);
+          return pill;
+        }
+
+        function createActivityTypeBadge(typeMeta) {
+          const badge = document.createElement("span");
+          badge.className = `activity-type-badge ${typeMeta?.badge_class || ""}`.trim();
+          const icon = document.createElement("i");
+          icon.className = `bi ${typeMeta?.icon_class || ""}`.trim();
+          badge.appendChild(icon);
+          badge.append(` ${typeMeta?.text || ""}`);
+          return badge;
+        }
+
+        function createValueChip(textValue, isEmpty = false) {
+          const chip = document.createElement("span");
+          chip.className = `activity-value-chip${isEmpty ? " activity-value-empty" : ""}`;
+          chip.textContent = textValue || "";
+          return chip;
+        }
+
+        function createActivityChangeNode(row, justifyEnd = false) {
+          const wrap = document.createElement("span");
+          wrap.className = `activity-change${justifyEnd ? " justify-content-end" : ""}`;
+
+          if (row.type_key === "status") {
+            if (row.old_status_key) {
+              wrap.appendChild(createStatusPill(row.old_status_key, row.old_value_text));
+            } else {
+              wrap.appendChild(createValueChip(row.old_value_text, true));
+            }
+            const arrow = document.createElement("i");
+            arrow.className = "bi bi-arrow-right activity-change-arrow";
+            wrap.appendChild(arrow);
+            wrap.appendChild(createStatusPill(row.new_status_key, row.new_value_text));
+            return wrap;
+          }
+
+          wrap.appendChild(createValueChip(row.old_value_text, Boolean(row.old_value_missing)));
+          const arrow = document.createElement("i");
+          arrow.className = "bi bi-arrow-right activity-change-arrow";
+          wrap.appendChild(arrow);
+          wrap.appendChild(createValueChip(row.new_value_text));
+          return wrap;
+        }
+
+        function createActivityMobileMetaRow(label, valueNodeOrText) {
+          const row = document.createElement("div");
+          row.className = "activity-mobile-meta-row";
+          const labelSpan = document.createElement("span");
+          labelSpan.className = "activity-mobile-label";
+          labelSpan.textContent = label;
+          const valueSpan = document.createElement("span");
+          valueSpan.className = "activity-mobile-value";
+          if (typeof valueNodeOrText === "string") {
+            valueSpan.textContent = valueNodeOrText;
+          } else if (valueNodeOrText) {
+            valueSpan.appendChild(valueNodeOrText);
+          }
+          row.appendChild(labelSpan);
+          row.appendChild(valueSpan);
+          return row;
+        }
+
+        function createActivityMobileCard(row) {
+          const article = document.createElement("article");
+          article.className = "activity-mobile-card";
+
+          const topRow = document.createElement("div");
+          topRow.className = "d-flex align-items-start justify-content-between gap-2 mb-2";
+          const itemName = document.createElement("div");
+          itemName.className = "activity-mobile-item fw-semibold";
+          itemName.textContent = row.item_name || "";
+          topRow.appendChild(itemName);
+          topRow.appendChild(createActivityTypeBadge(row.type_meta));
+          article.appendChild(topRow);
+
+          const meta = document.createElement("div");
+          meta.className = "activity-mobile-meta";
+          meta.appendChild(createActivityMobileMetaRow("Venue", row.venue_name || ""));
+          meta.appendChild(createActivityMobileMetaRow("Change", createActivityChangeNode(row, true)));
+          meta.appendChild(createActivityMobileMetaRow("Changed by", row.actor_name || ""));
+          meta.appendChild(createActivityMobileMetaRow("When", row.changed_at_text || ""));
+          article.appendChild(meta);
+
+          const detail = document.createElement("div");
+          detail.className = "activity-detail-text mt-2";
+          detail.textContent = row.detail_text || "";
+          article.appendChild(detail);
+          return article;
+        }
+
+        function createActivityTableRow(row) {
+          const tr = document.createElement("tr");
+          tr.className = "activity-table-row";
+
+          const whenTd = document.createElement("td");
+          whenTd.className = "text-nowrap";
+          whenTd.textContent = row.changed_at_text || "";
+
+          const typeTd = document.createElement("td");
+          typeTd.appendChild(createActivityTypeBadge(row.type_meta));
+
+          const venueTd = document.createElement("td");
+          venueTd.textContent = row.venue_name || "";
+
+          const itemTd = document.createElement("td");
+          itemTd.className = "fw-semibold";
+          itemTd.textContent = row.item_name || "";
+
+          const changeTd = document.createElement("td");
+          changeTd.appendChild(createActivityChangeNode(row));
+          const detail = document.createElement("div");
+          detail.className = "activity-detail-text";
+          detail.textContent = row.detail_text || "";
+          changeTd.appendChild(detail);
+
+          const actorTd = document.createElement("td");
+          actorTd.textContent = row.actor_name || "";
+
+          tr.appendChild(whenTd);
+          tr.appendChild(typeTd);
+          tr.appendChild(venueTd);
+          tr.appendChild(itemTd);
+          tr.appendChild(changeTd);
+          tr.appendChild(actorTd);
+          return tr;
+        }
+
+        function renderActivityRows(rows) {
+          while (activityTableBody.firstChild) {
+            activityTableBody.removeChild(activityTableBody.firstChild);
+          }
+          while (activityMobileList.firstChild && activityMobileList.firstChild !== activityMobileEmpty) {
+            activityMobileList.removeChild(activityMobileList.firstChild);
+          }
+
+          rows.forEach((row) => {
+            activityTableBody.appendChild(createActivityTableRow(row));
+            activityMobileList.insertBefore(createActivityMobileCard(row), activityMobileEmpty);
+          });
+
+          const hasRows = rows.length > 0;
+          activityTableEmpty.classList.toggle("d-none", hasRows);
+          activityMobileEmpty.classList.toggle("d-none", hasRows);
+          activityTableBody.appendChild(activityTableEmpty);
+        }
+
+        async function refreshActivityResults({ scrollToTop = false } = {}) {
+          if (activityRefreshController) {
+            activityRefreshController.abort();
+          }
+          const controller = new AbortController();
+          activityRefreshController = controller;
+          setActivityError(false);
+          updateActivityUrl();
+
+          try {
+            const response = await fetch(buildActivityRequestUrl(), {
+              headers: { Accept: "application/json" },
+              signal: controller.signal,
+            });
+            if (!response.ok) {
+              throw new Error(`Failed to refresh activity rows (${response.status})`);
+            }
+            const payload = await response.json();
+            const rows = Array.isArray(payload.rows) ? payload.rows : [];
+            const pagination = payload.pagination || {};
+
+            renderActivityRows(rows);
+            updateActivityResultCount(pagination);
+            updateActivityPaginationUi(pagination);
+            activityHasLoaded = true;
+            activityPane.dataset.activityLoaded = "true";
+            if (scrollToTop) {
+              forcePageTopScroll();
+            }
+          } catch (error) {
+            if (error?.name === "AbortError") return;
+            setActivityError(true);
+          } finally {
+            if (activityRefreshController === controller) {
+              activityRefreshController = null;
+            }
+          }
+        }
+
+        function queueActivityRefresh({ resetPage = true, immediate = false } = {}) {
+          if (resetPage) {
+            activityPageField.value = "1";
+          }
+          if (activitySearchDebounceHandle) {
+            window.clearTimeout(activitySearchDebounceHandle);
+            activitySearchDebounceHandle = null;
+          }
+          if (immediate) {
+            refreshActivityResults();
+            return;
+          }
+          activitySearchDebounceHandle = window.setTimeout(() => {
+            refreshActivityResults();
+          }, activitySearchDebounceMs);
+        }
+
+        function jumpToActivityPage(nextPage, { scrollToTop = false, triggerElement = null } = {}) {
+          const totalPages = Number(activityPageJumpInput.max || "1");
+          const normalizedPage = Math.min(Math.max(Math.trunc(nextPage || 1), 1), totalPages);
+          activityPageField.value = String(normalizedPage);
+          activityPageJumpInputTop.value = String(normalizedPage);
+          activityPageJumpInput.value = String(normalizedPage);
+          if (scrollToTop) {
+            releaseBottomPagerFocus(triggerElement);
+            forcePageTopScroll();
+          }
+          refreshActivityResults({ scrollToTop });
+        }
+
+        activityForm.addEventListener("submit", (event) => {
+          event.preventDefault();
+          refreshActivityResults();
+        });
+        activitySearch.addEventListener("input", () => {
+          queueActivityRefresh({ resetPage: true, immediate: false });
+        });
         activitySearch.addEventListener("keydown", (event) => {
           if (event.key !== "Enter") return;
           event.preventDefault();
-          submitActivityForm();
-        });
-        activitySearch.addEventListener("change", () => {
-          submitActivityForm();
+          queueActivityRefresh({ resetPage: true, immediate: true });
         });
         activityStartDate.addEventListener("change", () => {
-          submitActivityForm();
+          queueActivityRefresh({ resetPage: true, immediate: true });
         });
         activityEndDate.addEventListener("change", () => {
-          submitActivityForm();
+          queueActivityRefresh({ resetPage: true, immediate: true });
         });
         activityTypeFilter.addEventListener("change", () => {
-          submitActivityForm();
+          queueActivityRefresh({ resetPage: true, immediate: true });
         });
         activitySort.addEventListener("change", () => {
-          submitActivityForm();
+          queueActivityRefresh({ resetPage: true, immediate: true });
         });
 
-        if (activityPageJumpForm && activityPageJumpInput) {
-          activityPageJumpInput.addEventListener("change", () => {
-            activityPageJumpForm.requestSubmit();
-          });
-          activityPageJumpForm.addEventListener("submit", (event) => {
-            const minPage = Number(activityPageJumpInput.min || "1");
-            const maxPage = Number(activityPageJumpInput.max || activityPageJumpInput.value || "1");
-            const requestedPage = Number(activityPageJumpInput.value || minPage);
+        function bindActivityPageInput(input, options = {}) {
+          input.addEventListener("change", () => {
+            const requestedPage = Number(input.value || "1");
             if (!Number.isFinite(requestedPage)) {
-              activityPageJumpInput.value = String(minPage);
+              input.value = activityPageField.value || "1";
               return;
             }
-            const normalizedPage = Math.min(Math.max(Math.trunc(requestedPage), minPage), maxPage);
-            activityPageJumpInput.value = String(normalizedPage);
+            jumpToActivityPage(requestedPage, { ...options, triggerElement: input });
+          });
+          input.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            const requestedPage = Number(input.value || "1");
+            if (!Number.isFinite(requestedPage)) {
+              input.value = activityPageField.value || "1";
+              return;
+            }
+            jumpToActivityPage(requestedPage, { ...options, triggerElement: input });
           });
         }
+
+        bindActivityPageInput(activityPageJumpInputTop, { scrollToTop: false });
+        bindActivityPageInput(activityPageJumpInput, { scrollToTop: true });
+
+        [activityPrevLinkTop, activityPrevLink, activityNextLinkTop, activityNextLink].forEach((link) => {
+          link.addEventListener("click", (event) => {
+            if (link.classList.contains("disabled")) {
+              event.preventDefault();
+              return;
+            }
+            event.preventDefault();
+            const pageDelta = link === activityPrevLinkTop || link === activityPrevLink ? -1 : 1;
+            const currentPage = Number(activityPageField.value || "1");
+            const scrollToTop = link === activityPrevLink || link === activityNextLink;
+            jumpToActivityPage(currentPage + pageDelta, { scrollToTop, triggerElement: link });
+          });
+        });
+
+        if (activityRetryButton) {
+          activityRetryButton.addEventListener("click", () => {
+            refreshActivityResults();
+          });
+        }
+
+        activityTabButton.addEventListener("shown.bs.tab", () => {
+          if (activityHasLoaded) return;
+          refreshActivityResults();
+        });
       })();
     </script>
   </div>
