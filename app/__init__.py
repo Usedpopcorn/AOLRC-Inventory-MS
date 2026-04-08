@@ -53,6 +53,16 @@ def create_app():
     app.config.from_object(Config)
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", app.config["SECRET_KEY"])
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", app.config["SQLALCHEMY_DATABASE_URI"])
+    try:
+        max_content_length = int(os.getenv("MAX_CONTENT_LENGTH", str(2 * 1024 * 1024)))
+    except ValueError:
+        max_content_length = 2 * 1024 * 1024
+    app.config["MAX_CONTENT_LENGTH"] = max_content_length
+    app.config["AVATAR_UPLOAD_DIR"] = os.getenv(
+        "AVATAR_UPLOAD_DIR",
+        os.path.join(app.static_folder, "uploads", "avatars"),
+    )
+    app.config["AVATAR_WEB_PREFIX"] = os.getenv("AVATAR_WEB_PREFIX", "uploads/avatars")
     if (
         app.config["SECRET_KEY"] == DEFAULT_SECRET_KEY
         and not app.debug

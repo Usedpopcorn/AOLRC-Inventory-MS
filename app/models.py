@@ -30,6 +30,8 @@ class User(UserMixin, db.Model):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+    avatar_filename = db.Column(db.String(255), nullable=True)
+    avatar_updated_at = db.Column(db.DateTime, nullable=True)
 
     def get_id(self):
         return str(self.id)
