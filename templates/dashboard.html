@@ -158,10 +158,10 @@
               <a
                 class="btn btn-aolrc-primary venue-mobile-action-btn mt-2"
                 data-dashboard-next-link
-                data-base-href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}"
-                href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}"
+                data-base-href="{{ url_for('main.venue_detail', venue_id=v.id) }}"
+                href="{{ url_for('main.venue_detail', venue_id=v.id, next=request.full_path) }}"
               >
-                {{ "View / Update" if current_user.is_staff else "View" }}
+                Open Venue
               </a>
             </article>
           {% endfor %}
@@ -206,9 +206,9 @@
                   <td>
                     <a class="btn btn-aolrc-primary restock-action-btn"
                        data-dashboard-next-link
-                       data-base-href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}"
-                       href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}">
-                      {{ "View / Update" if current_user.is_staff else "View" }}
+                       data-base-href="{{ url_for('main.venue_detail', venue_id=v.id) }}"
+                       href="{{ url_for('main.venue_detail', venue_id=v.id, next=request.full_path) }}">
+                      Open Venue
                     </a>
                   </td>
                 </tr>

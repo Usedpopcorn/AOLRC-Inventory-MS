@@ -6,14 +6,16 @@
     <h1 class="h3 mb-0 fw-bold text-aolrc-purple page-heading">Venues</h1>
   </div>
 
-  <!-- Search + Filters + Add Venue toggle -->
   <div class="card mb-3">
-    <div class="card-body d-flex flex-column flex-md-row gap-2 align-items-stretch align-items-md-center justify-content-between">
-      <div class="d-flex flex-column flex-sm-row gap-2 align-items-stretch align-items-sm-center">
-        <input id="venueSearch" class="form-control" style="max-width: 320px;"
-               placeholder="Search venues...">
-
-        <select id="statusFilter" class="form-select" style="max-width: 220px;">
+    <div class="card-body venue-directory-toolbar">
+      <div class="venue-directory-toolbar-row">
+        <input
+          id="venueSearch"
+          class="form-control restock-compact-control"
+          placeholder="Search venues or notes..."
+          aria-label="Search venues"
+        >
+        <select id="statusFilter" class="form-select restock-compact-control" aria-label="Filter venues by status">
           <option value="all">All Statuses</option>
           <option value="good">Good</option>
           <option value="ok">OK</option>
@@ -21,56 +23,53 @@
           <option value="out">Out</option>
           <option value="not_checked">Not Checked</option>
         </select>
-
-        <select id="venueTypeFilter" class="form-select" style="max-width: 220px;">
+        <select id="venueTypeFilter" class="form-select restock-compact-control" aria-label="Filter venues by type">
           <option value="all">Primary + Other</option>
           <option value="primary">Primary only</option>
           <option value="other">Other only</option>
         </select>
       </div>
-
       {% if current_user.is_admin %}
-        <button class="btn btn-aolrc-accent"
-                data-bs-toggle="collapse" data-bs-target="#addVenueCollapse"
-                aria-expanded="false" aria-controls="addVenueCollapse">
-          Add Venue
-        </button>
+        <div class="venue-directory-toolbar-actions">
+          <button
+            class="btn btn-aolrc-accent restock-compact-control"
+            data-bs-toggle="collapse"
+            data-bs-target="#addVenueCollapse"
+            aria-expanded="false"
+            aria-controls="addVenueCollapse"
+          >
+            Add Venue
+          </button>
+        </div>
       {% endif %}
     </div>
   </div>
 
-  <!-- Collapsible Add Venue form -->
   {% if current_user.is_admin %}
     <div class="collapse mb-4" id="addVenueCollapse">
       <div class="card">
         <div class="card-body">
           <h2 class="h5 mb-2">Add a venue</h2>
-
           <form method="post" class="row g-2 align-items-end">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="col-lg-6">
               <label class="form-label mb-1">Venue name</label>
               <input class="form-control" type="text" name="name" placeholder="e.g., Veda 5">
             </div>
-
             <div class="col-lg-4">
               <label class="form-label mb-1">Venue type</label>
               <select class="form-select" name="is_core">
                 <option value="false" selected>Other (can be deleted later)</option>
                 <option value="true">Primary (cannot be deleted)</option>
-               </select>
+              </select>
             </div>
-
             <div class="col-12">
               <div class="form-text">
-                 Primary venues are protected from deletion; other venues are editable/removable.
-             </div>
-          </div>
-
+                Primary venues are protected from deletion; other venues are editable/removable.
+              </div>
+            </div>
             <div class="col-lg-2">
-              <button class="btn w-100 btn-aolrc-accent">
-                Create
-              </button>
+              <button class="btn w-100 btn-aolrc-accent">Create</button>
             </div>
           </form>
         </div>
@@ -78,27 +77,26 @@
     </div>
   {% endif %}
 
-  <!-- Existing venues table -->
   <div class="card">
     <div class="card-body">
-      <h2 class="h5">Existing venues</h2>
+      <div id="venueResultCount" class="text-muted small mb-3">
+        {{ venue_rows|length }} {{ "result" if venue_rows|length == 1 else "results" }}
+      </div>
 
-      <div class="table-responsive">
-        <table class="table align-middle js-dynamic-zebra" id="venuesListTable">
-          <thead>
-            <tr>
-              <th>Venue</th>
-              <th style="width:220px;">Status</th>
-              <th style="width:180px;">Actions</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {% for row in venue_rows %}
-              {% set v = row.venue %}
-              <tr data-status="{{ row.badge.key }}" data-venue-type="{{ 'primary' if v.is_core else 'other' }}">
-                <td>
-                  <div class="fw-semibold">{{ v.name }}</div>
+      <div id="venueDirectoryGrid" class="venue-directory-grid">
+        {% for row in venue_rows %}
+          {% set v = row.venue %}
+          <article
+            class="venue-directory-card"
+            data-name="{{ v.name|lower }}"
+            data-notes="{{ row.notes_preview|lower }}"
+            data-status="{{ row.badge.key }}"
+            data-venue-type="{{ 'primary' if v.is_core else 'other' }}"
+          >
+            <div class="venue-directory-card-head">
+              <div class="venue-directory-title-wrap">
+                <h2 class="venue-directory-title">{{ v.name }}</h2>
+                <div class="d-flex flex-wrap gap-1">
                   {% if v.is_core %}
                     <span class="badge badge-core">Primary</span>
                   {% else %}
@@ -107,112 +105,152 @@
                   {% if not v.active %}
                     <span class="badge bg-dark">Hidden</span>
                   {% endif %}
-                </td>
+                </div>
+              </div>
+              <div class="venue-freshness-wrap text-end">
+                <div
+                  class="venue-freshness-chip {{ 'venue-freshness-stale' if row.freshness.is_stale else 'venue-freshness-fresh' }}"
+                  title="{{ row.last_updated_text }}"
+                >
+                  <i class="bi bi-clock-history"></i> {{ row.freshness.text }}
+                </div>
+              </div>
+            </div>
 
-                <td>
-                  <span class="status-pill
-                    {{ 'status-good' if row.badge.key == 'good' else '' }}
-                    {{ 'status-ok' if row.badge.key == 'ok' else '' }}
-                    {{ 'status-low' if row.badge.key == 'low' else '' }}
-                    {{ 'status-out' if row.badge.key == 'out' else '' }}
-                    {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
-                    title="{{ row.tooltip }}">
-                    <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
-                  </span>
-                </td>
+            <div class="venue-directory-status-row">
+              <span
+                class="status-pill
+                  {{ 'status-good' if row.badge.key == 'good' else '' }}
+                  {{ 'status-ok' if row.badge.key == 'ok' else '' }}
+                  {{ 'status-low' if row.badge.key == 'low' else '' }}
+                  {{ 'status-out' if row.badge.key == 'out' else '' }}
+                  {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
+                title="{{ row.tooltip }}"
+              >
+                <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
+              </span>
+              <span class="text-muted small">{{ row.total_tracked }} tracked item{{ "" if row.total_tracked == 1 else "s" }}</span>
+            </div>
 
-                <td>
-                  <div class="venue-action-group">
-                    <a class="btn btn-sm btn-aolrc-primary"
-                       href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}">
-                      {{ "View / Update" if current_user.is_staff else "View" }}
-                    </a>
-                    {% if current_user.is_admin %}
-                      <a class="icon-btn-plain icon-btn-sm"
-                         href="{{ url_for('venue_settings.settings', venue_id=v.id) }}">
-                        <i class="bi bi-gear-fill"></i>
-                      </a>
-                    {% endif %}
-                  </div>
-                </td>
-                  
-              </tr>
-            {% else %}
-              <tr><td colspan="3">No venues yet.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+            <div class="venue-directory-notes">
+              <div class="venue-directory-notes-label">Notes</div>
+              <div class="venue-directory-notes-text">{{ row.notes_preview }}</div>
+            </div>
+
+            <div class="venue-directory-actions">
+              <a
+                class="btn btn-aolrc-primary venue-directory-action-btn"
+                href="{{ url_for('main.venue_detail', venue_id=v.id, next=request.full_path) }}"
+              >
+                Open Venue
+              </a>
+              {% if current_user.is_staff %}
+                <a
+                  class="btn btn-primary venue-directory-action-btn"
+                  href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}"
+                >
+                  Update Status
+                </a>
+              {% endif %}
+              {% if current_user.is_admin %}
+                <a
+                  class="btn btn-outline-secondary venue-directory-action-btn"
+                  href="{{ url_for('venue_settings.settings', venue_id=v.id) }}"
+                >
+                  Settings
+                </a>
+              {% endif %}
+            </div>
+          </article>
+        {% else %}
+          <div class="venue-directory-empty">No venues yet.</div>
+        {% endfor %}
+      </div>
+
+      <div id="venueDirectoryEmptyFiltered" class="venue-directory-empty d-none mt-2">
+        No venues match your current filters.
       </div>
     </div>
   </div>
 
   <script>
-    const searchEl = document.getElementById("venueSearch");
-    const statusEl = document.getElementById("statusFilter");
-    const venueTypeEl = document.getElementById("venueTypeFilter");
-    const filtersUrl = new URL(window.location.href);
-    const initialQuery = filtersUrl.searchParams.get("venue_q");
-    const initialStatus = filtersUrl.searchParams.get("venue_status");
-    const initialType = filtersUrl.searchParams.get("venue_type");
-    if (initialQuery !== null) searchEl.value = initialQuery;
-    if (initialStatus !== null) statusEl.value = initialStatus;
-    if (initialType !== null) venueTypeEl.value = initialType;
+    (() => {
+      const searchEl = document.getElementById("venueSearch");
+      const statusEl = document.getElementById("statusFilter");
+      const venueTypeEl = document.getElementById("venueTypeFilter");
+      const cards = Array.from(document.querySelectorAll("#venueDirectoryGrid .venue-directory-card"));
+      const emptyFiltered = document.getElementById("venueDirectoryEmptyFiltered");
+      const venueResultCount = document.getElementById("venueResultCount");
+      const filtersUrl = new URL(window.location.href);
+      const initialQuery = filtersUrl.searchParams.get("venue_q");
+      const initialStatus = filtersUrl.searchParams.get("venue_status");
+      const initialType = filtersUrl.searchParams.get("venue_type");
 
-    function syncFiltersUrl() {
-      const nextUrl = new URL(window.location.href);
-      const query = (searchEl.value || "").trim();
-      const status = statusEl.value || "all";
-      const venueType = venueTypeEl.value || "all";
+      if (initialQuery !== null) searchEl.value = initialQuery;
+      if (initialStatus !== null) statusEl.value = initialStatus;
+      if (initialType !== null) venueTypeEl.value = initialType;
 
-      if (query) nextUrl.searchParams.set("venue_q", query);
-      else nextUrl.searchParams.delete("venue_q");
+      function syncFiltersUrl() {
+        const nextUrl = new URL(window.location.href);
+        const query = (searchEl.value || "").trim();
+        const status = statusEl.value || "all";
+        const venueType = venueTypeEl.value || "all";
 
-      if (status !== "all") nextUrl.searchParams.set("venue_status", status);
-      else nextUrl.searchParams.delete("venue_status");
+        if (query) nextUrl.searchParams.set("venue_q", query);
+        else nextUrl.searchParams.delete("venue_q");
 
-      if (venueType !== "all") nextUrl.searchParams.set("venue_type", venueType);
-      else nextUrl.searchParams.delete("venue_type");
+        if (status !== "all") nextUrl.searchParams.set("venue_status", status);
+        else nextUrl.searchParams.delete("venue_status");
 
-      window.history.replaceState({}, "", nextUrl);
-    }
+        if (venueType !== "all") nextUrl.searchParams.set("venue_type", venueType);
+        else nextUrl.searchParams.delete("venue_type");
 
-    function applyVisibleZebraRows(rows) {
-      let visibleIndex = 0;
-      rows.forEach((row) => {
-        row.classList.remove("zebra-alt");
-        if (row.style.display === "none") return;
-        if (visibleIndex % 2 === 0) row.classList.add("zebra-alt");
-        visibleIndex += 1;
+        window.history.replaceState({}, "", nextUrl);
+      }
+
+      function updateCount(visibleCount) {
+        if (!venueResultCount) return;
+        const label = visibleCount === 1 ? "result" : "results";
+        venueResultCount.textContent = `${visibleCount} ${label}`;
+      }
+
+      function applyFilters() {
+        const query = (searchEl.value || "").trim().toLowerCase();
+        const status = statusEl.value || "all";
+        const venueType = venueTypeEl.value || "all";
+        let visibleCount = 0;
+
+        cards.forEach((card) => {
+          const name = card.getAttribute("data-name") || "";
+          const notes = card.getAttribute("data-notes") || "";
+          const rowStatus = card.getAttribute("data-status") || "";
+          const rowVenueType = card.getAttribute("data-venue-type") || "";
+          const matchesSearch = !query || name.includes(query) || notes.includes(query);
+          const matchesStatus = status === "all" || rowStatus === status;
+          const matchesType = venueType === "all" || rowVenueType === venueType;
+          const isVisible = matchesSearch && matchesStatus && matchesType;
+          card.classList.toggle("d-none", !isVisible);
+          if (isVisible) visibleCount += 1;
+        });
+
+        updateCount(visibleCount);
+        if (emptyFiltered) emptyFiltered.classList.toggle("d-none", visibleCount > 0);
+      }
+
+      searchEl.addEventListener("input", () => {
+        syncFiltersUrl();
+        applyFilters();
       });
-    }
-
-    function applyFilters() {
-      const q = (searchEl.value || "").trim().toLowerCase();
-      const st = statusEl.value;
-      const venueType = venueTypeEl.value;
-
-      const rows = Array.from(document.querySelectorAll("tbody tr[data-status]"));
-
-      rows.forEach(tr => {
-        const name = (tr.querySelector(".fw-semibold")?.innerText || "").toLowerCase();
-        const rowStatus = tr.dataset.status || "";
-        const rowVenueType = tr.dataset.venueType || "";
-
-        const matchSearch = !q || name.includes(q);
-        const matchStatus = (st === "all") || (rowStatus === st);
-        const matchVenueType = (venueType === "all") || (rowVenueType === venueType);
-
-        tr.style.display = (matchSearch && matchStatus && matchVenueType) ? "" : "none";
+      statusEl.addEventListener("change", () => {
+        syncFiltersUrl();
+        applyFilters();
       });
-      applyVisibleZebraRows(rows);
-    }
+      venueTypeEl.addEventListener("change", () => {
+        syncFiltersUrl();
+        applyFilters();
+      });
 
-    searchEl.addEventListener("input", applyFilters);
-    searchEl.addEventListener("input", syncFiltersUrl);
-    statusEl.addEventListener("change", applyFilters);
-    statusEl.addEventListener("change", syncFiltersUrl);
-    venueTypeEl.addEventListener("change", applyFilters);
-    venueTypeEl.addEventListener("change", syncFiltersUrl);
-    applyFilters();
+      applyFilters();
+    })();
   </script>
 {% endblock %}

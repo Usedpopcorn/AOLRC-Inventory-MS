@@ -502,6 +502,165 @@ def serialize_activity_filters(activity_filters):
     }
 
 
+def ensure_utc(value):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def format_updated_label(value):
+    updated_at = ensure_utc(value)
+    if updated_at is None:
+        return {
+            "text": "No updates yet",
+            "is_missing": True,
+            "is_stale": True,
+        }
+
+    now = datetime.now(timezone.utc)
+    delta = max(now - updated_at, timedelta(0))
+    total_seconds = int(delta.total_seconds())
+    if total_seconds < 60:
+        relative = "Updated just now"
+    elif total_seconds < 3600:
+        minutes = total_seconds // 60
+        relative = f"Updated {minutes}m ago"
+    elif total_seconds < 86400:
+        hours = total_seconds // 3600
+        relative = f"Updated {hours}h ago"
+    else:
+        days = total_seconds // 86400
+        relative = f"Updated {days}d ago"
+
+    return {
+        "text": relative,
+        "is_missing": False,
+        "is_stale": delta >= timedelta(days=2),
+    }
+
+
+def build_venue_last_updated_map(venue_ids):
+    if not venue_ids:
+        return {}
+
+    last_check_map = {
+        row.venue_id: row.last_check_at
+        for row in (
+            db.session.query(
+                Check.venue_id.label("venue_id"),
+                func.max(Check.created_at).label("last_check_at"),
+            )
+            .filter(Check.venue_id.in_(venue_ids))
+            .group_by(Check.venue_id)
+            .all()
+        )
+    }
+    last_count_map = {
+        row.venue_id: row.last_count_at
+        for row in (
+            db.session.query(
+                CountSession.venue_id.label("venue_id"),
+                func.max(CountSession.created_at).label("last_count_at"),
+            )
+            .filter(CountSession.venue_id.in_(venue_ids))
+            .group_by(CountSession.venue_id)
+            .all()
+        )
+    }
+
+    output = {}
+    for venue_id in venue_ids:
+        last_check_at = ensure_utc(last_check_map.get(venue_id))
+        last_count_at = ensure_utc(last_count_map.get(venue_id))
+        if last_check_at and last_count_at:
+            output[venue_id] = max(last_check_at, last_count_at)
+        else:
+            output[venue_id] = last_check_at or last_count_at
+    return output
+
+
+def build_recent_venue_activity_rows(venue_id, limit=20):
+    max_rows = max(int(limit or 0), 1)
+    status_actor_name = activity_actor_name_expr(User.display_name, User.email)
+    previous_status = func.lag(CheckLine.status).over(
+        partition_by=(Check.venue_id, CheckLine.item_id),
+        order_by=(Check.created_at.asc(), Check.id.asc()),
+    )
+    status_inner = (
+        select(
+            literal("status").label("type_key"),
+            Check.id.label("event_id"),
+            Check.created_at.label("changed_at"),
+            Venue.name.label("venue_name"),
+            Item.name.label("item_name"),
+            status_actor_name.label("actor_name"),
+            previous_status.label("old_status_key"),
+            CheckLine.status.label("new_status_key"),
+            cast(literal(None), Integer).label("old_raw_count"),
+            cast(literal(None), Integer).label("new_raw_count"),
+        )
+        .select_from(Check)
+        .join(Venue, Venue.id == Check.venue_id)
+        .join(CheckLine, CheckLine.check_id == Check.id)
+        .join(Item, Item.id == CheckLine.item_id)
+        .outerjoin(User, User.id == Check.user_id)
+        .where(Check.venue_id == venue_id)
+        .subquery()
+    )
+    status_events = select(status_inner).where(
+        or_(
+            and_(
+                status_inner.c.old_status_key.is_(None),
+                status_inner.c.new_status_key != "not_checked",
+            ),
+            status_inner.c.old_status_key != status_inner.c.new_status_key,
+        )
+    )
+
+    count_actor_name = activity_actor_name_expr(User.display_name, User.email)
+    previous_raw_count = func.lag(CountLine.raw_count).over(
+        partition_by=(CountSession.venue_id, CountLine.item_id),
+        order_by=(CountSession.created_at.asc(), CountSession.id.asc()),
+    )
+    count_inner = (
+        select(
+            literal("raw_count").label("type_key"),
+            CountSession.id.label("event_id"),
+            CountSession.created_at.label("changed_at"),
+            Venue.name.label("venue_name"),
+            Item.name.label("item_name"),
+            count_actor_name.label("actor_name"),
+            cast(literal(None), String).label("old_status_key"),
+            cast(literal(None), String).label("new_status_key"),
+            previous_raw_count.label("old_raw_count"),
+            CountLine.raw_count.label("new_raw_count"),
+        )
+        .select_from(CountSession)
+        .join(Venue, Venue.id == CountSession.venue_id)
+        .join(CountLine, CountLine.count_session_id == CountSession.id)
+        .join(Item, Item.id == CountLine.item_id)
+        .outerjoin(User, User.id == CountSession.user_id)
+        .where(CountSession.venue_id == venue_id)
+        .subquery()
+    )
+    count_events = select(count_inner).where(
+        or_(
+            count_inner.c.old_raw_count.is_(None),
+            count_inner.c.old_raw_count != count_inner.c.new_raw_count,
+        )
+    )
+
+    activity_events = union_all(status_events, count_events).subquery()
+    rows = db.session.execute(
+        select(activity_events)
+        .order_by(activity_events.c.changed_at.desc(), activity_events.c.event_id.desc())
+        .limit(max_rows)
+    ).mappings().all()
+    return [serialize_activity_row(row) for row in rows]
+
+
 def build_venue_rows(include_inactive=False):
     q = Venue.query
     if not include_inactive:
@@ -562,11 +721,21 @@ def build_venue_rows(include_inactive=False):
     ):
         latest_status_counts.setdefault(row.venue_id, {})[normalize_status(row.status)] = row.status_count
 
+    last_updated_map = build_venue_last_updated_map(venue_ids)
     venue_rows = []
 
     for v in venues:
         total_tracked = tracked_totals.get(v.id, 0)
         counts = {"good": 0, "ok": 0, "low": 0, "out": 0, "not_checked": 0}
+        notes_text = (v.notes or "").strip()
+        if len(notes_text) > 140:
+            notes_preview = f"{notes_text[:137]}..."
+        elif notes_text:
+            notes_preview = notes_text
+        else:
+            notes_preview = "No notes yet."
+        last_updated_at = last_updated_map.get(v.id)
+        freshness = format_updated_label(last_updated_at)
 
         if total_tracked == 0:
             badge = {
@@ -575,7 +744,20 @@ def build_venue_rows(include_inactive=False):
                 "icon_class": "bi-dash-circle",
             }
             tooltip = "No items tracked."
-            venue_rows.append({"venue": v, "badge": badge, "tooltip": tooltip})
+            venue_rows.append(
+                {
+                    "venue": v,
+                    "badge": badge,
+                    "tooltip": tooltip,
+                    "total_tracked": 0,
+                    "notes_preview": notes_preview,
+                    "last_updated_at": last_updated_at,
+                    "last_updated_text": (
+                        format_activity_timestamp(last_updated_at) if last_updated_at else "No updates yet"
+                    ),
+                    "freshness": freshness,
+                }
+            )
             continue
 
         venue_status_counts = latest_status_counts.get(v.id)
@@ -616,7 +798,20 @@ def build_venue_rows(include_inactive=False):
             f"Not checked: {counts['not_checked']}"
         )
 
-        venue_rows.append({"venue": v, "badge": badge, "tooltip": tooltip})
+        venue_rows.append(
+            {
+                "venue": v,
+                "badge": badge,
+                "tooltip": tooltip,
+                "total_tracked": total_tracked,
+                "notes_preview": notes_preview,
+                "last_updated_at": last_updated_at,
+                "last_updated_text": (
+                    format_activity_timestamp(last_updated_at) if last_updated_at else "No updates yet"
+                ),
+                "freshness": freshness,
+            }
+        )
 
     return venue_rows
 
@@ -1099,3 +1294,66 @@ def venues():
         return redirect(url_for("main.venues"))
 
     return render_template("venues/list.html", venue_rows=build_venue_rows(include_inactive=True))
+
+
+@main_bp.route("/venues/<int:venue_id>", methods=["GET", "POST"])
+@roles_required("viewer", "staff", "admin")
+def venue_detail(venue_id):
+    venue = Venue.query.get_or_404(venue_id)
+    next_path = (
+        request.args.get("next")
+        or request.form.get("next")
+        or url_for("main.venues")
+    )
+
+    if request.method == "POST":
+        if not current_user.is_staff:
+            flash("Only staff and admins can edit notes.", "error")
+            return redirect(url_for("main.venue_detail", venue_id=venue.id, next=next_path))
+
+        notes = (request.form.get("notes") or "").strip()
+        venue.notes = notes if notes else None
+        db.session.commit()
+        flash("Venue notes updated.", "success")
+        return redirect(url_for("main.venue_detail", venue_id=venue.id, next=next_path))
+
+    total_tracked = (
+        db.session.query(func.count(VenueItem.id))
+        .join(Item, Item.id == VenueItem.item_id)
+        .filter(
+            VenueItem.venue_id == venue.id,
+            VenueItem.active == True,
+            Item.active == True,
+        )
+        .scalar()
+    ) or 0
+    latest_status_check_at = (
+        db.session.query(func.max(Check.created_at))
+        .filter(Check.venue_id == venue.id)
+        .scalar()
+    )
+    latest_raw_count_at = (
+        db.session.query(func.max(CountSession.created_at))
+        .filter(CountSession.venue_id == venue.id)
+        .scalar()
+    )
+    venue_last_updated_at = build_venue_last_updated_map([venue.id]).get(venue.id)
+    venue_freshness = format_updated_label(venue_last_updated_at)
+    recent_activity_rows = build_recent_venue_activity_rows(venue.id, limit=20)
+
+    return render_template(
+        "venues/detail.html",
+        venue=venue,
+        back_url=next_path,
+        total_tracked=total_tracked,
+        latest_status_check_at=latest_status_check_at,
+        latest_raw_count_at=latest_raw_count_at,
+        venue_last_updated_at=venue_last_updated_at,
+        venue_last_updated_text=(
+            format_activity_timestamp(venue_last_updated_at) if venue_last_updated_at else "No updates yet"
+        ),
+        venue_freshness=venue_freshness,
+        recent_activity_rows=recent_activity_rows,
+        restock_status_options=RESTOCK_STATUS_META,
+        update_status_url=url_for("venue_items.quick_check", venue_id=venue.id, next=request.full_path),
+    )

@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}{{ venue.name }}{% endblock %}
+
+{% block content %}
+  <div class="mb-3">
+    <a class="btn btn-outline-secondary" href="{{ back_url }}">
+      <i class="bi bi-arrow-left"></i> Back
+    </a>
+  </div>
+
+  <div class="card mb-3 venue-profile-hero">
+    <div class="card-body">
+      <div class="venue-profile-head">
+        <div>
+          <h1 class="h3 mb-1 fw-bold text-aolrc-purple page-heading">{{ venue.name }}</h1>
+          <div class="d-flex flex-wrap gap-1">
+            {% if venue.is_core %}
+              <span class="badge badge-core">Primary venue</span>
+            {% else %}
+              <span class="badge bg-secondary">Other venue</span>
+            {% endif %}
+            {% if venue.active %}
+              <span class="badge bg-success">Visible</span>
+            {% else %}
+              <span class="badge bg-dark">Hidden</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="venue-freshness-wrap text-md-end">
+          <div
+            class="venue-freshness-chip {{ 'venue-freshness-stale' if venue_freshness.is_stale else 'venue-freshness-fresh' }}"
+            title="{{ venue_last_updated_text }}"
+          >
+            <i class="bi bi-clock-history"></i> {{ venue_freshness.text }}
+          </div>
+          <div class="text-muted small mt-1">Last update: {{ venue_last_updated_text }}</div>
+        </div>
+      </div>
+
+      <div class="venue-profile-primary-actions mt-3">
+        <a class="btn btn-aolrc-accent venue-directory-action-btn" href="{{ update_status_url }}">
+          Update Status / Counts
+        </a>
+        {% if current_user.is_admin %}
+          <a class="btn btn-primary venue-directory-action-btn" href="{{ url_for('venue_settings.settings', venue_id=venue.id) }}">
+            Venue Settings
+          </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-12 col-lg-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <h2 class="h5 mb-3">Venue Notes</h2>
+
+          <div class="venue-profile-notes-read mb-3">
+            {% if venue.notes %}
+              {{ venue.notes }}
+            {% else %}
+              <span class="text-muted">No notes added yet.</span>
+            {% endif %}
+          </div>
+
+          {% if current_user.is_staff %}
+            <form method="post" class="d-flex flex-column gap-2">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="next" value="{{ back_url }}">
+              <label for="venueNotes" class="form-label mb-0">Edit notes</label>
+              <textarea
+                id="venueNotes"
+                name="notes"
+                rows="4"
+                class="form-control"
+                placeholder="Special setup notes, quirks, instructions..."
+              >{{ venue.notes or '' }}</textarea>
+              <button class="btn btn-primary align-self-start" type="submit">Save Notes</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <h2 class="h5 mb-3">Venue Details</h2>
+          <div class="venue-profile-detail-list">
+            <div class="venue-profile-detail-row">
+              <span class="venue-profile-detail-label">Tracked items</span>
+              <span class="venue-profile-detail-value">{{ total_tracked }}</span>
+            </div>
+            <div class="venue-profile-detail-row">
+              <span class="venue-profile-detail-label">Latest status check</span>
+              <span class="venue-profile-detail-value">
+                {% if latest_status_check_at %}
+                  {{ latest_status_check_at.strftime("%Y-%m-%d %I:%M %p") }}
+                {% else %}
+                  <span class="text-muted">No status checks yet</span>
+                {% endif %}
+              </span>
+            </div>
+            <div class="venue-profile-detail-row">
+              <span class="venue-profile-detail-label">Latest raw count</span>
+              <span class="venue-profile-detail-value">
+                {% if latest_raw_count_at %}
+                  {{ latest_raw_count_at.strftime("%Y-%m-%d %I:%M %p") }}
+                {% else %}
+                  <span class="text-muted">No raw counts yet</span>
+                {% endif %}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <h2 class="h5 mb-3">Recent Updates</h2>
+
+      <div class="d-flex flex-column gap-2">
+        {% for row in recent_activity_rows %}
+          <article class="venue-profile-activity-row">
+            <div class="d-flex align-items-start justify-content-between gap-2 mb-2 flex-wrap">
+              <div class="fw-semibold">{{ row.item_name }}</div>
+              <span class="activity-type-badge {{ row.type_meta.badge_class }}">
+                <i class="bi {{ row.type_meta.icon_class }}"></i> {{ row.type_meta.text }}
+              </span>
+            </div>
+
+            <div class="activity-change mb-1">
+              {% if row.type_key == 'status' %}
+                {% if row.old_status_key %}
+                  <span class="status-pill
+                    {{ 'status-good' if row.old_status_key == 'good' else '' }}
+                    {{ 'status-ok' if row.old_status_key == 'ok' else '' }}
+                    {{ 'status-low' if row.old_status_key == 'low' else '' }}
+                    {{ 'status-out' if row.old_status_key == 'out' else '' }}
+                    {{ 'status-na' if row.old_status_key == 'not_checked' else '' }}">
+                    <i class="bi {{ restock_status_options[row.old_status_key].icon_class }}"></i> {{ row.old_value_text }}
+                  </span>
+                {% else %}
+                  <span class="activity-value-chip activity-value-empty">{{ row.old_value_text }}</span>
+                {% endif %}
+                <i class="bi bi-arrow-right activity-change-arrow"></i>
+                <span class="status-pill
+                  {{ 'status-good' if row.new_status_key == 'good' else '' }}
+                  {{ 'status-ok' if row.new_status_key == 'ok' else '' }}
+                  {{ 'status-low' if row.new_status_key == 'low' else '' }}
+                  {{ 'status-out' if row.new_status_key == 'out' else '' }}
+                  {{ 'status-na' if row.new_status_key == 'not_checked' else '' }}">
+                  <i class="bi {{ restock_status_options[row.new_status_key].icon_class }}"></i> {{ row.new_value_text }}
+                </span>
+              {% else %}
+                <span class="activity-value-chip {{ 'activity-value-empty' if row.old_value_missing else '' }}">{{ row.old_value_text }}</span>
+                <i class="bi bi-arrow-right activity-change-arrow"></i>
+                <span class="activity-value-chip">{{ row.new_value_text }}</span>
+              {% endif %}
+            </div>
+
+            <div class="activity-detail-text">
+              {{ row.detail_text }} by <span class="fw-semibold">{{ row.actor_name }}</span> on {{ row.changed_at_text }}
+            </div>
+          </article>
+        {% else %}
+          <div class="venue-directory-empty">No activity yet for this venue.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endblock %}
