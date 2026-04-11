@@ -1802,6 +1802,26 @@ body.restock-filters-open {
   }
 }
 
+@media (min-width: 992px) {
+  .venue-directory-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 0.6rem;
+  }
+
+  .venue-directory-toolbar-row {
+    grid-template-columns: minmax(220px, 1.2fr) minmax(160px, 0.9fr) minmax(160px, 0.9fr);
+  }
+
+  .venue-directory-toolbar-actions {
+    align-self: end;
+  }
+
+  .venue-directory-add-btn {
+    width: 10.5rem;
+  }
+}
+
 @media (max-width: 575.98px) {
   .venue-directory-action-btn-secondary {
     min-height: 44px;

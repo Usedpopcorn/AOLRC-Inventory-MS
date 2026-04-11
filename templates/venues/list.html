@@ -8,14 +8,14 @@
 
   <div class="card mb-3">
     <div class="card-body venue-directory-toolbar">
-      <div class="venue-directory-toolbar-row">
+      <div class="venue-directory-toolbar-row venue-toolbar-controls">
         <input
           id="venueSearch"
-          class="form-control restock-compact-control"
+          class="form-control w-100 restock-compact-control"
           placeholder="Search venues..."
           aria-label="Search venues"
         >
-        <select id="statusFilter" class="form-select restock-compact-control" aria-label="Filter venues by status">
+        <select id="statusFilter" class="form-select w-100 restock-compact-control" aria-label="Filter venues by status">
           <option value="all">All Statuses</option>
           <option value="good">Good</option>
           <option value="ok">OK</option>
@@ -23,7 +23,7 @@
           <option value="out">Out</option>
           <option value="not_checked">Not Checked</option>
         </select>
-        <select id="venueTypeFilter" class="form-select restock-compact-control" aria-label="Filter venues by type">
+        <select id="venueTypeFilter" class="form-select w-100 restock-compact-control" aria-label="Filter venues by type">
           <option value="all">Primary + Other</option>
           <option value="primary">Primary only</option>
           <option value="other">Other only</option>
@@ -175,19 +175,6 @@
               </div>
             </div>
 
-            {% if current_user.is_staff or current_user.is_admin %}
-              <div class="venue-directory-actions">
-                <a
-                  class="btn venue-directory-action-btn venue-directory-action-btn-secondary"
-                  data-venue-next-link
-                  data-base-href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}"
-                  href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}"
-                >
-                  <span class="d-none d-sm-inline">Open Venue Check</span>
-                  <span class="d-sm-none">Venue Check</span>
-                </a>
-              </div>
-            {% endif %}
           </article>
         {% else %}
           <div class="venue-directory-empty">No venues yet.</div>
