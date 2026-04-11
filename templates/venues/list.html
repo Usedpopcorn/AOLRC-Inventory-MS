@@ -32,7 +32,7 @@
       {% if current_user.is_admin %}
         <div class="venue-directory-toolbar-actions">
           <button
-            class="btn btn-aolrc-accent restock-compact-control"
+            class="btn btn-aolrc-accent restock-compact-control venue-directory-add-btn"
             data-bs-toggle="collapse"
             data-bs-target="#addVenueCollapse"
             aria-expanded="false"
@@ -134,49 +134,57 @@
               </div>
             </div>
 
-            <div class="venue-directory-status-row">
-              <div class="venue-directory-status-main">
-                <span
-                  class="status-pill
-                    {{ 'status-good' if row.badge.key == 'good' else '' }}
-                    {{ 'status-ok' if row.badge.key == 'ok' else '' }}
-                    {{ 'status-low' if row.badge.key == 'low' else '' }}
-                    {{ 'status-out' if row.badge.key == 'out' else '' }}
-                    {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
-                >
-                  <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
-                </span>
-                <button
-                  type="button"
-                  class="status-info-btn"
-                  data-status-popover
-                  data-status-key="{{ row.badge.key }}"
-                  data-status-icon="{{ row.badge.icon_class }}"
-                  data-status-summary="{{ row.badge.text }}"
-                  data-status-venue="{{ v.name }}"
-                  data-total-tracked="{{ row.total_tracked }}"
-                  data-count-good="{{ row.counts.good }}"
-                  data-count-ok="{{ row.counts.ok }}"
-                  data-count-low="{{ row.counts.low }}"
-                  data-count-out="{{ row.counts.out }}"
-                  data-count-not-checked="{{ row.counts.not_checked }}"
-                  aria-label="Show status details for {{ v.name }}"
-                >
-                  <i class="bi bi-info-circle"></i>
-                </button>
+            <div class="venue-directory-summary-grid">
+              <div class="venue-directory-summary-card venue-directory-summary-card-status">
+                <div class="venue-directory-status-main">
+                  <span
+                    class="status-pill
+                      {{ 'status-good' if row.badge.key == 'good' else '' }}
+                      {{ 'status-ok' if row.badge.key == 'ok' else '' }}
+                      {{ 'status-low' if row.badge.key == 'low' else '' }}
+                      {{ 'status-out' if row.badge.key == 'out' else '' }}
+                      {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
+                  >
+                    <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
+                  </span>
+                  <button
+                    type="button"
+                    class="status-info-btn"
+                    data-status-popover
+                    data-status-key="{{ row.badge.key }}"
+                    data-status-icon="{{ row.badge.icon_class }}"
+                    data-status-summary="{{ row.badge.text }}"
+                    data-status-venue="{{ v.name }}"
+                    data-total-tracked="{{ row.total_tracked }}"
+                    data-count-good="{{ row.counts.good }}"
+                    data-count-ok="{{ row.counts.ok }}"
+                    data-count-low="{{ row.counts.low }}"
+                    data-count-out="{{ row.counts.out }}"
+                    data-count-not-checked="{{ row.counts.not_checked }}"
+                    aria-label="Show status details for {{ v.name }}"
+                  >
+                    <i class="bi bi-info-circle"></i>
+                  </button>
+                </div>
               </div>
-              <span class="venue-directory-count">{{ row.total_tracked }} tracked item{{ "" if row.total_tracked == 1 else "s" }}</span>
+              <div class="venue-directory-summary-card venue-directory-summary-card-count">
+                <div class="venue-directory-count-stack">
+                  <span class="venue-directory-count-number">{{ row.total_tracked }}</span>
+                  <span class="venue-directory-count-label">Tracked item{{ "" if row.total_tracked == 1 else "s" }}</span>
+                </div>
+              </div>
             </div>
 
             {% if current_user.is_staff or current_user.is_admin %}
               <div class="venue-directory-actions">
                 <a
-                  class="btn btn-aolrc-primary venue-directory-action-btn"
+                  class="btn venue-directory-action-btn venue-directory-action-btn-secondary"
                   data-venue-next-link
                   data-base-href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}"
                   href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}"
                 >
-                  Update Status
+                  <span class="d-none d-sm-inline">Open Venue Check</span>
+                  <span class="d-sm-none">Venue Check</span>
                 </a>
               </div>
             {% endif %}

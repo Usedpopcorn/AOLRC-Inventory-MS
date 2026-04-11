@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
+from urllib.parse import urljoin, urlparse
 from flask_login import current_user
 from app import db
 from app.authz import roles_required
@@ -15,11 +16,80 @@ from app.models import (
 
 venue_items_bp = Blueprint("venue_items", __name__, url_prefix="/venues")
 
+
+def normalize_next_path(next_candidate, fallback_path):
+    if not next_candidate:
+        return fallback_path
+
+    host_url = urlparse(request.host_url)
+    target_url = urlparse(urljoin(request.host_url, next_candidate))
+    if target_url.scheme not in {"http", "https"} or target_url.netloc != host_url.netloc:
+        return fallback_path
+
+    current_url = urlparse(urljoin(request.host_url, request.full_path))
+    if target_url.path == current_url.path and target_url.query == current_url.query:
+        return fallback_path
+
+    return f"{target_url.path}?{target_url.query}" if target_url.query else target_url.path
+
+
+def describe_back_destination(next_path, venue_id):
+    target_path = urlparse(urljoin(request.host_url, next_path)).path
+
+    if target_path == url_for("main.dashboard"):
+        return "Dashboard"
+    if target_path == url_for("main.venues"):
+        return "Venues"
+    if target_path == url_for("main.venue_detail", venue_id=venue_id):
+        return "Venue Profile"
+    if target_path == url_for("venue_items.quick_check", venue_id=venue_id):
+        return "Venue Check"
+    if target_path == url_for("venue_settings.settings", venue_id=venue_id):
+        return "Venue Settings"
+    if target_path == url_for("venue_items.supplies", venue_id=venue_id):
+        return "Venue Supplies"
+    return "Previous Page"
+
+
+def build_overall_status(total_tracked, counts):
+    if total_tracked <= 0:
+        return {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
+
+    checked_count = total_tracked - counts["not_checked"]
+
+    if counts["out"] > 0:
+        out_count = counts["out"]
+        out_label = "Item" if out_count == 1 else "Items"
+        return {
+            "key": "out",
+            "text": f"{out_count} {out_label} out of stock",
+            "icon_class": "bi-x-circle-fill",
+        }
+    if counts["low"] > 0:
+        low_count = counts["low"]
+        low_label = "Item" if low_count == 1 else "Items"
+        return {
+            "key": "low",
+            "text": f"{low_count} {low_label} Low",
+            "icon_class": "bi-exclamation-triangle-fill",
+        }
+    if checked_count > 0 and counts["ok"] > 0 and (counts["ok"] * 2 >= checked_count):
+        return {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
+    if counts["good"] > 0:
+        return {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
+    if checked_count > 0 and counts["ok"] > 0:
+        return {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
+    return {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
+
+
 @venue_items_bp.route("/<int:venue_id>/supplies", methods=["GET", "POST"])
 @roles_required("staff", "admin")
 def supplies(venue_id):
     venue = Venue.query.get_or_404(venue_id)
-    next_url = request.values.get("next") or url_for("venue_settings.settings", venue_id=venue.id)
+    next_url = normalize_next_path(
+        request.values.get("next"),
+        url_for("venue_settings.settings", venue_id=venue.id),
+    )
 
     if request.method == "POST":
         # IDs of items that were checked in the form
@@ -64,6 +134,7 @@ def supplies(venue_id):
         items=items,
         active_item_ids=active_item_ids,
         next_url=next_url,
+        back_label=describe_back_destination(next_url, venue.id),
     )
 
 @venue_items_bp.route("/<int:venue_id>/check", methods=["GET", "POST"])
@@ -71,7 +142,8 @@ def supplies(venue_id):
 def quick_check(venue_id):
     venue = Venue.query.get_or_404(venue_id)
 
-    next_url = request.values.get("next") or url_for("main.venues")
+    next_url = normalize_next_path(request.values.get("next"), url_for("main.venues"))
+    entered_from_profile = urlparse(next_url).path == url_for("main.venue_detail", venue_id=venue.id)
 
     # Items tracked in this venue (active mappings, active items)
     tracked = (
@@ -186,6 +258,14 @@ def quick_check(venue_id):
         )
         latest_counts[it.id] = row[0] if row else 0
 
+    overall_counts = {"good": 0, "ok": 0, "low": 0, "out": 0, "not_checked": 0}
+    for status in latest_status.values():
+        normalized = (status or "not_checked").strip().lower()
+        if normalized not in overall_counts:
+            normalized = "not_checked"
+        overall_counts[normalized] += 1
+    overall_status = build_overall_status(len(tracked), overall_counts)
+
     return render_template(
         "venues/quick_check.html",
         venue=venue,
@@ -194,4 +274,7 @@ def quick_check(venue_id):
         latest_counts=latest_counts,
         selected_mode=selected_mode,
         next_url=next_url,
+        show_profile_link=not entered_from_profile,
+        back_label=describe_back_destination(next_url, venue.id),
+        overall_status=overall_status,
     )

@@ -3,7 +3,9 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-2">
-  <a class="btn btn-outline-secondary" href="{{ next_url }}">Back to Settings</a>
+  <a class="btn btn-back-nav" href="{{ next_url }}">
+    <i class="bi bi-arrow-left" aria-hidden="true"></i> Back to {{ back_label }}
+  </a>
   {% if items|length > 0 %}
     <button class="btn btn-aolrc-accent" type="submit" form="venue-supplies-form">Save Supplies</button>
   {% endif %}

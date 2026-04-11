@@ -3,15 +3,15 @@
 
 {% block content %}
   <div class="mb-3">
-    <a class="btn btn-outline-secondary" href="{{ back_url }}">
-      <i class="bi bi-arrow-left"></i> Back
+    <a class="btn btn-back-nav" href="{{ back_url }}">
+      <i class="bi bi-arrow-left" aria-hidden="true"></i> Back to {{ back_label }}
     </a>
   </div>
 
   <div class="card mb-3 venue-profile-hero">
     <div class="card-body">
       <div class="venue-profile-head">
-        <div>
+        <div class="venue-profile-title-block">
           <h1 class="h3 mb-1 fw-bold text-aolrc-purple page-heading">{{ venue.name }}</h1>
           <div class="d-flex flex-wrap gap-1">
             {% if venue.is_core %}
@@ -26,34 +26,44 @@
             {% endif %}
           </div>
         </div>
-        <div class="venue-freshness-wrap text-md-end">
-          <div
-            class="venue-freshness-chip {{ 'venue-freshness-stale' if venue_freshness.is_stale else 'venue-freshness-fresh' }}"
-            title="{{ venue_last_updated_text }}"
-          >
-            <i class="bi bi-clock-history"></i> {{ venue_freshness.text }}
+        <div class="venue-profile-utility">
+          <div class="venue-profile-utility-top">
+            <div class="venue-freshness-wrap">
+              <div
+                class="venue-freshness-chip {{ 'venue-freshness-stale' if venue_freshness.is_stale else 'venue-freshness-fresh' }}"
+                title="{{ venue_last_updated_text }}"
+              >
+                <i class="bi bi-clock-history"></i> {{ venue_freshness.text }}
+              </div>
+            </div>
+            {% if current_user.is_admin %}
+              <a
+                class="icon-btn-plain icon-btn-sm venue-directory-settings-btn venue-profile-settings-btn"
+                href="{{ url_for('venue_settings.settings', venue_id=venue.id, next=request.full_path) }}"
+                aria-label="Open settings for {{ venue.name }}"
+                title="Settings"
+              >
+                <i class="bi bi-gear"></i>
+              </a>
+            {% endif %}
           </div>
-          <div class="text-muted small mt-1">Last update: {{ venue_last_updated_text }}</div>
+          <div class="venue-profile-last-update text-muted small">Last update: {{ venue_last_updated_text }}</div>
         </div>
       </div>
 
       <div class="venue-profile-primary-actions mt-3">
-        <a class="btn btn-aolrc-primary venue-directory-action-btn" href="{{ update_status_url }}">
-          Update Status / Counts
+        <a class="btn btn-aolrc-primary venue-directory-action-btn venue-profile-update-btn" href="{{ update_status_url }}">
+          <span class="d-none d-sm-inline">Open Venue Check</span>
+          <span class="d-sm-none">Venue Check</span>
         </a>
-        {% if current_user.is_admin %}
-          <a class="btn btn-secondary venue-directory-action-btn" href="{{ url_for('venue_settings.settings', venue_id=venue.id) }}">
-            Venue Settings
-          </a>
-        {% endif %}
       </div>
     </div>
   </div>
 
-  <ul class="nav nav-pills venue-profile-tabs mb-3" id="venueProfileTabs" role="tablist">
+  <ul class="nav venue-profile-tabs mb-3" id="venueProfileTabs" role="tablist">
     <li class="nav-item" role="presentation">
       <button
-        class="nav-link py-2 {{ 'active' if active_profile_tab == 'details' else '' }}"
+        class="nav-link venue-profile-tab {{ 'active' if active_profile_tab == 'details' else '' }}"
         id="venue-profile-details-tab"
         data-bs-toggle="tab"
         data-bs-target="#venue-profile-details-pane"
@@ -65,7 +75,7 @@
     </li>
     <li class="nav-item" role="presentation">
       <button
-        class="nav-link py-2 {{ 'active' if active_profile_tab == 'notes' else '' }}"
+        class="nav-link venue-profile-tab {{ 'active' if active_profile_tab == 'notes' else '' }}"
         id="venue-profile-notes-tab"
         data-bs-toggle="tab"
         data-bs-target="#venue-profile-notes-pane"
@@ -77,7 +87,7 @@
     </li>
     <li class="nav-item" role="presentation">
       <button
-        class="nav-link py-2 {{ 'active' if active_profile_tab == 'activity' else '' }}"
+        class="nav-link venue-profile-tab {{ 'active' if active_profile_tab == 'activity' else '' }}"
         id="venue-profile-activity-tab"
         data-bs-toggle="tab"
         data-bs-target="#venue-profile-activity-pane"

@@ -1,0 +1,24 @@
+---
+description: Ensure SQLite has active dummy auth accounts
+alwaysApply: true
+---
+
+# SQLite Dummy Accounts Safety Check
+
+When `DATABASE_URL` is switched to SQLite, always ensure these active test users exist:
+- `admin@example.com` with role `admin`
+- `staff@example.com` with role `staff`
+- `viewer@example.com` with role `viewer`
+
+Required workflow:
+1) Confirm DB target is SQLite before account checks/seeding.
+2) Run verification first:
+ - `docker compose exec web python seed_dummy_users.py --check`
+3) If check fails, seed/update accounts:
+ - `docker compose exec web python seed_dummy_users.py`
+4) Re-run check and confirm it passes.
+
+Safety:
+- Keep this behavior for local/dev SQLite usage only.
+- Never commit `.env` changes.
+- Do not use UI-only assumptions for auth testing; verify accounts in DB.

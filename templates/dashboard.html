@@ -188,7 +188,8 @@
                 data-base-href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}"
                 href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}"
               >
-                {{ "View / Update" if current_user.is_staff else "View" }}
+                <span class="d-none d-sm-inline">Open Venue Check</span>
+                <span class="d-sm-none">Venue Check</span>
               </a>
             </article>
           {% endfor %}
@@ -261,7 +262,8 @@
                        data-dashboard-next-link
                        data-base-href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}"
                        href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}">
-                      {{ "View / Update" if current_user.is_staff else "View" }}
+                      <span class="d-none d-sm-inline">Open Venue Check</span>
+                      <span class="d-sm-none">Venue Check</span>
                     </a>
                   </td>
                 </tr>
@@ -722,10 +724,11 @@
               <a
                 class="btn btn-aolrc-primary restock-mobile-action-btn mt-2"
                 data-dashboard-next-link
-                data-base-href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id) }}"
-                href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, next=request.full_path) }}"
+                data-base-href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id) }}"
+                href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id, next=request.full_path) }}"
               >
-                {{ "View / Update" if current_user.is_staff else "View" }}
+                <span class="d-none d-sm-inline">Open Venue Check</span>
+                <span class="d-sm-none">Venue Check</span>
               </a>
             </article>
           {% endfor %}
@@ -785,10 +788,11 @@
                     <a
                       class="btn btn-aolrc-primary restock-action-btn"
                       data-dashboard-next-link
-                      data-base-href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id) }}"
-                      href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, next=request.full_path) }}"
+                      data-base-href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id) }}"
+                      href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id, next=request.full_path) }}"
                     >
-                      {{ "View / Update" if current_user.is_staff else "View" }}
+                      <span class="d-none d-sm-inline">Open Venue Check</span>
+                      <span class="d-sm-none">Venue Check</span>
                     </a>
                   </td>
                 </tr>
@@ -1068,7 +1072,7 @@
           actionBaseUrl.searchParams.delete("next");
           actionLink.setAttribute("data-base-href", `${actionBaseUrl.pathname}${actionBaseUrl.search}`);
           actionLink.href = row.quick_check_url;
-          actionLink.textContent = canEditChecks ? "View / Update" : "View";
+          actionLink.innerHTML = '<span class="d-none d-sm-inline">Open Venue Check</span><span class="d-sm-none">Venue Check</span>';
           actionTd.appendChild(actionLink);
 
           tr.appendChild(itemTd);
@@ -1147,7 +1151,7 @@
           actionBaseUrl.searchParams.delete("next");
           actionLink.setAttribute("data-base-href", `${actionBaseUrl.pathname}${actionBaseUrl.search}`);
           actionLink.href = row.quick_check_url;
-          actionLink.textContent = canEditChecks ? "View / Update" : "View";
+          actionLink.innerHTML = '<span class="d-none d-sm-inline">Open Venue Check</span><span class="d-sm-none">Venue Check</span>';
           article.appendChild(actionLink);
           return article;
         }

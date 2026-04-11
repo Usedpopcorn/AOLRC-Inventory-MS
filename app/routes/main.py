@@ -1,5 +1,6 @@
 import re
 from datetime import datetime, time, timedelta, timezone
+from urllib.parse import urljoin, urlparse
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import current_user
@@ -34,6 +35,40 @@ ACTIVITY_TYPE_META = {
 }
 
 ACTIVITY_SORT_OPTIONS = {"newest", "oldest", "venue", "item", "actor", "type"}
+
+
+def normalize_next_path(next_candidate, fallback_path):
+    if not next_candidate:
+        return fallback_path
+
+    host_url = urlparse(request.host_url)
+    target_url = urlparse(urljoin(request.host_url, next_candidate))
+    if target_url.scheme not in {"http", "https"} or target_url.netloc != host_url.netloc:
+        return fallback_path
+
+    current_url = urlparse(urljoin(request.host_url, request.full_path))
+    if target_url.path == current_url.path and target_url.query == current_url.query:
+        return fallback_path
+
+    return f"{target_url.path}?{target_url.query}" if target_url.query else target_url.path
+
+
+def describe_back_destination(next_path, venue_id):
+    target_path = urlparse(urljoin(request.host_url, next_path)).path
+
+    if target_path == url_for("main.dashboard"):
+        return "Dashboard"
+    if target_path == url_for("main.venues"):
+        return "Venues"
+    if target_path == url_for("main.venue_detail", venue_id=venue_id):
+        return "Venue Profile"
+    if target_path == url_for("venue_items.quick_check", venue_id=venue_id):
+        return "Venue Check"
+    if target_path == url_for("venue_settings.settings", venue_id=venue_id):
+        return "Venue Settings"
+    if target_path == url_for("venue_items.supplies", venue_id=venue_id):
+        return "Venue Supplies"
+    return "Previous Page"
 
 
 def normalize_status(status):
@@ -780,22 +815,24 @@ def build_venue_rows(include_inactive=False):
             if counted < total_tracked:
                 counts["not_checked"] += (total_tracked - counted)
 
+        checked_count = total_tracked - counts["not_checked"]
+
         if counts["out"] > 0:
-            text = f'{counts["out"]} item(s) out of stock'
+            out_count = counts["out"]
+            out_label = "Item" if out_count == 1 else "Items"
+            text = f"{out_count} {out_label} out of stock"
             badge = {"key": "out", "text": text, "icon_class": "bi-x-circle-fill"}
         elif counts["low"] > 0:
-            text = f'{counts["low"]} item(s) Low'
+            low_count = counts["low"]
+            low_label = "Item" if low_count == 1 else "Items"
+            text = f"{low_count} {low_label} Low"
             badge = {"key": "low", "text": text, "icon_class": "bi-exclamation-triangle-fill"}
-        elif counts["ok"] > 0:
+        elif checked_count > 0 and counts["ok"] > 0 and (counts["ok"] * 2 >= checked_count):
             badge = {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
-        elif counts["good"] > 0 and (counts["good"] + counts["not_checked"] == total_tracked):
+        elif counts["good"] > 0:
             badge = {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
 
-        # all items explicitly good
-        elif counts["good"] == total_tracked:
-            badge = {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
-
-        # otherwise (typically all not_checked)
+        # only when all tracked items are not checked
         else:
             badge = {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
 
@@ -979,6 +1016,7 @@ def serialize_restock_row(row, next_path):
         "quick_check_url": url_for(
             "venue_items.quick_check",
             venue_id=row["venue_id"],
+            focus_item_id=row["item_id"],
             next=next_path,
         ),
     }
@@ -1312,10 +1350,9 @@ def venue_detail(venue_id):
     active_profile_tab = (request.args.get("profile_tab") or request.form.get("profile_tab") or "details").strip().lower()
     if active_profile_tab not in {"details", "notes", "activity"}:
         active_profile_tab = "details"
-    next_path = (
-        request.args.get("next")
-        or request.form.get("next")
-        or url_for("main.venues")
+    next_path = normalize_next_path(
+        request.args.get("next") or request.form.get("next"),
+        url_for("main.venues"),
     )
     submit_profile_tab = (request.form.get("profile_tab") or active_profile_tab).strip().lower()
     if submit_profile_tab not in {"details", "notes", "activity"}:
@@ -1520,6 +1557,7 @@ def venue_detail(venue_id):
         "venues/detail.html",
         venue=venue,
         back_url=next_path,
+        back_label=describe_back_destination(next_path, venue.id),
         total_tracked=total_tracked,
         latest_status_check_at=latest_status_check_at,
         latest_raw_count_at=latest_raw_count_at,
