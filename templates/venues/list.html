@@ -12,7 +12,7 @@
         <input
           id="venueSearch"
           class="form-control restock-compact-control"
-          placeholder="Search venues or notes..."
+          placeholder="Search venues..."
           aria-label="Search venues"
         >
         <select id="statusFilter" class="form-select restock-compact-control" aria-label="Filter venues by status">
@@ -89,78 +89,97 @@
           <article
             class="venue-directory-card"
             data-name="{{ v.name|lower }}"
-            data-notes="{{ row.notes_preview|lower }}"
             data-status="{{ row.badge.key }}"
             data-venue-type="{{ 'primary' if v.is_core else 'other' }}"
           >
             <div class="venue-directory-card-head">
               <div class="venue-directory-title-wrap">
-                <h2 class="venue-directory-title">{{ v.name }}</h2>
-                <div class="d-flex flex-wrap gap-1">
-                  {% if v.is_core %}
-                    <span class="badge badge-core">Primary</span>
-                  {% else %}
-                    <span class="badge bg-secondary">Other</span>
-                  {% endif %}
-                  {% if not v.active %}
-                    <span class="badge bg-dark">Hidden</span>
-                  {% endif %}
-                </div>
+                <h2 class="venue-directory-title">
+                  <a
+                    class="venue-name-link venue-name-link-card"
+                    aria-label="Open venue page for {{ v.name }}"
+                    data-venue-next-link
+                    data-base-href="{{ url_for('main.venue_detail', venue_id=v.id) }}"
+                    href="{{ url_for('main.venue_detail', venue_id=v.id, next=request.full_path) }}"
+                  >
+                    <span class="venue-name-link-main">
+                      <span class="venue-name-link-label">{{ v.name }}</span>
+                      <i class="bi bi-arrow-up-right venue-name-link-icon" aria-hidden="true"></i>
+                    </span>
+                  </a>
+                </h2>
               </div>
-              <div class="venue-freshness-wrap text-end">
-                <div
-                  class="venue-freshness-chip {{ 'venue-freshness-stale' if row.freshness.is_stale else 'venue-freshness-fresh' }}"
-                  title="{{ row.last_updated_text }}"
-                >
-                  <i class="bi bi-clock-history"></i> {{ row.freshness.text }}
+              <div class="venue-directory-head-actions">
+                <div class="venue-freshness-wrap text-end">
+                  <div
+                    class="venue-freshness-chip {{ 'venue-freshness-stale' if row.freshness.is_stale else 'venue-freshness-fresh' }}"
+                    title="{{ row.last_updated_text }}"
+                  >
+                    <i class="bi bi-clock-history"></i> {{ row.freshness.text }}
+                  </div>
                 </div>
+                <span class="badge venue-note-count-pill" title="Venue notes">
+                  <i class="bi bi-journal-text"></i> {{ row.notes_count }}
+                </span>
+                {% if current_user.is_admin %}
+                  <a
+                    class="icon-btn-plain icon-btn-sm venue-directory-settings-btn"
+                    href="{{ url_for('venue_settings.settings', venue_id=v.id) }}"
+                    aria-label="Open settings for {{ v.name }}"
+                    title="Settings"
+                  >
+                    <i class="bi bi-gear"></i>
+                  </a>
+                {% endif %}
               </div>
             </div>
 
             <div class="venue-directory-status-row">
-              <span
-                class="status-pill
-                  {{ 'status-good' if row.badge.key == 'good' else '' }}
-                  {{ 'status-ok' if row.badge.key == 'ok' else '' }}
-                  {{ 'status-low' if row.badge.key == 'low' else '' }}
-                  {{ 'status-out' if row.badge.key == 'out' else '' }}
-                  {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
-                title="{{ row.tooltip }}"
-              >
-                <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
-              </span>
-              <span class="text-muted small">{{ row.total_tracked }} tracked item{{ "" if row.total_tracked == 1 else "s" }}</span>
+              <div class="venue-directory-status-main">
+                <span
+                  class="status-pill
+                    {{ 'status-good' if row.badge.key == 'good' else '' }}
+                    {{ 'status-ok' if row.badge.key == 'ok' else '' }}
+                    {{ 'status-low' if row.badge.key == 'low' else '' }}
+                    {{ 'status-out' if row.badge.key == 'out' else '' }}
+                    {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
+                >
+                  <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
+                </span>
+                <button
+                  type="button"
+                  class="status-info-btn"
+                  data-status-popover
+                  data-status-key="{{ row.badge.key }}"
+                  data-status-icon="{{ row.badge.icon_class }}"
+                  data-status-summary="{{ row.badge.text }}"
+                  data-status-venue="{{ v.name }}"
+                  data-total-tracked="{{ row.total_tracked }}"
+                  data-count-good="{{ row.counts.good }}"
+                  data-count-ok="{{ row.counts.ok }}"
+                  data-count-low="{{ row.counts.low }}"
+                  data-count-out="{{ row.counts.out }}"
+                  data-count-not-checked="{{ row.counts.not_checked }}"
+                  aria-label="Show status details for {{ v.name }}"
+                >
+                  <i class="bi bi-info-circle"></i>
+                </button>
+              </div>
+              <span class="venue-directory-count">{{ row.total_tracked }} tracked item{{ "" if row.total_tracked == 1 else "s" }}</span>
             </div>
 
-            <div class="venue-directory-notes">
-              <div class="venue-directory-notes-label">Notes</div>
-              <div class="venue-directory-notes-text">{{ row.notes_preview }}</div>
-            </div>
-
-            <div class="venue-directory-actions">
-              <a
-                class="btn btn-aolrc-primary venue-directory-action-btn"
-                href="{{ url_for('main.venue_detail', venue_id=v.id, next=request.full_path) }}"
-              >
-                Open Venue
-              </a>
-              {% if current_user.is_staff %}
+            {% if current_user.is_staff or current_user.is_admin %}
+              <div class="venue-directory-actions">
                 <a
-                  class="btn btn-primary venue-directory-action-btn"
+                  class="btn btn-aolrc-primary venue-directory-action-btn"
+                  data-venue-next-link
+                  data-base-href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}"
                   href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}"
                 >
                   Update Status
                 </a>
-              {% endif %}
-              {% if current_user.is_admin %}
-                <a
-                  class="btn btn-outline-secondary venue-directory-action-btn"
-                  href="{{ url_for('venue_settings.settings', venue_id=v.id) }}"
-                >
-                  Settings
-                </a>
-              {% endif %}
-            </div>
+              </div>
+            {% endif %}
           </article>
         {% else %}
           <div class="venue-directory-empty">No venues yet.</div>
@@ -190,6 +209,17 @@
       if (initialStatus !== null) statusEl.value = initialStatus;
       if (initialType !== null) venueTypeEl.value = initialType;
 
+      function syncVenueActionUrls() {
+        const currentNext = `${window.location.pathname}${window.location.search}`;
+        document.querySelectorAll("[data-venue-next-link]").forEach((link) => {
+          const baseHref = link.getAttribute("data-base-href");
+          if (!baseHref) return;
+          const nextHref = new URL(baseHref, window.location.origin);
+          nextHref.searchParams.set("next", currentNext);
+          link.href = nextHref.toString();
+        });
+      }
+
       function syncFiltersUrl() {
         const nextUrl = new URL(window.location.href);
         const query = (searchEl.value || "").trim();
@@ -206,6 +236,7 @@
         else nextUrl.searchParams.delete("venue_type");
 
         window.history.replaceState({}, "", nextUrl);
+        syncVenueActionUrls();
       }
 
       function updateCount(visibleCount) {
@@ -222,10 +253,9 @@
 
         cards.forEach((card) => {
           const name = card.getAttribute("data-name") || "";
-          const notes = card.getAttribute("data-notes") || "";
           const rowStatus = card.getAttribute("data-status") || "";
           const rowVenueType = card.getAttribute("data-venue-type") || "";
-          const matchesSearch = !query || name.includes(query) || notes.includes(query);
+          const matchesSearch = !query || name.includes(query);
           const matchesStatus = status === "all" || rowStatus === status;
           const matchesType = venueType === "all" || rowVenueType === venueType;
           const isVisible = matchesSearch && matchesStatus && matchesType;
@@ -250,6 +280,8 @@
         applyFilters();
       });
 
+      syncVenueActionUrls();
+      window.initStatusDetailPopovers?.(document);
       applyFilters();
     })();
   </script>

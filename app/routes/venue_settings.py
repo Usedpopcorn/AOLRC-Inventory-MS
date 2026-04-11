@@ -14,10 +14,9 @@ def settings(venue_id):
     if request.method == "POST":
         action = request.form.get("action")
 
-        # Update name + notes + visibility
+        # Update name + visibility
         if action == "save":
             new_name = (request.form.get("name") or "").strip()
-            notes = (request.form.get("notes") or "").strip()
             is_active = request.form.get("active") == "true"
 
             if not new_name:
@@ -31,7 +30,6 @@ def settings(venue_id):
                 return redirect(url_for("venue_settings.settings", venue_id=venue.id))
 
             venue.name = new_name
-            venue.notes = notes if notes else None
             venue.active = is_active
             db.session.commit()
 

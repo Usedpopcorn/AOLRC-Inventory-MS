@@ -6,7 +6,7 @@ from flask_login import current_user
 from sqlalchemy import func, and_, or_, select, union_all, literal, cast, Integer, String, case
 from app import db
 from app.authz import roles_required
-from app.models import Venue, VenueItem, Item, Check, CheckLine, CountSession, CountLine, User
+from app.models import Venue, VenueItem, VenueNote, Item, Check, CheckLine, CountSession, CountLine, User
 
 main_bp = Blueprint("main", __name__)
 RESTOCK_PAGE_SIZE = 50
@@ -688,6 +688,19 @@ def build_venue_rows(include_inactive=False):
         )
     }
 
+    notes_count_map = {
+        row.venue_id: row.notes_count
+        for row in (
+            db.session.query(
+                VenueNote.venue_id.label("venue_id"),
+                func.count(VenueNote.id).label("notes_count"),
+            )
+            .filter(VenueNote.venue_id.in_(venue_ids))
+            .group_by(VenueNote.venue_id)
+            .all()
+        )
+    }
+
     latest_check_sq = (
         db.session.query(
             Check.venue_id.label("venue_id"),
@@ -727,13 +740,7 @@ def build_venue_rows(include_inactive=False):
     for v in venues:
         total_tracked = tracked_totals.get(v.id, 0)
         counts = {"good": 0, "ok": 0, "low": 0, "out": 0, "not_checked": 0}
-        notes_text = (v.notes or "").strip()
-        if len(notes_text) > 140:
-            notes_preview = f"{notes_text[:137]}..."
-        elif notes_text:
-            notes_preview = notes_text
-        else:
-            notes_preview = "No notes yet."
+        notes_count = int(notes_count_map.get(v.id, 0) or 0)
         last_updated_at = last_updated_map.get(v.id)
         freshness = format_updated_label(last_updated_at)
 
@@ -749,8 +756,9 @@ def build_venue_rows(include_inactive=False):
                     "venue": v,
                     "badge": badge,
                     "tooltip": tooltip,
+                    "counts": counts.copy(),
+                    "notes_count": notes_count,
                     "total_tracked": 0,
-                    "notes_preview": notes_preview,
                     "last_updated_at": last_updated_at,
                     "last_updated_text": (
                         format_activity_timestamp(last_updated_at) if last_updated_at else "No updates yet"
@@ -803,8 +811,9 @@ def build_venue_rows(include_inactive=False):
                 "venue": v,
                 "badge": badge,
                 "tooltip": tooltip,
+                "counts": counts.copy(),
+                "notes_count": notes_count,
                 "total_tracked": total_tracked,
-                "notes_preview": notes_preview,
                 "last_updated_at": last_updated_at,
                 "last_updated_text": (
                     format_activity_timestamp(last_updated_at) if last_updated_at else "No updates yet"
@@ -1300,22 +1309,151 @@ def venues():
 @roles_required("viewer", "staff", "admin")
 def venue_detail(venue_id):
     venue = Venue.query.get_or_404(venue_id)
+    active_profile_tab = (request.args.get("profile_tab") or request.form.get("profile_tab") or "details").strip().lower()
+    if active_profile_tab not in {"details", "notes", "activity"}:
+        active_profile_tab = "details"
     next_path = (
         request.args.get("next")
         or request.form.get("next")
         or url_for("main.venues")
     )
+    submit_profile_tab = (request.form.get("profile_tab") or active_profile_tab).strip().lower()
+    if submit_profile_tab not in {"details", "notes", "activity"}:
+        submit_profile_tab = "details"
 
     if request.method == "POST":
-        if not current_user.is_staff:
-            flash("Only staff and admins can edit notes.", "error")
-            return redirect(url_for("main.venue_detail", venue_id=venue.id, next=next_path))
+        action = (request.form.get("action") or "").strip().lower()
+        if action in {"create_note", "edit_note", "delete_note"} and not current_user.is_staff:
+            flash("Only staff and admins can manage notes.", "error")
+            return redirect(
+                url_for(
+                    "main.venue_detail",
+                    venue_id=venue.id,
+                    next=next_path,
+                    profile_tab=submit_profile_tab,
+                )
+            )
 
-        notes = (request.form.get("notes") or "").strip()
-        venue.notes = notes if notes else None
-        db.session.commit()
-        flash("Venue notes updated.", "success")
-        return redirect(url_for("main.venue_detail", venue_id=venue.id, next=next_path))
+        if action == "create_note":
+            title = (request.form.get("title") or "").strip()
+            body = (request.form.get("body") or "").strip()
+            if not title:
+                flash("Note title is required.", "error")
+                return redirect(
+                    url_for(
+                        "main.venue_detail",
+                        venue_id=venue.id,
+                        next=next_path,
+                        profile_tab=submit_profile_tab,
+                    )
+                )
+            if not body:
+                flash("Note body is required.", "error")
+                return redirect(
+                    url_for(
+                        "main.venue_detail",
+                        venue_id=venue.id,
+                        next=next_path,
+                        profile_tab=submit_profile_tab,
+                    )
+                )
+
+            new_note = VenueNote(
+                venue_id=venue.id,
+                author_user_id=current_user.id,
+                title=title,
+                body=body,
+            )
+            db.session.add(new_note)
+            db.session.commit()
+            flash("Note added.", "success")
+            return redirect(
+                url_for(
+                    "main.venue_detail",
+                    venue_id=venue.id,
+                    next=next_path,
+                    profile_tab=submit_profile_tab,
+                )
+            )
+
+        if action in {"edit_note", "delete_note"}:
+            note_id_raw = request.form.get("note_id", "")
+            note = None
+            if note_id_raw.isdigit():
+                note = VenueNote.query.filter_by(id=int(note_id_raw), venue_id=venue.id).first()
+            if note is None:
+                flash("Note not found for this venue.", "error")
+                return redirect(
+                    url_for(
+                        "main.venue_detail",
+                        venue_id=venue.id,
+                        next=next_path,
+                        profile_tab=submit_profile_tab,
+                    )
+                )
+
+            can_manage = current_user.is_admin or (
+                current_user.role == "staff" and note.author_user_id == current_user.id
+            )
+            if not can_manage:
+                flash("You can only edit or delete your own notes.", "error")
+                return redirect(
+                    url_for(
+                        "main.venue_detail",
+                        venue_id=venue.id,
+                        next=next_path,
+                        profile_tab=submit_profile_tab,
+                    )
+                )
+
+            if action == "edit_note":
+                title = (request.form.get("title") or "").strip()
+                body = (request.form.get("body") or "").strip()
+                if not title:
+                    flash("Note title is required.", "error")
+                    return redirect(
+                        url_for(
+                            "main.venue_detail",
+                            venue_id=venue.id,
+                            next=next_path,
+                            profile_tab=submit_profile_tab,
+                        )
+                    )
+                if not body:
+                    flash("Note body is required.", "error")
+                    return redirect(
+                        url_for(
+                            "main.venue_detail",
+                            venue_id=venue.id,
+                            next=next_path,
+                            profile_tab=submit_profile_tab,
+                        )
+                    )
+
+                note.title = title
+                note.body = body
+                db.session.commit()
+                flash("Note updated.", "success")
+                return redirect(
+                    url_for(
+                        "main.venue_detail",
+                        venue_id=venue.id,
+                        next=next_path,
+                        profile_tab=submit_profile_tab,
+                    )
+                )
+
+            db.session.delete(note)
+            db.session.commit()
+            flash("Note deleted.", "success")
+            return redirect(
+                url_for(
+                    "main.venue_detail",
+                    venue_id=venue.id,
+                    next=next_path,
+                    profile_tab=submit_profile_tab,
+                )
+            )
 
     total_tracked = (
         db.session.query(func.count(VenueItem.id))
@@ -1340,6 +1478,43 @@ def venue_detail(venue_id):
     venue_last_updated_at = build_venue_last_updated_map([venue.id]).get(venue.id)
     venue_freshness = format_updated_label(venue_last_updated_at)
     recent_activity_rows = build_recent_venue_activity_rows(venue.id, limit=20)
+    note_rows = []
+    note_query_rows = (
+        db.session.query(
+            VenueNote,
+            User.display_name.label("author_display_name"),
+            User.email.label("author_email"),
+        )
+        .outerjoin(User, User.id == VenueNote.author_user_id)
+        .filter(VenueNote.venue_id == venue.id)
+        .order_by(VenueNote.updated_at.desc(), VenueNote.id.desc())
+        .all()
+    )
+    for note, author_display_name, author_email in note_query_rows:
+        created_at = ensure_utc(note.created_at)
+        updated_at = ensure_utc(note.updated_at)
+        is_edited = bool(
+            created_at
+            and updated_at
+            and (updated_at - created_at) > timedelta(seconds=1)
+        )
+        effective_at = updated_at if is_edited else created_at
+        can_manage = current_user.is_admin or (
+            current_user.role == "staff" and note.author_user_id == current_user.id
+        )
+        author_name = (author_display_name or "").strip() or (author_email or "Unknown user")
+        note_rows.append(
+            {
+                "id": note.id,
+                "title": note.title,
+                "body": note.body,
+                "author_name": author_name,
+                "created_at_text": format_activity_timestamp(created_at) if created_at else "Unknown time",
+                "display_time_text": format_activity_timestamp(effective_at) if effective_at else "Unknown time",
+                "display_time_label": "Edited" if is_edited else "Created",
+                "can_manage": can_manage,
+            }
+        )
 
     return render_template(
         "venues/detail.html",
@@ -1354,6 +1529,8 @@ def venue_detail(venue_id):
         ),
         venue_freshness=venue_freshness,
         recent_activity_rows=recent_activity_rows,
+        note_rows=note_rows,
+        active_profile_tab=active_profile_tab,
         restock_status_options=RESTOCK_STATUS_META,
         update_status_url=url_for("venue_items.quick_check", venue_id=venue.id, next=request.full_path),
     )

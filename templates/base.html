@@ -131,6 +131,273 @@
     });
   });
 
+  window.initStatusDetailPopovers = (() => {
+    const STATUS_META = {
+      good: { label: "Good", iconClass: "bi-check-circle-fill", className: "status-good" },
+      ok: { label: "OK", iconClass: "bi-check-circle-fill", className: "status-ok" },
+      low: { label: "Low", iconClass: "bi-exclamation-triangle-fill", className: "status-low" },
+      out: { label: "Out", iconClass: "bi-x-circle-fill", className: "status-out" },
+      not_checked: { label: "Not Checked", iconClass: "bi-dash-circle", className: "status-na" },
+    };
+    const COUNT_ORDER = ["good", "ok", "low", "out", "not_checked"];
+    const hoverMq = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const instances = new WeakMap();
+    const hideTimers = new WeakMap();
+    let documentClickBound = false;
+    let documentKeyBound = false;
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function getCount(button, key) {
+      return Number(button.dataset[`count${key === "not_checked" ? "NotChecked" : key.charAt(0).toUpperCase() + key.slice(1)}`] || 0);
+    }
+
+    function buildStatusPopoverContent(button) {
+      const statusKey = button.dataset.statusKey || "not_checked";
+      const meta = STATUS_META[statusKey] || STATUS_META.not_checked;
+      const summary = escapeHtml(button.dataset.statusSummary || meta.label);
+      const venueName = escapeHtml(button.dataset.statusVenue || "this venue");
+      const totalTracked = Number(button.dataset.totalTracked || 0);
+
+      if (totalTracked <= 0) {
+        return `
+          <div class="status-popover-card">
+            <div class="status-popover-eyebrow">${venueName}</div>
+            <div class="status-popover-current">
+              <span class="status-pill ${meta.className}">
+                <i class="bi ${escapeHtml(button.dataset.statusIcon || meta.iconClass)}"></i> ${summary}
+              </span>
+            </div>
+            <div class="status-popover-empty">No tracked items at this venue yet.</div>
+          </div>
+        `;
+      }
+
+      const breakdownRows = COUNT_ORDER.map((key) => {
+        const rowMeta = STATUS_META[key];
+        const rowCount = getCount(button, key);
+        return `
+          <div class="status-popover-breakdown-row">
+            <span class="status-pill ${rowMeta.className}">
+              <i class="bi ${rowMeta.iconClass}"></i> ${rowMeta.label}
+            </span>
+            <span class="status-popover-breakdown-count">${rowCount}</span>
+          </div>
+        `;
+      }).join("");
+
+      return `
+        <div class="status-popover-card">
+          <div class="status-popover-eyebrow">${venueName}</div>
+          <div class="status-popover-current">
+            <span class="status-pill ${meta.className}">
+              <i class="bi ${escapeHtml(button.dataset.statusIcon || meta.iconClass)}"></i> ${summary}
+            </span>
+            <span class="status-popover-total">${totalTracked} tracked item${totalTracked === 1 ? "" : "s"}</span>
+          </div>
+          <div class="status-popover-breakdown">
+            ${breakdownRows}
+          </div>
+        </div>
+      `;
+    }
+
+    function hideTimer(button) {
+      const timer = hideTimers.get(button);
+      if (timer) {
+        window.clearTimeout(timer);
+        hideTimers.delete(button);
+      }
+    }
+
+    function scheduleHide(button) {
+      hideTimer(button);
+      hideTimers.set(button, window.setTimeout(() => {
+        if (shouldKeepOpenForHover(button)) return;
+        const instance = instances.get(button);
+        instance?.hide();
+      }, 120));
+    }
+
+    function isPinned(button) {
+      return button.dataset.statusPopoverPinned === "true";
+    }
+
+    function setPinned(button, value) {
+      button.dataset.statusPopoverPinned = value ? "true" : "false";
+      button.setAttribute("aria-expanded", value ? "true" : "false");
+    }
+
+    function isHoverMode() {
+      return hoverMq.matches;
+    }
+
+    function setHovering(button, value) {
+      button.dataset.statusPopoverHovering = value ? "true" : "false";
+    }
+
+    function isHovering(button) {
+      return button.dataset.statusPopoverHovering === "true";
+    }
+
+    function setTipHovering(button, value) {
+      button.dataset.statusPopoverTipHovering = value ? "true" : "false";
+    }
+
+    function isTipHovering(button) {
+      return button.dataset.statusPopoverTipHovering === "true";
+    }
+
+    function shouldKeepOpenForHover(button) {
+      return isHoverMode() && !isPinned(button) && (
+        isHovering(button) ||
+        isTipHovering(button) ||
+        button.matches(":hover") ||
+        document.activeElement === button
+      );
+    }
+
+    function showPopover(button) {
+      hideTimer(button);
+      hideAllExcept(button);
+      instances.get(button)?.show();
+    }
+
+    function hidePopover(button) {
+      hideTimer(button);
+      setPinned(button, false);
+      instances.get(button)?.hide();
+    }
+
+    function hideAllExcept(exceptButton) {
+      document.querySelectorAll("[data-status-popover]").forEach((button) => {
+        if (button !== exceptButton) {
+          hideTimer(button);
+          setPinned(button, false);
+          instances.get(button)?.hide();
+        }
+      });
+    }
+
+    function ensureDocumentHandlers() {
+      if (!documentClickBound) {
+        document.addEventListener("click", (event) => {
+          if (event.target.closest("[data-status-popover]")) return;
+          if (event.target.closest(".status-popover-shell")) return;
+          hideAllExcept(null);
+        });
+        documentClickBound = true;
+      }
+
+      if (!documentKeyBound) {
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") hideAllExcept(null);
+        });
+        documentKeyBound = true;
+      }
+    }
+
+    function bindPopover(button) {
+      if (instances.has(button) || !window.bootstrap?.Popover) return;
+
+      const instance = window.bootstrap.Popover.getOrCreateInstance(button, {
+        html: true,
+        sanitize: false,
+        trigger: "manual",
+        placement: "auto",
+        container: "body",
+        customClass: "status-popover-shell",
+        content: () => buildStatusPopoverContent(button),
+      });
+      instances.set(button, instance);
+      setPinned(button, false);
+      setHovering(button, false);
+      setTipHovering(button, false);
+
+      button.addEventListener("mouseenter", () => {
+        setHovering(button, true);
+        if (!isHoverMode() || isPinned(button)) return;
+        showPopover(button);
+      });
+      button.addEventListener("mouseleave", () => {
+        setHovering(button, false);
+        if (!isHoverMode() || isPinned(button)) return;
+        scheduleHide(button);
+      });
+      button.addEventListener("focus", () => {
+        if (!isHoverMode() || isPinned(button)) return;
+        showPopover(button);
+      });
+      button.addEventListener("blur", () => {
+        if (!isHoverMode() || isPinned(button)) return;
+        scheduleHide(button);
+      });
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const isShown = button.getAttribute("aria-describedby");
+        hideTimer(button);
+        if (isHoverMode()) {
+          if (isPinned(button)) {
+            hidePopover(button);
+            return;
+          }
+          if (isShown) {
+            setPinned(button, true);
+            return;
+          }
+          setPinned(button, true);
+          showPopover(button);
+          return;
+        }
+
+        if (isShown) {
+          hidePopover(button);
+          return;
+        }
+
+        setPinned(button, true);
+        showPopover(button);
+      });
+      button.addEventListener("shown.bs.popover", () => {
+        const tipId = button.getAttribute("aria-describedby");
+        const tip = tipId ? document.getElementById(tipId) : null;
+        if (!tip || tip.dataset.statusPopoverBound === "true") return;
+        tip.dataset.statusPopoverBound = "true";
+        tip.addEventListener("mouseenter", () => {
+          setTipHovering(button, true);
+          hideTimer(button);
+        });
+        tip.addEventListener("mouseleave", () => {
+          setTipHovering(button, false);
+          if (!isHoverMode() || isPinned(button)) return;
+          scheduleHide(button);
+        });
+      });
+      button.addEventListener("hidden.bs.popover", () => {
+        hideTimer(button);
+        setPinned(button, false);
+        if (shouldKeepOpenForHover(button)) {
+          window.requestAnimationFrame(() => showPopover(button));
+        }
+      });
+    }
+
+    return (root = document) => {
+      ensureDocumentHandlers();
+      root.querySelectorAll("[data-status-popover]").forEach(bindPopover);
+    };
+  })();
+
+  window.initStatusDetailPopovers(document);
+
 </script>
 </body>
 </html>
