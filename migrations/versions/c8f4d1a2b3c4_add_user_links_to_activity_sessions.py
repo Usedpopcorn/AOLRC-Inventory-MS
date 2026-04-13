@@ -13,7 +13,8 @@ import sqlalchemy as sa
 revision = "c8f4d1a2b3c4"
 down_revision = "4c1a0b8a9d3e"
 branch_labels = None
-depends_on = None
+# Ensure users table branch is applied before adding FKs.
+depends_on = "9f1e2a3b4c5d"
 
 
 def upgrade():
