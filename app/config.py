@@ -22,6 +22,8 @@ def _env_int(name, default):
 
 
 def is_development_environment():
+    if _env_flag("RENDER", default=False):
+        return False
     runtime_env = (os.getenv("FLASK_ENV") or "").strip().lower()
     return runtime_env in {"", "development"}
 
@@ -32,10 +34,16 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
-    SESSION_COOKIE_SECURE = _env_flag("SESSION_COOKIE_SECURE", default=False)
+    SESSION_COOKIE_SECURE = _env_flag(
+        "SESSION_COOKIE_SECURE",
+        default=not is_development_environment(),
+    )
     REMEMBER_COOKIE_HTTPONLY = True
     REMEMBER_COOKIE_SAMESITE = "Lax"
-    REMEMBER_COOKIE_SECURE = _env_flag("REMEMBER_COOKIE_SECURE", default=False)
+    REMEMBER_COOKIE_SECURE = _env_flag(
+        "REMEMBER_COOKIE_SECURE",
+        default=not is_development_environment(),
+    )
     PERMANENT_SESSION_LIFETIME = timedelta(
         hours=max(1, _env_int("PERMANENT_SESSION_HOURS", 12))
     )
