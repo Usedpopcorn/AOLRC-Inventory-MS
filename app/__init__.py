@@ -59,7 +59,8 @@ def _save_user(email, password, role, display_name=None):
     if existing:
         existing.password_hash = generate_password_hash(password)
         existing.role = normalized_role
-        existing.display_name = normalized_display_name
+        if normalized_display_name is not None:
+            existing.display_name = normalized_display_name
         existing.active = True
         db.session.commit()
         return existing, False
