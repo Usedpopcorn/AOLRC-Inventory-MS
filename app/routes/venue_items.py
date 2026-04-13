@@ -15,6 +15,7 @@ from app.models import (
 )
 
 venue_items_bp = Blueprint("venue_items", __name__, url_prefix="/venues")
+MAX_DB_INT = 2_147_483_647
 
 
 def normalize_next_path(next_candidate, fallback_path):
@@ -80,6 +81,19 @@ def build_overall_status(total_tracked, counts):
     if checked_count > 0 and counts["ok"] > 0:
         return {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
     return {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
+
+
+def sanitize_raw_count(raw_value):
+    try:
+        parsed = int((raw_value or "0").strip())
+    except ValueError:
+        return 0, True
+
+    if parsed < 0:
+        return 0, True
+    if parsed > MAX_DB_INT:
+        return MAX_DB_INT, True
+    return parsed, False
 
 
 @venue_items_bp.route("/<int:venue_id>/supplies", methods=["GET", "POST"])
@@ -176,16 +190,12 @@ def quick_check(venue_id):
                 row.item_id: row
                 for row in VenueItemCount.query.filter_by(venue_id=venue.id).all()
             }
+            adjusted_inputs = 0
 
             for it in tracked:
-                raw_value = (request.form.get(f"count_{it.id}") or "0").strip()
-                try:
-                    raw_count = int(raw_value)
-                except ValueError:
-                    raw_count = 0
-
-                if raw_count < 0:
-                    raw_count = 0
+                raw_count, was_adjusted = sanitize_raw_count(request.form.get(f"count_{it.id}"))
+                if was_adjusted:
+                    adjusted_inputs += 1
 
                 db.session.add(
                     CountLine(
@@ -208,6 +218,11 @@ def quick_check(venue_id):
                     )
 
             db.session.commit()
+            if adjusted_inputs:
+                flash(
+                    f"{adjusted_inputs} raw count value(s) were out of range and adjusted to fit database limits.",
+                    "warning",
+                )
             flash("Saved raw counts.", "success")
             return redirect(
                 url_for(

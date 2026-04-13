@@ -42,8 +42,44 @@ def handle_unauthorized():
         return jsonify({"error": "authentication required", "code": "unauthenticated"}), 401
     return redirect(url_for("auth.login", next=request.url))
 
+
+def _save_user(email, password, role, display_name=None):
+    from .models import User, normalize_role
+
+    normalized_email = (email or "").strip().lower()
+    normalized_role = normalize_role(role)
+    normalized_display_name = (display_name or "").strip() or None
+
+    if not normalized_email:
+        raise click.ClickException("Email is required.")
+    if not password:
+        raise click.ClickException("Password is required.")
+
+    existing = User.query.filter_by(email=normalized_email).first()
+    if existing:
+        existing.password_hash = generate_password_hash(password)
+        existing.role = normalized_role
+        if normalized_display_name is not None:
+            existing.display_name = normalized_display_name
+        existing.active = True
+        db.session.commit()
+        return existing, False
+
+    user = User(
+        email=normalized_email,
+        display_name=normalized_display_name,
+        password_hash=generate_password_hash(password),
+        role=normalized_role,
+        active=True,
+    )
+    db.session.add(user)
+    db.session.commit()
+    return user, True
+
+
 def create_app():
-    load_dotenv(override=True)  # loads variables from .env into the environment
+    # Keep explicit shell/runtime env vars in control and only fill missing values from .env.
+    load_dotenv(override=False)
 
     app = Flask(
     __name__,
@@ -85,6 +121,10 @@ def create_app():
     
     from . import models  # ensures models are registered for migrations
 
+    @app.get("/healthz")
+    def healthcheck():
+        return jsonify({"status": "ok"}), 200
+
     @app.errorhandler(CSRFError)
     def handle_csrf_error(error):
         flash("Your form session expired. Please try again.", "error")
@@ -99,33 +139,43 @@ def create_app():
 
     @app.cli.command("create-admin")
     @click.option("--email", prompt=True, help="Admin email")
+    @click.option("--display-name", default="", help="Optional display name")
     @click.option("--password", prompt=True, hide_input=True, confirmation_prompt=True, help="Admin password")
-    def create_admin(email, password):
-        from .models import User, normalize_role
-
-        normalized_email = (email or "").strip().lower()
-        if not normalized_email:
-            raise click.ClickException("Email is required.")
-        if not password:
-            raise click.ClickException("Password is required.")
-
-        existing = User.query.filter_by(email=normalized_email).first()
-        if existing:
-            existing.password_hash = generate_password_hash(password)
-            existing.role = normalize_role("admin")
-            existing.active = True
-            db.session.commit()
-            click.echo(f"Updated existing user to admin: {normalized_email}")
-            return
-
-        user = User(
-            email=normalized_email,
-            password_hash=generate_password_hash(password),
-            role=normalize_role("admin"),
-            active=True,
+    def create_admin(email, display_name, password):
+        user, created = _save_user(
+            email=email,
+            password=password,
+            role="admin",
+            display_name=display_name,
         )
-        db.session.add(user)
-        db.session.commit()
-        click.echo(f"Created admin user: {normalized_email}")
+        action = "Created" if created else "Updated existing"
+        click.echo(f"{action} admin user: {user.email}")
+
+    @app.cli.command("create-user")
+    @click.option("--email", prompt=True, help="User email")
+    @click.option("--display-name", default="", help="Optional display name")
+    @click.option(
+        "--role",
+        type=click.Choice(["viewer", "staff", "admin"], case_sensitive=False),
+        default="viewer",
+        show_default=True,
+        help="User role",
+    )
+    @click.option(
+        "--password",
+        prompt=True,
+        hide_input=True,
+        confirmation_prompt=True,
+        help="User password",
+    )
+    def create_user(email, display_name, role, password):
+        user, created = _save_user(
+            email=email,
+            password=password,
+            role=role,
+            display_name=display_name,
+        )
+        action = "Created" if created else "Updated existing"
+        click.echo(f"{action} user: {user.email} ({user.role})")
 
     return app
