@@ -1,0 +1,30 @@
+---
+description: Keep Render live-test deployment guidance clean and safe for this dedicated live-server copy.
+alwaysApply: true
+---
+
+# Render Live-Test Deploy Guardrails
+
+This repo copy is used for a small Render live test with its own Supabase project.
+
+Rules:
+- Treat this environment as isolated from the shared dev DB only after explicitly confirming the active `DATABASE_URL` points to the dedicated live-test Supabase project.
+- Before a Render deploy, verify these steps are complete:
+  1) `flask db upgrade` succeeded on the live-test DB
+  2) `seed_core_venues.py` succeeded
+  3) `seed_from_csv.py` succeeded
+  4) at least one admin user exists
+- Never recommend `seed_dummy_users.py` or `seed_activity_log_demo.py` for this live-test deployment.
+- If Render is on the free plan, do not assume shell access or pre-deploy commands are available.
+- Keep Render service settings simple:
+  - Health check path: `/healthz`
+  - Docker build context: `.`
+  - Dockerfile path: `./Dockerfile`
+  - Docker command: leave blank unless the Dockerfile is wrong
+- Remind the user to commit and push migration fixes before deploying, especially migration dependency/order changes.
+
+Verification checklist:
+- `flask db current` shows the latest head
+- `alembic_version` matches git head migration
+- `users` table contains at least one active admin
+- `venues`, `items`, and `venue_items` contain seed data

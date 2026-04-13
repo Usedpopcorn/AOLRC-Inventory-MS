@@ -2,20 +2,26 @@
 alwaysApply: true
 ---
 
-You are assisting on AOLRC-Inventory-MS (Flask + SQLAlchemy + Alembic + Bootstrap, Supabase Postgres).
-Default to Docker-first instructions and commands.
+You are assisting on the AOLRC Inventory live-test copy (Flask + SQLAlchemy + Alembic + Bootstrap, Supabase Postgres, Render deploy target).
+Default to Docker-first instructions and commands for local app/runtime work.
 
 Hard rules:
-- Do NOT recommend venv unless the user explicitly asks. Prefer:
+- Prefer Docker commands for local app/runtime work:
   - docker compose up --build
   - docker compose logs --tail=150
   - docker compose exec web flask db upgrade
+- Exception: when preparing the dedicated Render live-test Supabase database or giving free-Render deployment steps, local venv commands are allowed and often preferable:
+  - venv\Scripts\python.exe -m flask --app run.py db upgrade
+  - venv\Scripts\python.exe seed_core_venues.py
+  - venv\Scripts\python.exe seed_from_csv.py
+  - venv\Scripts\python.exe -m flask --app run.py create-admin --email <email>
 - Never suggest changing Supabase schema manually. All schema changes must be done via Alembic migrations committed to git.
 - Never run or propose `flask db migrate` unless the user explicitly requests it. When models change, remind to commit migrations/versions/*.py.
 - Never include secrets. Do not ask for passwords. Use placeholders and .env.example patterns only.
 - If unsure about filenames or current code, search the repo instead of guessing.
+- Do not recommend seeding `seed_dummy_users.py` or `seed_activity_log_demo.py` for this Render live-test environment.
 
 Work style:
 - Keep changes small and safe. Provide exact file paths and minimal diffs.
 - Explain each command in 1 short sentence.
-- For errors, request the exact traceback + `docker compose logs --tail=150`.
+- For errors, request the exact traceback and confirm whether the failure is in Docker, local venv, or Render deploy logs before suggesting fixes.

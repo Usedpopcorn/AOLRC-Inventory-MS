@@ -2,23 +2,32 @@
 alwaysApply: true
 ---
 
-We use a single shared Supabase Postgres database. Running `flask db upgrade` against it on a feature branch can break other teammates (schema mismatch).
+The dev environment may use a single shared Supabase Postgres database, but this live-test copy can also point at a dedicated Supabase project for Render testing. Treat those as different safety modes.
 
 Rules:
-- If the user is on any branch other than `main`, NEVER instruct them to run `flask db upgrade` against the shared Supabase database.
+- If the target is the shared dev Supabase database and the user is on any branch other than `main`, NEVER instruct them to run `flask db upgrade` against it.
 - If the user asks to run a DB upgrade while on a feature branch, give a heavy warning and recommend one of:
   1) Switch to `main`, pull latest, then run upgrade, OR
   2) Use a local Postgres database (Docker db profile) for branch testing, OR
   3) Wait until the migration is merged to main and the migration captain runs upgrade.
+- If the user explicitly confirms this copy is pointed at a dedicated live-test Supabase project that is isolated from teammates, direct upgrade/seeding is allowed from this copy even if it is not `main`.
 
 - Always ask them to run `git branch --show-current` before any upgrade instructions if branch status is unknown.
-- When giving DB commands, prefer Docker form:
+- Always state the DB target before upgrade commands:
+  - shared dev Supabase
+  - dedicated live-test Supabase
+  - local SQLite/Postgres
+- When giving DB commands, prefer Docker form for shared/local dev work:
   `docker compose exec web flask db upgrade`
+- For the dedicated Render live-test Supabase target, local venv form is acceptable:
+  `venv\Scripts\python.exe -m flask --app run.py db upgrade`
 
 Allowed:
 - Running `flask db upgrade` on `main` after pulling latest.
 - Running `flask db upgrade` on a local-only database (not the shared Supabase DB), if explicitly using local Postgres.
+- Running `flask db upgrade` against the dedicated live-test Supabase database after explicitly confirming it is isolated and intended for Render/live testing.
 
 Never:
 - Do not suggest upgrading the shared DB from a feature branch.
 - Do not suggest manual schema edits in Supabase.
+- Do not assume the live-test DB is safe without confirming that `.env` or runtime env points at the dedicated project.

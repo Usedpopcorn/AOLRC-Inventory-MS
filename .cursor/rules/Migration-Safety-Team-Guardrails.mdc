@@ -11,3 +11,9 @@ Migration safety rules for a multi-dev team:
 - If Alembic reports "can't locate revision", first check whether the migration file is missing from repo and needs to be committed/restored.
 - Avoid database drift: do not instruct manual column/table changes in Supabase UI.
 - Prefer the Supabase SESSION/TRANSACTION POOLER connection string (pooler.supabase.com), not direct db.<ref>.supabase.co when Docker networking is involved.
+- For this Render live-test copy, commit and push any migration-order fixes before deploying so Render does not build from stale migration files.
+- For free Render web services, do not rely on Render shell or pre-deploy commands. Run upgrade/seed/admin bootstrap locally against the dedicated live-test Supabase database before deploy.
+- After live-test DB bootstrap, verify:
+  - `flask db current` is at head
+  - seed tables have expected row counts
+  - at least one active admin user exists
