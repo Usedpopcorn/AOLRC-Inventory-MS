@@ -1,12 +1,13 @@
 import re
 from datetime import datetime, time, timedelta, timezone
+from urllib.parse import urljoin, urlparse
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import current_user
 from sqlalchemy import func, and_, or_, select, union_all, literal, cast, Integer, String, case
 from app import db
 from app.authz import roles_required
-from app.models import Venue, VenueItem, Item, Check, CheckLine, CountSession, CountLine, User
+from app.models import Venue, VenueItem, VenueNote, Item, Check, CheckLine, CountSession, CountLine, User
 
 main_bp = Blueprint("main", __name__)
 RESTOCK_PAGE_SIZE = 50
@@ -34,6 +35,40 @@ ACTIVITY_TYPE_META = {
 }
 
 ACTIVITY_SORT_OPTIONS = {"newest", "oldest", "venue", "item", "actor", "type"}
+
+
+def normalize_next_path(next_candidate, fallback_path):
+    if not next_candidate:
+        return fallback_path
+
+    host_url = urlparse(request.host_url)
+    target_url = urlparse(urljoin(request.host_url, next_candidate))
+    if target_url.scheme not in {"http", "https"} or target_url.netloc != host_url.netloc:
+        return fallback_path
+
+    current_url = urlparse(urljoin(request.host_url, request.full_path))
+    if target_url.path == current_url.path and target_url.query == current_url.query:
+        return fallback_path
+
+    return f"{target_url.path}?{target_url.query}" if target_url.query else target_url.path
+
+
+def describe_back_destination(next_path, venue_id):
+    target_path = urlparse(urljoin(request.host_url, next_path)).path
+
+    if target_path == url_for("main.dashboard"):
+        return "Dashboard"
+    if target_path == url_for("main.venues"):
+        return "Venues"
+    if target_path == url_for("main.venue_detail", venue_id=venue_id):
+        return "Venue Profile"
+    if target_path == url_for("venue_items.quick_check", venue_id=venue_id):
+        return "Venue Check"
+    if target_path == url_for("venue_settings.settings", venue_id=venue_id):
+        return "Venue Settings"
+    if target_path == url_for("venue_items.supplies", venue_id=venue_id):
+        return "Venue Supplies"
+    return "Previous Page"
 
 
 def normalize_status(status):
@@ -511,6 +546,165 @@ def serialize_activity_filters(activity_filters):
     }
 
 
+def ensure_utc(value):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def format_updated_label(value):
+    updated_at = ensure_utc(value)
+    if updated_at is None:
+        return {
+            "text": "No updates yet",
+            "is_missing": True,
+            "is_stale": True,
+        }
+
+    now = datetime.now(timezone.utc)
+    delta = max(now - updated_at, timedelta(0))
+    total_seconds = int(delta.total_seconds())
+    if total_seconds < 60:
+        relative = "Updated just now"
+    elif total_seconds < 3600:
+        minutes = total_seconds // 60
+        relative = f"Updated {minutes}m ago"
+    elif total_seconds < 86400:
+        hours = total_seconds // 3600
+        relative = f"Updated {hours}h ago"
+    else:
+        days = total_seconds // 86400
+        relative = f"Updated {days}d ago"
+
+    return {
+        "text": relative,
+        "is_missing": False,
+        "is_stale": delta >= timedelta(days=2),
+    }
+
+
+def build_venue_last_updated_map(venue_ids):
+    if not venue_ids:
+        return {}
+
+    last_check_map = {
+        row.venue_id: row.last_check_at
+        for row in (
+            db.session.query(
+                Check.venue_id.label("venue_id"),
+                func.max(Check.created_at).label("last_check_at"),
+            )
+            .filter(Check.venue_id.in_(venue_ids))
+            .group_by(Check.venue_id)
+            .all()
+        )
+    }
+    last_count_map = {
+        row.venue_id: row.last_count_at
+        for row in (
+            db.session.query(
+                CountSession.venue_id.label("venue_id"),
+                func.max(CountSession.created_at).label("last_count_at"),
+            )
+            .filter(CountSession.venue_id.in_(venue_ids))
+            .group_by(CountSession.venue_id)
+            .all()
+        )
+    }
+
+    output = {}
+    for venue_id in venue_ids:
+        last_check_at = ensure_utc(last_check_map.get(venue_id))
+        last_count_at = ensure_utc(last_count_map.get(venue_id))
+        if last_check_at and last_count_at:
+            output[venue_id] = max(last_check_at, last_count_at)
+        else:
+            output[venue_id] = last_check_at or last_count_at
+    return output
+
+
+def build_recent_venue_activity_rows(venue_id, limit=20):
+    max_rows = max(int(limit or 0), 1)
+    status_actor_name = activity_actor_name_expr(User.display_name, User.email)
+    previous_status = func.lag(CheckLine.status).over(
+        partition_by=(Check.venue_id, CheckLine.item_id),
+        order_by=(Check.created_at.asc(), Check.id.asc()),
+    )
+    status_inner = (
+        select(
+            literal("status").label("type_key"),
+            Check.id.label("event_id"),
+            Check.created_at.label("changed_at"),
+            Venue.name.label("venue_name"),
+            Item.name.label("item_name"),
+            status_actor_name.label("actor_name"),
+            previous_status.label("old_status_key"),
+            CheckLine.status.label("new_status_key"),
+            cast(literal(None), Integer).label("old_raw_count"),
+            cast(literal(None), Integer).label("new_raw_count"),
+        )
+        .select_from(Check)
+        .join(Venue, Venue.id == Check.venue_id)
+        .join(CheckLine, CheckLine.check_id == Check.id)
+        .join(Item, Item.id == CheckLine.item_id)
+        .outerjoin(User, User.id == Check.user_id)
+        .where(Check.venue_id == venue_id)
+        .subquery()
+    )
+    status_events = select(status_inner).where(
+        or_(
+            and_(
+                status_inner.c.old_status_key.is_(None),
+                status_inner.c.new_status_key != "not_checked",
+            ),
+            status_inner.c.old_status_key != status_inner.c.new_status_key,
+        )
+    )
+
+    count_actor_name = activity_actor_name_expr(User.display_name, User.email)
+    previous_raw_count = func.lag(CountLine.raw_count).over(
+        partition_by=(CountSession.venue_id, CountLine.item_id),
+        order_by=(CountSession.created_at.asc(), CountSession.id.asc()),
+    )
+    count_inner = (
+        select(
+            literal("raw_count").label("type_key"),
+            CountSession.id.label("event_id"),
+            CountSession.created_at.label("changed_at"),
+            Venue.name.label("venue_name"),
+            Item.name.label("item_name"),
+            count_actor_name.label("actor_name"),
+            cast(literal(None), String).label("old_status_key"),
+            cast(literal(None), String).label("new_status_key"),
+            previous_raw_count.label("old_raw_count"),
+            CountLine.raw_count.label("new_raw_count"),
+        )
+        .select_from(CountSession)
+        .join(Venue, Venue.id == CountSession.venue_id)
+        .join(CountLine, CountLine.count_session_id == CountSession.id)
+        .join(Item, Item.id == CountLine.item_id)
+        .outerjoin(User, User.id == CountSession.user_id)
+        .where(CountSession.venue_id == venue_id)
+        .subquery()
+    )
+    count_events = select(count_inner).where(
+        or_(
+            count_inner.c.old_raw_count.is_(None),
+            count_inner.c.old_raw_count != count_inner.c.new_raw_count,
+        )
+    )
+
+    activity_events = union_all(status_events, count_events).subquery()
+    rows = db.session.execute(
+        select(activity_events)
+        .order_by(activity_events.c.changed_at.desc(), activity_events.c.event_id.desc())
+        .limit(max_rows)
+    ).mappings().all()
+    return [serialize_activity_row(row) for row in rows]
+
+
 def build_venue_rows(include_inactive=False):
     q = Venue.query
     if not include_inactive:
@@ -534,6 +728,19 @@ def build_venue_rows(include_inactive=False):
                 Item.active == True,
             )
             .group_by(VenueItem.venue_id)
+            .all()
+        )
+    }
+
+    notes_count_map = {
+        row.venue_id: row.notes_count
+        for row in (
+            db.session.query(
+                VenueNote.venue_id.label("venue_id"),
+                func.count(VenueNote.id).label("notes_count"),
+            )
+            .filter(VenueNote.venue_id.in_(venue_ids))
+            .group_by(VenueNote.venue_id)
             .all()
         )
     }
@@ -571,11 +778,15 @@ def build_venue_rows(include_inactive=False):
     ):
         latest_status_counts.setdefault(row.venue_id, {})[normalize_status(row.status)] = row.status_count
 
+    last_updated_map = build_venue_last_updated_map(venue_ids)
     venue_rows = []
 
     for v in venues:
         total_tracked = tracked_totals.get(v.id, 0)
         counts = {"good": 0, "ok": 0, "low": 0, "out": 0, "not_checked": 0}
+        notes_count = int(notes_count_map.get(v.id, 0) or 0)
+        last_updated_at = last_updated_map.get(v.id)
+        freshness = format_updated_label(last_updated_at)
 
         if total_tracked == 0:
             badge = {
@@ -584,7 +795,21 @@ def build_venue_rows(include_inactive=False):
                 "icon_class": "bi-dash-circle",
             }
             tooltip = "No items tracked."
-            venue_rows.append({"venue": v, "badge": badge, "tooltip": tooltip})
+            venue_rows.append(
+                {
+                    "venue": v,
+                    "badge": badge,
+                    "tooltip": tooltip,
+                    "counts": counts.copy(),
+                    "notes_count": notes_count,
+                    "total_tracked": 0,
+                    "last_updated_at": last_updated_at,
+                    "last_updated_text": (
+                        format_activity_timestamp(last_updated_at) if last_updated_at else "No updates yet"
+                    ),
+                    "freshness": freshness,
+                }
+            )
             continue
 
         venue_status_counts = latest_status_counts.get(v.id)
@@ -599,22 +824,24 @@ def build_venue_rows(include_inactive=False):
             if counted < total_tracked:
                 counts["not_checked"] += (total_tracked - counted)
 
+        checked_count = total_tracked - counts["not_checked"]
+
         if counts["out"] > 0:
-            text = f'{counts["out"]} item(s) out of stock'
+            out_count = counts["out"]
+            out_label = "Item" if out_count == 1 else "Items"
+            text = f"{out_count} {out_label} out of stock"
             badge = {"key": "out", "text": text, "icon_class": "bi-x-circle-fill"}
         elif counts["low"] > 0:
-            text = f'{counts["low"]} item(s) Low'
+            low_count = counts["low"]
+            low_label = "Item" if low_count == 1 else "Items"
+            text = f"{low_count} {low_label} Low"
             badge = {"key": "low", "text": text, "icon_class": "bi-exclamation-triangle-fill"}
-        elif counts["ok"] > 0:
+        elif checked_count > 0 and counts["ok"] > 0 and (counts["ok"] * 2 >= checked_count):
             badge = {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
-        elif counts["good"] > 0 and (counts["good"] + counts["not_checked"] == total_tracked):
+        elif counts["good"] > 0:
             badge = {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
 
-        # all items explicitly good
-        elif counts["good"] == total_tracked:
-            badge = {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
-
-        # otherwise (typically all not_checked)
+        # only when all tracked items are not checked
         else:
             badge = {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
 
@@ -625,7 +852,21 @@ def build_venue_rows(include_inactive=False):
             f"Not checked: {counts['not_checked']}"
         )
 
-        venue_rows.append({"venue": v, "badge": badge, "tooltip": tooltip})
+        venue_rows.append(
+            {
+                "venue": v,
+                "badge": badge,
+                "tooltip": tooltip,
+                "counts": counts.copy(),
+                "notes_count": notes_count,
+                "total_tracked": total_tracked,
+                "last_updated_at": last_updated_at,
+                "last_updated_text": (
+                    format_activity_timestamp(last_updated_at) if last_updated_at else "No updates yet"
+                ),
+                "freshness": freshness,
+            }
+        )
 
     return venue_rows
 
@@ -784,6 +1025,7 @@ def serialize_restock_row(row, next_path):
         "quick_check_url": url_for(
             "venue_items.quick_check",
             venue_id=row["venue_id"],
+            focus_item_id=row["item_id"],
             next=next_path,
         ),
     }
@@ -1108,3 +1350,234 @@ def venues():
         return redirect(url_for("main.venues"))
 
     return render_template("venues/list.html", venue_rows=build_venue_rows(include_inactive=True))
+
+
+@main_bp.route("/venues/<int:venue_id>", methods=["GET", "POST"])
+@roles_required("viewer", "staff", "admin")
+def venue_detail(venue_id):
+    venue = Venue.query.get_or_404(venue_id)
+    active_profile_tab = (request.args.get("profile_tab") or request.form.get("profile_tab") or "details").strip().lower()
+    if active_profile_tab not in {"details", "notes", "activity"}:
+        active_profile_tab = "details"
+    next_path = normalize_next_path(
+        request.args.get("next") or request.form.get("next"),
+        url_for("main.venues"),
+    )
+    submit_profile_tab = (request.form.get("profile_tab") or active_profile_tab).strip().lower()
+    if submit_profile_tab not in {"details", "notes", "activity"}:
+        submit_profile_tab = "details"
+
+    if request.method == "POST":
+        action = (request.form.get("action") or "").strip().lower()
+        if action in {"create_note", "edit_note", "delete_note"} and not current_user.is_staff:
+            flash("Only staff and admins can manage notes.", "error")
+            return redirect(
+                url_for(
+                    "main.venue_detail",
+                    venue_id=venue.id,
+                    next=next_path,
+                    profile_tab=submit_profile_tab,
+                )
+            )
+
+        if action == "create_note":
+            title = (request.form.get("title") or "").strip()
+            body = (request.form.get("body") or "").strip()
+            if not title:
+                flash("Note title is required.", "error")
+                return redirect(
+                    url_for(
+                        "main.venue_detail",
+                        venue_id=venue.id,
+                        next=next_path,
+                        profile_tab=submit_profile_tab,
+                    )
+                )
+            if not body:
+                flash("Note body is required.", "error")
+                return redirect(
+                    url_for(
+                        "main.venue_detail",
+                        venue_id=venue.id,
+                        next=next_path,
+                        profile_tab=submit_profile_tab,
+                    )
+                )
+
+            new_note = VenueNote(
+                venue_id=venue.id,
+                author_user_id=current_user.id,
+                title=title,
+                body=body,
+            )
+            db.session.add(new_note)
+            db.session.commit()
+            flash("Note added.", "success")
+            return redirect(
+                url_for(
+                    "main.venue_detail",
+                    venue_id=venue.id,
+                    next=next_path,
+                    profile_tab=submit_profile_tab,
+                )
+            )
+
+        if action in {"edit_note", "delete_note"}:
+            note_id_raw = request.form.get("note_id", "")
+            note = None
+            if note_id_raw.isdigit():
+                note = VenueNote.query.filter_by(id=int(note_id_raw), venue_id=venue.id).first()
+            if note is None:
+                flash("Note not found for this venue.", "error")
+                return redirect(
+                    url_for(
+                        "main.venue_detail",
+                        venue_id=venue.id,
+                        next=next_path,
+                        profile_tab=submit_profile_tab,
+                    )
+                )
+
+            can_manage = current_user.is_admin or (
+                current_user.role == "staff" and note.author_user_id == current_user.id
+            )
+            if not can_manage:
+                flash("You can only edit or delete your own notes.", "error")
+                return redirect(
+                    url_for(
+                        "main.venue_detail",
+                        venue_id=venue.id,
+                        next=next_path,
+                        profile_tab=submit_profile_tab,
+                    )
+                )
+
+            if action == "edit_note":
+                title = (request.form.get("title") or "").strip()
+                body = (request.form.get("body") or "").strip()
+                if not title:
+                    flash("Note title is required.", "error")
+                    return redirect(
+                        url_for(
+                            "main.venue_detail",
+                            venue_id=venue.id,
+                            next=next_path,
+                            profile_tab=submit_profile_tab,
+                        )
+                    )
+                if not body:
+                    flash("Note body is required.", "error")
+                    return redirect(
+                        url_for(
+                            "main.venue_detail",
+                            venue_id=venue.id,
+                            next=next_path,
+                            profile_tab=submit_profile_tab,
+                        )
+                    )
+
+                note.title = title
+                note.body = body
+                db.session.commit()
+                flash("Note updated.", "success")
+                return redirect(
+                    url_for(
+                        "main.venue_detail",
+                        venue_id=venue.id,
+                        next=next_path,
+                        profile_tab=submit_profile_tab,
+                    )
+                )
+
+            db.session.delete(note)
+            db.session.commit()
+            flash("Note deleted.", "success")
+            return redirect(
+                url_for(
+                    "main.venue_detail",
+                    venue_id=venue.id,
+                    next=next_path,
+                    profile_tab=submit_profile_tab,
+                )
+            )
+
+    total_tracked = (
+        db.session.query(func.count(VenueItem.id))
+        .join(Item, Item.id == VenueItem.item_id)
+        .filter(
+            VenueItem.venue_id == venue.id,
+            VenueItem.active == True,
+            Item.active == True,
+        )
+        .scalar()
+    ) or 0
+    latest_status_check_at = (
+        db.session.query(func.max(Check.created_at))
+        .filter(Check.venue_id == venue.id)
+        .scalar()
+    )
+    latest_raw_count_at = (
+        db.session.query(func.max(CountSession.created_at))
+        .filter(CountSession.venue_id == venue.id)
+        .scalar()
+    )
+    venue_last_updated_at = build_venue_last_updated_map([venue.id]).get(venue.id)
+    venue_freshness = format_updated_label(venue_last_updated_at)
+    recent_activity_rows = build_recent_venue_activity_rows(venue.id, limit=20)
+    note_rows = []
+    note_query_rows = (
+        db.session.query(
+            VenueNote,
+            User.display_name.label("author_display_name"),
+            User.email.label("author_email"),
+        )
+        .outerjoin(User, User.id == VenueNote.author_user_id)
+        .filter(VenueNote.venue_id == venue.id)
+        .order_by(VenueNote.updated_at.desc(), VenueNote.id.desc())
+        .all()
+    )
+    for note, author_display_name, author_email in note_query_rows:
+        created_at = ensure_utc(note.created_at)
+        updated_at = ensure_utc(note.updated_at)
+        is_edited = bool(
+            created_at
+            and updated_at
+            and (updated_at - created_at) > timedelta(seconds=1)
+        )
+        effective_at = updated_at if is_edited else created_at
+        can_manage = current_user.is_admin or (
+            current_user.role == "staff" and note.author_user_id == current_user.id
+        )
+        author_name = (author_display_name or "").strip() or (author_email or "Unknown user")
+        note_rows.append(
+            {
+                "id": note.id,
+                "title": note.title,
+                "body": note.body,
+                "author_name": author_name,
+                "created_at_text": format_activity_timestamp(created_at) if created_at else "Unknown time",
+                "display_time_text": format_activity_timestamp(effective_at) if effective_at else "Unknown time",
+                "display_time_label": "Edited" if is_edited else "Created",
+                "can_manage": can_manage,
+            }
+        )
+
+    return render_template(
+        "venues/detail.html",
+        venue=venue,
+        back_url=next_path,
+        back_label=describe_back_destination(next_path, venue.id),
+        total_tracked=total_tracked,
+        latest_status_check_at=latest_status_check_at,
+        latest_raw_count_at=latest_raw_count_at,
+        venue_last_updated_at=venue_last_updated_at,
+        venue_last_updated_text=(
+            format_activity_timestamp(venue_last_updated_at) if venue_last_updated_at else "No updates yet"
+        ),
+        venue_freshness=venue_freshness,
+        recent_activity_rows=recent_activity_rows,
+        note_rows=note_rows,
+        active_profile_tab=active_profile_tab,
+        restock_status_options=RESTOCK_STATUS_META,
+        update_status_url=url_for("venue_items.quick_check", venue_id=venue.id, next=request.full_path),
+    )

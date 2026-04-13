@@ -93,13 +93,21 @@
     <div class="card mb-3">
       <div class="card-body d-flex flex-column gap-3">
         <div class="dashboard-toolbar-inline">
-          <div class="restock-input-row">
+          <div class="venue-toolbar-controls">
             <input
               id="venueSearch"
               class="form-control w-100 restock-compact-control"
               placeholder="Search venues..."
               aria-label="Search venues"
             >
+            <select
+              id="venueSort"
+              class="form-select w-100 restock-compact-control"
+              aria-label="Sort venues"
+            >
+              <option value="venue">Sort: Venue</option>
+              <option value="priority">Sort: Priority</option>
+            </select>
             <select
               id="statusFilter"
               class="form-select w-100 restock-compact-control"
@@ -112,14 +120,6 @@
               <option value="out">Out</option>
               <option value="not_checked">Not Checked</option>
             </select>
-          </div>
-
-          <div class="venue-action-row">
-            {% if current_user.is_admin %}
-              <a class="btn btn-aolrc-accent restock-toolbar-btn" href="{{ url_for('main.venues') }}">
-                Edit Venues
-              </a>
-            {% endif %}
           </div>
         </div>
       </div>
@@ -140,15 +140,42 @@
               data-status="{{ row.badge.key }}"
             >
               <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
-                <div class="venue-mobile-item fw-semibold">{{ v.name }}</div>
-                <span class="status-pill
-                  {{ 'status-good' if row.badge.key == 'good' else '' }}
-                  {{ 'status-ok' if row.badge.key == 'ok' else '' }}
-                  {{ 'status-low' if row.badge.key == 'low' else '' }}
-                  {{ 'status-out' if row.badge.key == 'out' else '' }}
-                  {{ 'status-na' if row.badge.key == 'not_checked' else '' }}">
+                <a
+                  class="venue-name-link venue-name-link-mobile"
+                  aria-label="Open venue page for {{ v.name }}"
+                  data-dashboard-next-link
+                  data-base-href="{{ url_for('main.venue_detail', venue_id=v.id) }}"
+                  href="{{ url_for('main.venue_detail', venue_id=v.id, next=request.full_path) }}"
+                >
+                  <span class="venue-name-link-main">
+                    <span class="venue-mobile-item fw-semibold">{{ v.name }}</span>
+                    <i class="bi bi-arrow-up-right venue-name-link-icon" aria-hidden="true"></i>
+                  </span>
+                </a>
+                <button
+                  type="button"
+                  class="status-pill status-pill-trigger
+                    {{ 'status-good' if row.badge.key == 'good' else '' }}
+                    {{ 'status-ok' if row.badge.key == 'ok' else '' }}
+                    {{ 'status-low' if row.badge.key == 'low' else '' }}
+                    {{ 'status-out' if row.badge.key == 'out' else '' }}
+                    {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
+                  data-status-popover
+                  data-status-key="{{ row.badge.key }}"
+                  data-status-icon="{{ row.badge.icon_class }}"
+                  data-status-summary="{{ row.badge.text }}"
+                  data-status-venue="{{ v.name }}"
+                  data-total-tracked="{{ row.total_tracked }}"
+                  data-count-good="{{ row.counts.good }}"
+                  data-count-ok="{{ row.counts.ok }}"
+                  data-count-low="{{ row.counts.low }}"
+                  data-count-out="{{ row.counts.out }}"
+                  data-count-not-checked="{{ row.counts.not_checked }}"
+                  aria-label="Show status details for {{ v.name }}"
+                >
                   <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
-                </span>
+                  <i class="bi bi-info-circle status-pill-trigger-cue" aria-hidden="true"></i>
+                </button>
               </div>
               <div class="venue-mobile-meta">
                 <div class="venue-mobile-meta-row venue-mobile-meta-row-solo">
@@ -161,7 +188,8 @@
                 data-base-href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}"
                 href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}"
               >
-                {{ "View / Update" if current_user.is_staff else "View" }}
+                <span class="d-none d-sm-inline">Open Venue Check</span>
+                <span class="d-sm-none">Venue Check</span>
               </a>
             </article>
           {% endfor %}
@@ -188,19 +216,45 @@
                   data-status="{{ row.badge.key }}"
                 >
                   <td class="venue-name">
-                    <div class="fw-semibold">{{ v.name }}</div>
+                    <a
+                      class="venue-name-link"
+                      aria-label="Open venue page for {{ v.name }}"
+                      data-dashboard-next-link
+                      data-base-href="{{ url_for('main.venue_detail', venue_id=v.id) }}"
+                      href="{{ url_for('main.venue_detail', venue_id=v.id, next=request.full_path) }}"
+                    >
+                      <span class="venue-name-link-main">
+                        <span class="venue-name-link-label">{{ v.name }}</span>
+                        <i class="bi bi-arrow-up-right venue-name-link-icon" aria-hidden="true"></i>
+                      </span>
+                    </a>
                   </td>
 
                   <td>
-                    <span class="status-pill
-                      {{ 'status-good' if row.badge.key == 'good' else '' }}
-                      {{ 'status-ok' if row.badge.key == 'ok' else '' }}
-                      {{ 'status-low' if row.badge.key == 'low' else '' }}
-                      {{ 'status-out' if row.badge.key == 'out' else '' }}
-                      {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
-                      title="{{ row.tooltip }}">
+                    <button
+                      type="button"
+                      class="status-pill status-pill-trigger
+                        {{ 'status-good' if row.badge.key == 'good' else '' }}
+                        {{ 'status-ok' if row.badge.key == 'ok' else '' }}
+                        {{ 'status-low' if row.badge.key == 'low' else '' }}
+                        {{ 'status-out' if row.badge.key == 'out' else '' }}
+                        {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
+                      data-status-popover
+                      data-status-key="{{ row.badge.key }}"
+                      data-status-icon="{{ row.badge.icon_class }}"
+                      data-status-summary="{{ row.badge.text }}"
+                      data-status-venue="{{ v.name }}"
+                      data-total-tracked="{{ row.total_tracked }}"
+                      data-count-good="{{ row.counts.good }}"
+                      data-count-ok="{{ row.counts.ok }}"
+                      data-count-low="{{ row.counts.low }}"
+                      data-count-out="{{ row.counts.out }}"
+                      data-count-not-checked="{{ row.counts.not_checked }}"
+                      aria-label="Show status details for {{ v.name }}"
+                    >
                       <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
-                    </span>
+                      <i class="bi bi-info-circle status-pill-trigger-cue" aria-hidden="true"></i>
+                    </button>
                   </td>
 
                   <td>
@@ -208,7 +262,8 @@
                        data-dashboard-next-link
                        data-base-href="{{ url_for('venue_items.quick_check', venue_id=v.id) }}"
                        href="{{ url_for('venue_items.quick_check', venue_id=v.id, next=request.full_path) }}">
-                      {{ "View / Update" if current_user.is_staff else "View" }}
+                      <span class="d-none d-sm-inline">Open Venue Check</span>
+                      <span class="d-sm-none">Venue Check</span>
                     </a>
                   </td>
                 </tr>
@@ -224,6 +279,9 @@
     <script>
       const searchEl = document.getElementById("venueSearch");
       const filterEl = document.getElementById("statusFilter");
+      const sortEl = document.getElementById("venueSort");
+      const venuesTableBody = document.querySelector("#venuesTable tbody");
+      const venuesMobileList = document.getElementById("venuesMobileList");
       const tableRows = Array.from(document.querySelectorAll("#venuesTable tbody .venue-table-row"));
       const mobileCards = Array.from(document.querySelectorAll("#venuesMobileList .venue-mobile-card"));
       const mobileEmpty = document.getElementById("venuesMobileEmpty");
@@ -232,13 +290,19 @@
       const venueUrl = new URL(window.location.href);
       const initialVenueQuery = venueUrl.searchParams.get("venue_q");
       const initialVenueStatus = venueUrl.searchParams.get("venue_status");
+      const initialVenueSort = venueUrl.searchParams.get("venue_sort");
+      const venueStatusPriorityRank = { out: 0, low: 1, ok: 2, good: 3, not_checked: 4 };
       if (initialVenueQuery !== null) searchEl.value = initialVenueQuery;
       if (initialVenueStatus !== null) filterEl.value = initialVenueStatus;
+      if (initialVenueSort === "venue" || initialVenueSort === "priority") {
+        sortEl.value = initialVenueSort;
+      }
 
       function syncVenueFilterUrl() {
         const nextUrl = new URL(window.location.href);
         const nextQuery = (searchEl.value || "").trim();
         const nextStatus = filterEl.value || "all";
+        const nextSort = sortEl.value || "venue";
 
         if (nextQuery) nextUrl.searchParams.set("venue_q", nextQuery);
         else nextUrl.searchParams.delete("venue_q");
@@ -246,8 +310,39 @@
         if (nextStatus !== "all") nextUrl.searchParams.set("venue_status", nextStatus);
         else nextUrl.searchParams.delete("venue_status");
 
+        if (nextSort !== "venue") nextUrl.searchParams.set("venue_sort", nextSort);
+        else nextUrl.searchParams.delete("venue_sort");
+
         window.history.replaceState({}, "", nextUrl);
         window.syncDashboardActionUrls?.();
+      }
+
+      function compareVenueElementsBySort(a, b, sortMode) {
+        const nameA = (a.getAttribute("data-name") || "").toLowerCase();
+        const nameB = (b.getAttribute("data-name") || "").toLowerCase();
+        const statusA = a.getAttribute("data-status") || "not_checked";
+        const statusB = b.getAttribute("data-status") || "not_checked";
+
+        if (sortMode === "priority") {
+          const rankA = venueStatusPriorityRank[statusA] ?? venueStatusPriorityRank.not_checked;
+          const rankB = venueStatusPriorityRank[statusB] ?? venueStatusPriorityRank.not_checked;
+          if (rankA !== rankB) return rankA - rankB;
+        }
+
+        return nameA.localeCompare(nameB);
+      }
+
+      function reorderVenueElementsBySort(elements, parentEl, sortMode) {
+        if (!parentEl || !elements.length) return;
+        const visible = [];
+        const hidden = [];
+        elements.forEach((el) => {
+          if (el.style.display === "none") hidden.push(el);
+          else visible.push(el);
+        });
+        visible.sort((a, b) => compareVenueElementsBySort(a, b, sortMode));
+        hidden.sort((a, b) => compareVenueElementsBySort(a, b, sortMode));
+        [...visible, ...hidden].forEach((el) => parentEl.appendChild(el));
       }
 
       function applyVisibleZebraRows(rows) {
@@ -263,6 +358,7 @@
       function applyFilters() {
         const q = (searchEl.value || "").trim().toLowerCase();
         const status = filterEl.value;
+        const sortMode = sortEl.value || "venue";
         let visibleRows = 0;
 
         tableRows.forEach((tr) => {
@@ -276,7 +372,8 @@
           tr.style.display = isVisible ? "" : "none";
           if (isVisible) visibleRows += 1;
         });
-        applyVisibleZebraRows(tableRows);
+        reorderVenueElementsBySort(tableRows, venuesTableBody, sortMode);
+        applyVisibleZebraRows(Array.from(document.querySelectorAll("#venuesTable tbody .venue-table-row")));
 
         let visibleCards = 0;
         mobileCards.forEach((card) => {
@@ -294,6 +391,7 @@
         if (mobileEmpty) {
           mobileEmpty.classList.toggle("d-none", visibleCards > 0);
         }
+        reorderVenueElementsBySort(mobileCards, venuesMobileList, sortMode);
 
         if (venueResultCount) {
           const resultCount = venueMobileMq.matches ? visibleCards : visibleRows;
@@ -306,6 +404,9 @@
       searchEl.addEventListener("input", syncVenueFilterUrl);
       filterEl.addEventListener("change", applyFilters);
       filterEl.addEventListener("change", syncVenueFilterUrl);
+      sortEl.addEventListener("change", applyFilters);
+      sortEl.addEventListener("change", syncVenueFilterUrl);
+      window.initStatusDetailPopovers?.(document);
       window.syncDashboardActionUrls?.();
       applyFilters();
     </script>
@@ -623,10 +724,11 @@
               <a
                 class="btn btn-aolrc-primary restock-mobile-action-btn mt-2"
                 data-dashboard-next-link
-                data-base-href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id) }}"
-                href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, next=request.full_path) }}"
+                data-base-href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id) }}"
+                href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id, next=request.full_path) }}"
               >
-                {{ "View / Update" if current_user.is_staff else "View" }}
+                <span class="d-none d-sm-inline">Open Venue Check</span>
+                <span class="d-sm-none">Venue Check</span>
               </a>
             </article>
           {% endfor %}
@@ -686,10 +788,11 @@
                     <a
                       class="btn btn-aolrc-primary restock-action-btn"
                       data-dashboard-next-link
-                      data-base-href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id) }}"
-                      href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, next=request.full_path) }}"
+                      data-base-href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id) }}"
+                      href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id, next=request.full_path) }}"
                     >
-                      {{ "View / Update" if current_user.is_staff else "View" }}
+                      <span class="d-none d-sm-inline">Open Venue Check</span>
+                      <span class="d-sm-none">Venue Check</span>
                     </a>
                   </td>
                 </tr>
@@ -969,7 +1072,7 @@
           actionBaseUrl.searchParams.delete("next");
           actionLink.setAttribute("data-base-href", `${actionBaseUrl.pathname}${actionBaseUrl.search}`);
           actionLink.href = row.quick_check_url;
-          actionLink.textContent = canEditChecks ? "View / Update" : "View";
+          actionLink.innerHTML = '<span class="d-none d-sm-inline">Open Venue Check</span><span class="d-sm-none">Venue Check</span>';
           actionTd.appendChild(actionLink);
 
           tr.appendChild(itemTd);
@@ -1048,7 +1151,7 @@
           actionBaseUrl.searchParams.delete("next");
           actionLink.setAttribute("data-base-href", `${actionBaseUrl.pathname}${actionBaseUrl.search}`);
           actionLink.href = row.quick_check_url;
-          actionLink.textContent = canEditChecks ? "View / Update" : "View";
+          actionLink.innerHTML = '<span class="d-none d-sm-inline">Open Venue Check</span><span class="d-sm-none">Venue Check</span>';
           article.appendChild(actionLink);
           return article;
         }

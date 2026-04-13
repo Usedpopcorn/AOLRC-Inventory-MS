@@ -3,7 +3,9 @@
 
 {% block content %}
 <div class="mb-2">
-  <a class="btn btn-outline-secondary" href="{{ url_for('main.venues') }}">Back</a>
+  <a class="btn btn-back-nav" href="{{ back_url }}">
+    <i class="bi bi-arrow-left" aria-hidden="true"></i> Back to {{ back_label }}
+  </a>
 </div>
 <div class="mb-3">
   <h1 class="h4 mb-0 d-flex align-items-center gap-2 fw-bold text-aolrc-purple page-heading">
@@ -14,6 +16,7 @@
             onsubmit="return confirm('Delete this venue? This cannot be undone.');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="next" value="{{ back_url }}">
         <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete venue">
           <i class="bi bi-trash"></i>
         </button>
@@ -42,6 +45,7 @@
     <form method="post" class="row g-3">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="action" value="save">
+      <input type="hidden" name="next" value="{{ back_url }}">
 
       <div class="col-lg-6">
         <label class="form-label">Venue name</label>
@@ -56,19 +60,13 @@
         </select>
       </div>
 
-      <div class="col-12">
-        <label class="form-label">Venue notes</label>
-        <textarea class="form-control" name="notes" rows="4"
-                  placeholder="Special setup notes, quirks, instructions...">{{ venue.notes or '' }}</textarea>
-      </div>
-
       <div class="col-12 d-flex flex-wrap gap-2">
         <button class="btn btn-aolrc-accent" type="submit">
           Save Settings
         </button>
 
         <a class="btn btn-primary"
-           href="{{ url_for('venue_items.supplies', venue_id=venue.id) }}">
+           href="{{ url_for('venue_items.supplies', venue_id=venue.id, next=url_for('venue_settings.settings', venue_id=venue.id, next=back_url)) }}">
           Edit Supplies
         </a>
       </div>

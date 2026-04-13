@@ -3,19 +3,53 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <a class="btn btn-outline-secondary" href="{{ next_url }}">Back</a>
+  <a class="btn btn-back-nav" href="{{ next_url }}">
+    <i class="bi bi-arrow-left" aria-hidden="true"></i> Back to {{ back_label }}
+  </a>
   {% if items|length > 0 and current_user.is_staff %}
     <button class="btn btn-aolrc-accent" type="submit" form="quick-check-form">Save Changes</button>
   {% endif %}
 </div>
 <div class="mb-3">
   <div>
-    <h1 class="h4 mb-0 fw-bold text-aolrc-purple page-heading">{{ venue.name }}</h1>
+    <h1 class="h4 mb-0 fw-bold text-aolrc-purple page-heading">
+      {% if show_profile_link %}
+        <a
+          class="venue-name-link venue-name-link-card quick-check-venue-link"
+          data-quickcheck-next-link
+          data-base-href="{{ url_for('main.venue_detail', venue_id=venue.id) }}"
+          href="{{ url_for('main.venue_detail', venue_id=venue.id, next=request.full_path) }}"
+          aria-label="Open venue profile for {{ venue.name }}"
+        >
+          <span class="venue-name-link-main">
+            <span class="venue-name-link-label">{{ venue.name }}</span>
+            <i class="bi bi-arrow-up-right venue-name-link-icon" aria-hidden="true"></i>
+          </span>
+        </a>
+      {% else %}
+        <span>{{ venue.name }}</span>
+      {% endif %}
+    </h1>
     <div class="text-muted status-mode-only{% if selected_mode == 'raw_counts' %} d-none{% endif %}">
       Tap a status for each item, then Save Changes.
     </div>
     <div class="text-muted counts-mode-only{% if selected_mode != 'raw_counts' %} d-none{% endif %}">
       Enter a raw count for each item, then Save Changes.
+    </div>
+    <div class="quick-check-overall-status mt-2">
+      <span class="text-muted small">Overall Status:</span>
+      <span
+        id="overallStatusPill"
+        class="status-pill
+          {{ 'status-good' if overall_status.key == 'good' else '' }}
+          {{ 'status-ok' if overall_status.key == 'ok' else '' }}
+          {{ 'status-low' if overall_status.key == 'low' else '' }}
+          {{ 'status-out' if overall_status.key == 'out' else '' }}
+          {{ 'status-na' if overall_status.key == 'not_checked' else '' }}"
+      >
+        <i id="overallStatusIcon" class="bi {{ overall_status.icon_class }}"></i>
+        <span id="overallStatusText">{{ overall_status.text }}</span>
+      </span>
     </div>
   </div>
 </div>
@@ -43,6 +77,18 @@
           </select>
         </div>
       </div>
+      <div class="quick-check-controls mb-3">
+        <div class="quick-check-controls-field">
+          <label class="visually-hidden" for="supplySearch">Search supplies</label>
+          <input
+            id="supplySearch"
+            class="form-control restock-compact-control"
+            type="search"
+            placeholder="Search supplies..."
+            aria-label="Search supplies"
+          >
+        </div>
+      </div>
 
       <div class="d-flex fw-bold mb-2">
         <div style="flex: 1;">Supplies</div>
@@ -54,9 +100,14 @@
         </div>
       </div>
 
+      <div id="suppliesList">
       {% for it in items %}
       {% set s = latest_status[it.id] %}
-      <div class="supply-status-row{% if loop.index is odd %} supply-status-row-alt{% endif %} d-flex flex-column flex-md-row align-items-md-center py-2 border-top gap-2">
+      <div
+        class="quick-check-row supply-status-row{% if loop.index is odd %} supply-status-row-alt{% endif %} d-flex flex-column flex-md-row align-items-md-center py-2 border-top gap-2"
+        data-item-name="{{ it.name|lower }}"
+        data-item-id="{{ it.id }}"
+      >
         <div style="flex: 1;">
           <div class="fw-semibold">{{ it.name }}</div>
         </div>
@@ -81,6 +132,7 @@
           <input
             type="number"
             min="0"
+            max="2147483647"
             step="1"
             inputmode="numeric"
             class="form-control raw-count-input"
@@ -92,6 +144,10 @@
         </div>
       </div>
       {% endfor %}
+      </div>
+      <div id="suppliesFilteredEmpty" class="venue-directory-empty d-none mt-2">
+        No supplies match your current search.
+      </div>
 
       {% if current_user.is_staff %}
         <button class="btn mt-3 w-100 btn-aolrc-accent" type="submit">
@@ -104,12 +160,159 @@
 
 <script>
   // Set initial selected button style based on hidden input values
+  const modeSelect = document.getElementById("check_mode");
+  const supplySearchEl = document.getElementById("supplySearch");
+  const rows = Array.from(document.querySelectorAll(".quick-check-row"));
+  const rowsContainer = document.getElementById("suppliesList");
+  const emptyFilteredEl = document.getElementById("suppliesFilteredEmpty");
+  const overallStatusPill = document.getElementById("overallStatusPill");
+  const overallStatusIcon = document.getElementById("overallStatusIcon");
+  const overallStatusText = document.getElementById("overallStatusText");
+  const initialUrl = new URL(window.location.href);
+  const focusItemId = initialUrl.searchParams.get("focus_item_id");
+  let hasAppliedFocusHighlight = false;
+
+  function compareRowsByName(a, b) {
+    const nameA = (a.dataset.itemName || "").toLowerCase();
+    const nameB = (b.dataset.itemName || "").toLowerCase();
+    return nameA.localeCompare(nameB);
+  }
+
+  function resolveOverallStatusFromCounts(total, counts) {
+    if (total <= 0) return { key: "not_checked", text: "Not Checked", iconClass: "bi-dash-circle" };
+    const checkedCount = total - counts.not_checked;
+    if (counts.out > 0) {
+      const outLabel = counts.out === 1 ? "Item" : "Items";
+      return { key: "out", text: `${counts.out} ${outLabel} out of stock`, iconClass: "bi-x-circle-fill" };
+    }
+    if (counts.low > 0) {
+      const lowLabel = counts.low === 1 ? "Item" : "Items";
+      return { key: "low", text: `${counts.low} ${lowLabel} Low`, iconClass: "bi-exclamation-triangle-fill" };
+    }
+    if (checkedCount > 0 && counts.ok > 0 && (counts.ok * 2 >= checkedCount)) {
+      return { key: "ok", text: "OK", iconClass: "bi-check-circle-fill" };
+    }
+    if (counts.good > 0) {
+      return { key: "good", text: "Good", iconClass: "bi-check-circle-fill" };
+    }
+    if (checkedCount > 0 && counts.ok > 0) return { key: "ok", text: "OK", iconClass: "bi-check-circle-fill" };
+    return { key: "not_checked", text: "Not Checked", iconClass: "bi-dash-circle" };
+  }
+
+  function refreshOverallStatus() {
+    if (!overallStatusPill || !overallStatusIcon || !overallStatusText) return;
+    const counts = { good: 0, ok: 0, low: 0, out: 0, not_checked: 0 };
+
+    rows.forEach((row) => {
+      const itemId = row.dataset.itemId;
+      const input = itemId ? document.getElementById(`status_${itemId}`) : null;
+      let value = (input?.value || "not_checked").toLowerCase();
+      if (!(value in counts)) value = "not_checked";
+      counts[value] += 1;
+    });
+
+    const meta = resolveOverallStatusFromCounts(rows.length, counts);
+    overallStatusPill.classList.remove("status-good", "status-ok", "status-low", "status-out", "status-na");
+    const statusClassByKey = {
+      good: "status-good",
+      ok: "status-ok",
+      low: "status-low",
+      out: "status-out",
+      not_checked: "status-na",
+    };
+    overallStatusPill.classList.add(statusClassByKey[meta.key] || "status-na");
+    overallStatusIcon.className = `bi ${meta.iconClass}`;
+    overallStatusText.textContent = meta.text;
+  }
+
+  function applyVisibleZebraRows() {
+    let visibleIndex = 0;
+    rows.forEach((row) => {
+      if (row.style.display === "none") {
+        row.classList.remove("supply-status-row-alt");
+        return;
+      }
+      row.classList.toggle("supply-status-row-alt", visibleIndex % 2 === 1);
+      visibleIndex += 1;
+    });
+  }
+
+  function syncQuickCheckActionUrls() {
+    const currentNext = `${window.location.pathname}${window.location.search}`;
+    document.querySelectorAll("[data-quickcheck-next-link]").forEach((link) => {
+      const baseHref = link.getAttribute("data-base-href");
+      if (!baseHref) return;
+      const nextHref = new URL(baseHref, window.location.origin);
+      nextHref.searchParams.set("next", currentNext);
+      link.href = nextHref.toString();
+    });
+  }
+
+  function syncQuickCheckUrl() {
+    const nextUrl = new URL(window.location.href);
+    const mode = modeSelect.value || "status";
+    const query = (supplySearchEl.value || "").trim();
+
+    if (mode !== "status") nextUrl.searchParams.set("mode", mode);
+    else nextUrl.searchParams.delete("mode");
+
+    if (query) nextUrl.searchParams.set("supply_q", query);
+    else nextUrl.searchParams.delete("supply_q");
+    nextUrl.searchParams.delete("supply_sort");
+    // focus_item_id is a one-time navigation hint; consume it after first load.
+    nextUrl.searchParams.delete("focus_item_id");
+
+    window.history.replaceState({}, "", nextUrl);
+    syncQuickCheckActionUrls();
+  }
+
+  function applyFiltersAndSort() {
+    const query = (supplySearchEl.value || "").trim().toLowerCase();
+    let visibleCount = 0;
+
+    rows.forEach((row) => {
+      const name = row.dataset.itemName || "";
+      const isVisible = !query || name.includes(query);
+      row.style.display = isVisible ? "" : "none";
+      if (isVisible) visibleCount += 1;
+    });
+
+    const visibleRows = rows.filter((row) => row.style.display !== "none");
+    visibleRows.sort(compareRowsByName);
+    visibleRows.forEach((row) => rowsContainer.appendChild(row));
+    rows.filter((row) => row.style.display === "none").forEach((row) => rowsContainer.appendChild(row));
+
+    if (emptyFilteredEl) emptyFilteredEl.classList.toggle("d-none", visibleCount > 0);
+    applyVisibleZebraRows();
+  }
+
+  const initialQuery = initialUrl.searchParams.get("supply_q");
+  if (initialQuery !== null) supplySearchEl.value = initialQuery;
+
+  function focusAndHighlightSelectedItem() {
+    if (hasAppliedFocusHighlight) return;
+    if (!focusItemId || !/^\d+$/.test(focusItemId)) return;
+
+    const targetRow = rows.find((row) => row.dataset.itemId === focusItemId);
+    if (!targetRow || targetRow.style.display === "none") return;
+
+    targetRow.classList.add("quick-check-row-focus");
+    targetRow.scrollIntoView({ behavior: "smooth", block: "center" });
+    hasAppliedFocusHighlight = true;
+
+    window.setTimeout(() => {
+      targetRow.classList.remove("quick-check-row-focus");
+    }, 3200);
+  }
+
   function refreshButtons(itemId) {
     const val = document.getElementById("status_" + itemId).value;
     document.querySelectorAll('.status-btn[data-item="' + itemId + '"]').forEach(btn => {
       const isSelected = btn.dataset.value === val;
       btn.classList.toggle("active", isSelected);
     });
+    applyFiltersAndSort();
+    refreshOverallStatus();
   }
 
   document.querySelectorAll(".status-btn").forEach(btn => {
@@ -128,7 +331,7 @@
   });
 
   function refreshModeUI() {
-    const mode = document.getElementById("check_mode").value;
+    const mode = modeSelect.value;
     const isCountsMode = mode === "raw_counts";
 
     document.querySelectorAll(".status-mode-only").forEach(el => {
@@ -144,11 +347,23 @@
       header.textContent = isCountsMode ? "Raw Count" : "Status";
       header.classList.toggle("raw-mode", isCountsMode);
     }
+
+    applyFiltersAndSort();
+    syncQuickCheckUrl();
   }
 
-  const modeSelect = document.getElementById("check_mode");
   modeSelect.addEventListener("change", refreshModeUI);
+  supplySearchEl.addEventListener("input", () => {
+    applyFiltersAndSort();
+    syncQuickCheckUrl();
+  });
+
+  syncQuickCheckActionUrls();
+  applyFiltersAndSort();
+  syncQuickCheckUrl();
   refreshModeUI();
+  refreshOverallStatus();
+  focusAndHighlightSelectedItem();
 </script>
 {% endif %}
 {% endblock %}

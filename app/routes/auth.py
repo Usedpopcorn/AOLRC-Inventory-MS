@@ -18,6 +18,7 @@ DEV_QUICK_LOGIN_EMAILS = {
     "staff": "staff@example.com",
     "user": "viewer@example.com",
 }
+DEV_QUICK_LOGIN_DEFAULT_PASSWORD = "local-test-password"
 DEV_QUICK_LOGIN_ROLE_MAP = {
     "admin": "admin",
     "staff": "staff",
@@ -106,7 +107,20 @@ def _resolve_quick_login_user(quick_role):
 
     fallback_email = DEV_QUICK_LOGIN_EMAILS.get(quick_role)
     if fallback_email:
-        return User.query.filter_by(email=fallback_email).first()
+        existing = User.query.filter_by(email=fallback_email).first()
+        if existing:
+            return existing
+        # Development-only convenience: bootstrap quick-login users in fresh local DBs.
+        user = User(
+            email=fallback_email,
+            display_name=f"{role_value.title()} User" if role_value else "Viewer User",
+            password_hash=generate_password_hash(DEV_QUICK_LOGIN_DEFAULT_PASSWORD),
+            role=role_value or "viewer",
+            active=True,
+        )
+        db.session.add(user)
+        db.session.commit()
+        return user
     return None
 
 
