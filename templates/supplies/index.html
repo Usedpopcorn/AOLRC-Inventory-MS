@@ -1,0 +1,692 @@
+{% extends "base.html" %}
+{% import "supplies/_audit_macros.html" as audit %}
+{% block title %}Supplies Audit{% endblock %}
+
+{% block content %}
+{% set quick_filter_options = [
+  ("missing_counts", "Missing counts"),
+  ("below_par", "Below par"),
+  ("complete_coverage", "Complete coverage"),
+  ("consumable", "Consumable"),
+  ("durable", "Durable"),
+] %}
+<section class="supplies-audit-hero card border-0 shadow-sm mb-4">
+  <div class="card-body p-4">
+    <div class="d-flex flex-column gap-3">
+      <div>
+        <h1 class="h3 mb-1 fw-bold text-aolrc-purple page-heading">Supplies</h1>
+        <p class="text-muted mb-0">
+          Cross-venue raw counts for tracked supply items. Missing counts stay visible as audit gaps, while recorded zero counts are preserved as valid inventory data.
+        </p>
+      </div>
+
+      <div class="supply-summary-grid">
+        <article class="supply-summary-card">
+          <div class="supply-summary-label">Units On Hand</div>
+          <div class="supply-summary-value">{{ summary.total_units_on_hand }}</div>
+          <div class="supply-summary-note">Across counted venue inventory</div>
+        </article>
+        <article class="supply-summary-card">
+          <div class="supply-summary-label">Active Supply Items</div>
+          <div class="supply-summary-value">{{ summary.total_active_supply_items }}</div>
+          <div class="supply-summary-note">All active catalog items, including newly added ones</div>
+        </article>
+        <article class="supply-summary-card">
+          <div class="supply-summary-label">Complete Coverage</div>
+          <div class="supply-summary-value">{{ summary.items_with_complete_count_coverage }}</div>
+          <div class="supply-summary-note">Items counted at every tracked venue</div>
+        </article>
+        <article class="supply-summary-card">
+          <div class="supply-summary-label">Items With Missing Counts</div>
+          <div class="supply-summary-value">{{ summary.items_with_missing_counts }}</div>
+          <div class="supply-summary-note">Still need count activity somewhere</div>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <form method="get" action="{{ url_for('supplies.index') }}" class="supplies-filter-form" id="suppliesFilterForm">
+      <div class="supplies-filter-toolbar">
+        <div class="supplies-filter-search">
+          <label class="form-label" for="suppliesSearch">Search supplies</label>
+          <input
+            id="suppliesSearch"
+            name="q"
+            class="form-control"
+            type="search"
+            value="{{ filters.q }}"
+            placeholder="Search by item name"
+          >
+        </div>
+        <div class="supplies-filter-sort">
+          <label class="form-label" for="suppliesSort">Sort</label>
+          <select id="suppliesSort" name="sort" class="form-select">
+            <option value="par_ratio_asc" {% if filters.sort == "par_ratio_asc" %}selected{% endif %}>Lowest % of par</option>
+            <option value="missing_venues_desc" {% if filters.sort == "missing_venues_desc" %}selected{% endif %}>Most missing venues</option>
+            <option value="last_updated" {% if filters.sort == "last_updated" %}selected{% endif %}>Recently updated</option>
+            <option value="item_name" {% if filters.sort == "item_name" %}selected{% endif %}>Alphabetical</option>
+          </select>
+        </div>
+        <div class="supplies-filter-actions">
+          <button class="btn btn-aolrc-accent supplies-filter-submit" type="submit">Apply</button>
+          <a class="btn btn-outline-secondary" href="{{ url_for('supplies.index') }}">Clear</a>
+        </div>
+      </div>
+
+      <div class="supplies-quick-filter-bar">
+        <div class="supplies-quick-filter-label">Quick filters</div>
+        <div class="supplies-quick-filter-list" role="group" aria-label="Quick filters">
+          {% for value, label in quick_filter_options %}
+            <label class="supplies-filter-chip">
+              <input
+                class="supplies-filter-chip-input"
+                type="checkbox"
+                name="quick_filter"
+                value="{{ value }}"
+                {% if value in filters.quick_filters %}checked{% endif %}
+              >
+              <span class="supplies-filter-chip-label">{{ label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="supplies-active-filters d-none" id="suppliesActiveFilters" aria-live="polite">
+        <span class="supplies-active-filters-label">Active filters</span>
+        <div class="supplies-active-filter-list" id="suppliesActiveFilterList"></div>
+      </div>
+    </form>
+  </div>
+</section>
+
+<section class="card border-0 shadow-sm">
+  <div class="card-body">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
+      <div>
+        <h2 class="h5 mb-1">Inventory Audit Table</h2>
+        <div class="text-muted small" id="suppliesResultCount" data-total="{{ total_supply_items }}">
+          Showing {{ filtered_supply_items }} of {{ total_supply_items }} active items
+        </div>
+      </div>
+      <div class="text-muted small">
+        Select an item name to inspect venue-level counts and par values.
+      </div>
+    </div>
+
+    <div class="supply-audit-legend mb-3" aria-label="Audit count legend">
+      <span class="supply-audit-legend-label">Count legend</span>
+      <span class="supply-audit-state-badge supply-audit-state-missing">
+        <i class="bi bi-dash-circle" aria-hidden="true"></i>
+        <span>Not Counted = venue skipped or not submitted</span>
+      </span>
+      <span class="supply-audit-zero-value supply-audit-zero-legend">
+        <i class="bi bi-x-circle-fill" aria-hidden="true"></i>
+        <span>0 = counted and confirmed empty</span>
+      </span>
+    </div>
+
+    {% if supply_rows %}
+      <div class="table-responsive d-none d-md-block supplies-audit-table-wrap">
+        <table class="table align-middle supplies-audit-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Type</th>
+              <th class="supply-count-header text-end">Count</th>
+              <th class="supply-progress-header">Par progress</th>
+              <th class="supply-par-header text-end">Par</th>
+              <th>Coverage</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in supply_rows %}
+              {% set detail_id = "supply-detail-desktop-" ~ row.id %}
+              {% set detail_row_id = "supply-detail-row-desktop-" ~ row.id %}
+              <tr
+                class="supply-audit-row supply-audit-row-{{ row.attention_level }}"
+                data-row-id="{{ row.id }}"
+                data-detail-row-id="{{ detail_row_id }}"
+                data-name="{{ row.name|lower }}"
+                data-item-type="{{ row.item_type }}"
+                data-coverage-key="{{ row.coverage_key }}"
+                data-missing-venues="{{ row.missing_count_venue_count }}"
+                data-below-par="{{ 'true' if row.is_below_par else 'false' }}"
+                data-par-ratio="{% if row.par_ratio is not none %}{{ row.par_ratio }}{% endif %}"
+                data-last-updated="{% if row.last_updated_timestamp is not none %}{{ row.last_updated_timestamp }}{% endif %}"
+                data-attention-level="{{ row.attention_level }}"
+              >
+                <td>
+                  <button
+                    class="supply-item-toggle"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#{{ detail_id }}"
+                    aria-expanded="false"
+                    aria-controls="{{ detail_id }}"
+                  >
+                    <span class="supply-item-toggle-main">
+                      <span class="supply-item-name">{{ row.name }}</span>
+                      <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>
+                    </span>
+                    <span class="supply-item-meta supply-item-summary supply-item-summary-{{ row.attention_level }}">
+                      {% if row.attention_level == "critical" %}
+                        <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
+                      {% elif row.attention_level == "warning" %}
+                        <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+                      {% elif row.desktop_issue_summary != "Fully counted" %}
+                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                      {% endif %}
+                      <span>{{ row.desktop_issue_summary }}</span>
+                    </span>
+                  </button>
+                </td>
+                <td>
+                  <span class="supply-type-chip {{ 'supply-type-durable' if row.item_type == 'durable' else 'supply-type-consumable' }}">
+                    {{ row.item_type|capitalize }}
+                  </span>
+                </td>
+                <td class="supply-count-cell">
+                  <div class="supply-count-stack">
+                    <span class="supply-value-strong">{{ row.total_raw_count }}</span>
+                  </div>
+                </td>
+                <td class="supply-progress-cell supply-progress-cell-{{ row.par_progress.tone }}">
+                  {{ audit.progress_meter(row) }}
+                </td>
+                <td class="supply-par-cell">
+                  {% if row.total_par_count is not none %}
+                    <span class="supply-value-strong">{{ row.total_par_count }}</span>
+                  {% else %}
+                    <span class="text-muted">Not Set</span>
+                  {% endif %}
+                </td>
+                <td class="supply-coverage-cell">
+                  <span class="supply-coverage-pill supply-coverage-{{ row.coverage_key }}">{{ row.coverage_label }}</span>
+                  <div class="supply-coverage-meta">{{ row.coverage_compact_summary }}</div>
+                </td>
+                <td class="supply-updated-cell {{ 'is-stale' if row.last_count_updated_label.is_stale else '' }}">
+                  <div class="supply-updated-primary">{{ row.last_count_updated_label.text }}</div>
+                  <div class="supply-updated-secondary">
+                    {% if row.last_count_updated_label.is_missing %}
+                      No recorded timestamp
+                    {% else %}
+                      {{ row.last_count_updated_at_text }}
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+              {{ audit.desktop_detail_panel(row, detail_id, detail_row_id, request) }}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="d-md-none supply-mobile-list">
+        {% for row in supply_rows %}
+          {% set detail_id = "supply-detail-mobile-" ~ row.id %}
+          <article
+            class="supply-mobile-card supply-mobile-card-{{ row.attention_level }}"
+            data-row-id="{{ row.id }}"
+            data-name="{{ row.name|lower }}"
+            data-item-type="{{ row.item_type }}"
+            data-coverage-key="{{ row.coverage_key }}"
+            data-missing-venues="{{ row.missing_count_venue_count }}"
+            data-below-par="{{ 'true' if row.is_below_par else 'false' }}"
+            data-par-ratio="{% if row.par_ratio is not none %}{{ row.par_ratio }}{% endif %}"
+            data-last-updated="{% if row.last_updated_timestamp is not none %}{{ row.last_updated_timestamp }}{% endif %}"
+            data-attention-level="{{ row.attention_level }}"
+          >
+            <button
+              class="supply-mobile-card-toggle"
+              type="button"
+              data-bs-toggle="collapse"
+              data-bs-target="#{{ detail_id }}"
+              aria-expanded="false"
+              aria-controls="{{ detail_id }}"
+            >
+              <div class="supply-mobile-card-head">
+                <div class="supply-mobile-card-title-wrap">
+                  <div class="supply-mobile-card-title-row">
+                    <h3 class="supply-mobile-card-title">{{ row.name }}</h3>
+                    <span class="supply-type-chip {{ 'supply-type-durable' if row.item_type == 'durable' else 'supply-type-consumable' }}">
+                      {{ row.item_type|capitalize }}
+                    </span>
+                  </div>
+                  <div class="supply-mobile-issue-summary supply-mobile-issue-summary-{{ row.attention_level }}">
+                    {% if row.attention_level == "critical" %}
+                      <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
+                    {% elif row.attention_level == "warning" %}
+                      <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+                    {% elif row.issue_summary != "All tracked venues counted" %}
+                      <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    {% endif %}
+                    <span>{{ row.issue_summary }}</span>
+                  </div>
+                </div>
+                <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>
+              </div>
+
+              <div class="supply-mobile-card-metrics">
+                <div class="supply-mobile-metric">
+                  <span class="supply-mobile-metric-label">Count</span>
+                  <span class="supply-mobile-metric-value">{{ row.total_raw_count }}</span>
+                </div>
+                <div class="supply-mobile-metric">
+                  <span class="supply-mobile-metric-label">Par</span>
+                  <span class="supply-mobile-metric-value">
+                    {% if row.total_par_count is not none %}
+                      {{ row.total_par_count }}
+                    {% else %}
+                      Not Set
+                    {% endif %}
+                  </span>
+                </div>
+                <div class="supply-mobile-metric supply-mobile-metric-progress">
+                  <span class="supply-mobile-metric-label">Par progress</span>
+                  {{ audit.progress_meter(row) }}
+                </div>
+                <div class="supply-mobile-metric">
+                  <span class="supply-mobile-metric-label">Coverage</span>
+                  <span class="supply-coverage-pill supply-coverage-{{ row.coverage_key }}">{{ row.coverage_label }}</span>
+                  <div class="supply-coverage-meta">
+                    {% if row.coverage_key == "not_tracked" %}
+                      No venues
+                    {% else %}
+                      {{ row.counted_venue_count }}/{{ row.tracked_venue_count }} counted
+                    {% endif %}
+                    {% if row.missing_count_venue_count > 0 %}
+                      <span class="supply-coverage-note">{{ row.missing_count_venue_count }} missing</span>
+                    {% endif %}
+                  </div>
+                </div>
+                <div class="supply-mobile-metric">
+                  <span class="supply-mobile-metric-label">Updated</span>
+                  <div class="supply-updated-primary">{{ row.last_count_updated_parts.date_text }}</div>
+                  {% if row.last_count_updated_parts.time_text %}
+                    <div class="supply-updated-secondary">{{ row.last_count_updated_parts.time_text }}</div>
+                  {% endif %}
+                </div>
+              </div>
+            </button>
+
+            {{ audit.mobile_detail_panel(row, detail_id, request) }}
+          </article>
+        {% endfor %}
+      </div>
+
+      <div class="alert alert-info mt-3 d-none" id="suppliesClientEmptyState">
+        No supplies match the current filters.
+      </div>
+    {% else %}
+      <div class="alert alert-info mb-0">
+        No supplies match the current filters.
+      </div>
+    {% endif %}
+  </div>
+</section>
+
+<script>
+  (() => {
+    const suppliesFilterForm = document.getElementById("suppliesFilterForm");
+    const suppliesSearch = document.getElementById("suppliesSearch");
+    const suppliesSort = document.getElementById("suppliesSort");
+    const suppliesQuickFilterInputs = Array.from(document.querySelectorAll(".supplies-filter-chip-input"));
+    const suppliesActiveFilters = document.getElementById("suppliesActiveFilters");
+    const suppliesActiveFilterList = document.getElementById("suppliesActiveFilterList");
+    const suppliesResultCount = document.getElementById("suppliesResultCount");
+    const suppliesEmptyState = document.getElementById("suppliesClientEmptyState");
+    const suppliesTableBody = document.querySelector(".supplies-audit-table tbody");
+    const suppliesMobileList = document.querySelector(".supply-mobile-list");
+    const supplySearchDebounceMs = 200;
+    const quickFilterLabels = {
+      missing_counts: "Missing counts",
+      below_par: "Below par",
+      complete_coverage: "Complete coverage",
+      consumable: "Consumable",
+      durable: "Durable",
+    };
+
+    let supplySearchDebounceHandle = null;
+
+    function getSelectedQuickFilters() {
+      return suppliesQuickFilterInputs
+        .filter((input) => input.checked)
+        .map((input) => input.value);
+    }
+
+    function getSupplyDesktopRows() {
+      return Array.from(document.querySelectorAll(".supply-audit-row"));
+    }
+
+    function getSupplyMobileCards() {
+      return Array.from(document.querySelectorAll(".supply-mobile-card"));
+    }
+
+    function hasWordBoundaryPrefix(text, query) {
+      if (!query) return false;
+      const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(^|\\W)${safeQuery}`).test(text);
+    }
+
+    function getSupplySearchRank(element, query) {
+      if (!query) return 0;
+      const nameText = (element.dataset.name || "").toLowerCase();
+      if (nameText.startsWith(query)) return 0;
+      if (hasWordBoundaryPrefix(nameText, query)) return 1;
+      if (nameText.includes(query)) return 2;
+      return null;
+    }
+
+    function parseNumericData(element, key, fallbackValue) {
+      const rawValue = element.dataset[key] || "";
+      const parsedValue = Number(rawValue);
+      return Number.isFinite(parsedValue) ? parsedValue : fallbackValue;
+    }
+
+    function compareSupplyElements(a, b, sortKey, searchQuery) {
+      if (searchQuery) {
+        const rankA = getSupplySearchRank(a, searchQuery);
+        const rankB = getSupplySearchRank(b, searchQuery);
+        const normalizedRankA = rankA == null ? Number.POSITIVE_INFINITY : rankA;
+        const normalizedRankB = rankB == null ? Number.POSITIVE_INFINITY : rankB;
+        if (normalizedRankA !== normalizedRankB) return normalizedRankA - normalizedRankB;
+      }
+
+      const nameA = (a.dataset.name || "").toLowerCase();
+      const nameB = (b.dataset.name || "").toLowerCase();
+
+      if (sortKey === "missing_venues_desc") {
+        const missingA = parseNumericData(a, "missingVenues", Number.NEGATIVE_INFINITY);
+        const missingB = parseNumericData(b, "missingVenues", Number.NEGATIVE_INFINITY);
+        if (missingA !== missingB) return missingB - missingA;
+        return nameA.localeCompare(nameB);
+      }
+
+      if (sortKey === "last_updated") {
+        const updatedA = parseNumericData(a, "lastUpdated", Number.NEGATIVE_INFINITY);
+        const updatedB = parseNumericData(b, "lastUpdated", Number.NEGATIVE_INFINITY);
+        if (updatedA !== updatedB) return updatedB - updatedA;
+        return nameA.localeCompare(nameB);
+      }
+
+      if (sortKey === "item_name") {
+        return nameA.localeCompare(nameB);
+      }
+
+      const ratioA = parseNumericData(a, "parRatio", Number.POSITIVE_INFINITY);
+      const ratioB = parseNumericData(b, "parRatio", Number.POSITIVE_INFINITY);
+      if (ratioA !== ratioB) return ratioA - ratioB;
+
+      const missingA = parseNumericData(a, "missingVenues", Number.NEGATIVE_INFINITY);
+      const missingB = parseNumericData(b, "missingVenues", Number.NEGATIVE_INFINITY);
+      if (missingA !== missingB) return missingB - missingA;
+
+      return nameA.localeCompare(nameB);
+    }
+
+    function elementMatchesFilters(element, searchQuery, quickFilters) {
+      if (searchQuery && getSupplySearchRank(element, searchQuery) === null) {
+        return false;
+      }
+
+      const typeFilters = quickFilters.filter((value) => value === "consumable" || value === "durable");
+      if (typeFilters.length && !typeFilters.includes(element.dataset.itemType || "")) {
+        return false;
+      }
+
+      if (quickFilters.includes("missing_counts")) {
+        const missingVenues = parseNumericData(element, "missingVenues", 0);
+        if (missingVenues <= 0) return false;
+      }
+
+      if (quickFilters.includes("below_par") && element.dataset.belowPar !== "true") {
+        return false;
+      }
+
+      if (quickFilters.includes("complete_coverage") && element.dataset.coverageKey !== "complete") {
+        return false;
+      }
+
+      return true;
+    }
+
+    function collapseIfHidden(toggleButton) {
+      const targetSelector = toggleButton?.getAttribute("data-bs-target");
+      if (!targetSelector) return;
+      const detailEl = document.querySelector(targetSelector);
+      if (!detailEl || !detailEl.classList.contains("show")) return;
+      const collapseInstance = window.bootstrap?.Collapse?.getOrCreateInstance(detailEl, { toggle: false });
+      collapseInstance?.hide();
+    }
+
+    function applyVisibleZebraRows(rows) {
+      let visibleIndex = 0;
+      rows.forEach((row) => {
+        row.classList.remove("is-zebra-alt");
+        if (row.hidden) return;
+        if (visibleIndex % 2 === 1) {
+          row.classList.add("is-zebra-alt");
+        }
+        visibleIndex += 1;
+      });
+    }
+
+    function updateSuppliesResultCount(visibleCount) {
+      if (!suppliesResultCount) return;
+      const totalCount = Number(suppliesResultCount.dataset.total || visibleCount || 0);
+      suppliesResultCount.textContent = `Showing ${visibleCount} of ${totalCount} active items`;
+    }
+
+    function syncSupplyActionUrls() {
+      const nextValue = `${window.location.pathname}${window.location.search}`;
+      document.querySelectorAll("[data-supplies-base-href]").forEach((link) => {
+        const baseHref = link.getAttribute("data-supplies-base-href");
+        if (!baseHref) return;
+        const nextUrl = new URL(baseHref, window.location.origin);
+        nextUrl.searchParams.set("next", nextValue);
+        link.href = `${nextUrl.pathname}${nextUrl.search}`;
+      });
+    }
+
+    function syncSupplyUrl() {
+      const nextUrl = new URL(window.location.href);
+      const nextSearch = (suppliesSearch?.value || "").trim();
+      const nextSort = suppliesSort?.value || "par_ratio_asc";
+      const nextQuickFilters = getSelectedQuickFilters();
+
+      if (nextSearch) nextUrl.searchParams.set("q", nextSearch);
+      else nextUrl.searchParams.delete("q");
+
+      if (nextSort && nextSort !== "par_ratio_asc") nextUrl.searchParams.set("sort", nextSort);
+      else nextUrl.searchParams.delete("sort");
+
+      nextUrl.searchParams.delete("quick_filter");
+      nextQuickFilters.forEach((value) => {
+        nextUrl.searchParams.append("quick_filter", value);
+      });
+
+      nextUrl.searchParams.delete("item_type");
+      nextUrl.searchParams.delete("coverage");
+
+      window.history.replaceState({}, "", nextUrl);
+      syncSupplyActionUrls();
+    }
+
+    function renderActiveFilters() {
+      if (!suppliesActiveFilters || !suppliesActiveFilterList) return;
+
+      const activeItems = [];
+      const searchValue = (suppliesSearch?.value || "").trim();
+      const quickFilters = getSelectedQuickFilters();
+
+      if (searchValue) {
+        activeItems.push({ type: "search", value: searchValue, label: `Search: ${searchValue}` });
+      }
+
+      quickFilters.forEach((value) => {
+        activeItems.push({ type: "quick_filter", value, label: quickFilterLabels[value] || value });
+      });
+
+      suppliesActiveFilterList.innerHTML = "";
+      suppliesActiveFilters.classList.toggle("d-none", activeItems.length === 0);
+
+      activeItems.forEach((item) => {
+        const button = document.createElement("button");
+        const labelSpan = document.createElement("span");
+        const icon = document.createElement("i");
+        button.type = "button";
+        button.className = "supplies-active-filter-pill";
+        button.setAttribute("data-filter-type", item.type);
+        button.setAttribute("data-filter-value", item.value);
+        button.setAttribute("aria-label", `Remove ${item.label} filter`);
+        labelSpan.textContent = item.label;
+        icon.className = "bi bi-x-lg";
+        icon.setAttribute("aria-hidden", "true");
+        button.appendChild(labelSpan);
+        button.appendChild(icon);
+        suppliesActiveFilterList.appendChild(button);
+      });
+    }
+
+    function applySupplyLiveView() {
+      const searchQuery = (suppliesSearch?.value || "").trim().toLowerCase();
+      const sortKey = suppliesSort?.value || "par_ratio_asc";
+      const quickFilters = getSelectedQuickFilters();
+      const desktopRows = getSupplyDesktopRows();
+      const mobileCards = getSupplyMobileCards();
+
+      desktopRows.sort((a, b) => compareSupplyElements(a, b, sortKey, searchQuery));
+      mobileCards.sort((a, b) => compareSupplyElements(a, b, sortKey, searchQuery));
+
+      if (suppliesTableBody) {
+        desktopRows.forEach((row) => {
+          const detailRowId = row.dataset.detailRowId;
+          const detailRow = detailRowId ? document.getElementById(detailRowId) : null;
+          suppliesTableBody.appendChild(row);
+          if (detailRow) suppliesTableBody.appendChild(detailRow);
+        });
+      }
+
+      if (suppliesMobileList) {
+        mobileCards.forEach((card) => {
+          suppliesMobileList.appendChild(card);
+        });
+      }
+
+      let visibleDesktopCount = 0;
+      desktopRows.forEach((row) => {
+        const isVisible = elementMatchesFilters(row, searchQuery, quickFilters);
+        const detailRowId = row.dataset.detailRowId;
+        const detailRow = detailRowId ? document.getElementById(detailRowId) : null;
+
+        row.hidden = !isVisible;
+        if (detailRow) detailRow.hidden = !isVisible;
+        if (!isVisible) collapseIfHidden(row.querySelector(".supply-item-toggle"));
+        if (isVisible) visibleDesktopCount += 1;
+      });
+      applyVisibleZebraRows(desktopRows);
+
+      let visibleMobileCount = 0;
+      mobileCards.forEach((card) => {
+        const isVisible = elementMatchesFilters(card, searchQuery, quickFilters);
+        card.hidden = !isVisible;
+        if (!isVisible) collapseIfHidden(card.querySelector(".supply-mobile-card-toggle"));
+        if (isVisible) visibleMobileCount += 1;
+      });
+
+      const visibleCount = window.matchMedia("(max-width: 767.98px)").matches ? visibleMobileCount : visibleDesktopCount;
+      if (suppliesEmptyState) {
+        suppliesEmptyState.classList.toggle("d-none", visibleCount > 0);
+      }
+
+      updateSuppliesResultCount(visibleCount);
+      renderActiveFilters();
+      syncSupplyUrl();
+    }
+
+    function queueSupplyLiveView(immediate = false) {
+      if (supplySearchDebounceHandle) {
+        window.clearTimeout(supplySearchDebounceHandle);
+        supplySearchDebounceHandle = null;
+      }
+      if (immediate) {
+        applySupplyLiveView();
+        return;
+      }
+      supplySearchDebounceHandle = window.setTimeout(() => {
+        applySupplyLiveView();
+      }, supplySearchDebounceMs);
+    }
+
+    if (suppliesFilterForm) {
+      suppliesFilterForm.classList.add("is-live");
+      suppliesFilterForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        queueSupplyLiveView(true);
+      });
+    }
+
+    if (suppliesSearch) {
+      suppliesSearch.addEventListener("input", () => {
+        queueSupplyLiveView(false);
+      });
+    }
+
+    if (suppliesSort) {
+      suppliesSort.addEventListener("change", () => {
+        queueSupplyLiveView(true);
+      });
+    }
+
+    suppliesQuickFilterInputs.forEach((input) => {
+      input.addEventListener("change", () => {
+        queueSupplyLiveView(true);
+      });
+    });
+
+    suppliesActiveFilterList?.addEventListener("click", (event) => {
+      const button = event.target.closest(".supplies-active-filter-pill");
+      if (!button) return;
+
+      const filterType = button.getAttribute("data-filter-type");
+      const filterValue = button.getAttribute("data-filter-value") || "";
+
+      if (filterType === "search" && suppliesSearch) {
+        suppliesSearch.value = "";
+      }
+
+      if (filterType === "quick_filter") {
+        const matchingInput = suppliesQuickFilterInputs.find((input) => input.value === filterValue);
+        if (matchingInput) matchingInput.checked = false;
+      }
+
+      queueSupplyLiveView(true);
+    });
+
+    document.querySelectorAll(".supply-item-toggle, .supply-mobile-card-toggle").forEach((button) => {
+      const targetSelector = button.getAttribute("data-bs-target");
+      if (!targetSelector) return;
+      const detailEl = document.querySelector(targetSelector);
+      if (!detailEl) return;
+      const icon = button.querySelector(".supply-item-toggle-icon");
+
+      detailEl.addEventListener("shown.bs.collapse", () => {
+        button.classList.add("is-open");
+        if (icon) icon.classList.add("is-open");
+      });
+      detailEl.addEventListener("hidden.bs.collapse", () => {
+        button.classList.remove("is-open");
+        if (icon) icon.classList.remove("is-open");
+      });
+    });
+
+    syncSupplyActionUrls();
+    renderActiveFilters();
+    applySupplyLiveView();
+  })();
+</script>
+{% endblock %}

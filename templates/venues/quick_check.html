@@ -34,7 +34,7 @@
       Tap a status for each item, then Save Changes.
     </div>
     <div class="text-muted counts-mode-only{% if selected_mode != 'raw_counts' %} d-none{% endif %}">
-      Enter a raw count for each item, then Save Changes.
+      Enter a raw count for counted items; leave blank for Not counted yet.
     </div>
     <div class="quick-check-overall-status mt-2">
       <span class="text-muted small">Overall Status:</span>
@@ -129,6 +129,13 @@
 
         <div class="raw-count-wrap counts-mode-only{% if not is_counts_mode %} d-none{% endif %}">
           <label class="visually-hidden" for="count_{{ it.id }}">Raw count for {{ it.name }}</label>
+          <span
+            class="supply-audit-state-badge supply-audit-state-missing raw-count-not-counted-badge{% if latest_counts[it.id] is not none %} d-none{% endif %}"
+            data-not-counted-badge-for="count_{{ it.id }}"
+          >
+            <i class="bi bi-dash-circle" aria-hidden="true"></i>
+            <span>Not Counted</span>
+          </span>
           <input
             type="number"
             min="0"
@@ -137,7 +144,8 @@
             class="form-control raw-count-input"
             id="count_{{ it.id }}"
             name="count_{{ it.id }}"
-            value="{{ latest_counts[it.id] }}"
+            value="{{ '' if latest_counts[it.id] is none else latest_counts[it.id] }}"
+            placeholder="-"
             {{ "disabled" if is_view_only else "" }}
           >
         </div>
@@ -233,6 +241,15 @@
       }
       row.classList.toggle("supply-status-row-alt", visibleIndex % 2 === 1);
       visibleIndex += 1;
+    });
+  }
+
+  function refreshRawCountBadges() {
+    document.querySelectorAll(".raw-count-input").forEach((inputEl) => {
+      const badge = document.querySelector(`[data-not-counted-badge-for="${inputEl.id}"]`);
+      if (!badge) return;
+      const isMissing = (inputEl.value || "").trim() === "";
+      badge.classList.toggle("d-none", !isMissing);
     });
   }
 
@@ -356,11 +373,16 @@
     applyFiltersAndSort();
     syncQuickCheckUrl();
   });
+  document.querySelectorAll(".raw-count-input").forEach((inputEl) => {
+    inputEl.addEventListener("input", refreshRawCountBadges);
+    inputEl.addEventListener("change", refreshRawCountBadges);
+  });
 
   syncQuickCheckActionUrls();
   applyFiltersAndSort();
   syncQuickCheckUrl();
   refreshModeUI();
+  refreshRawCountBadges();
   refreshOverallStatus();
   focusAndHighlightSelectedItem();
 </script>

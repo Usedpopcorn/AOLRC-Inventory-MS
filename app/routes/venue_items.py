@@ -178,11 +178,15 @@ def quick_check(venue_id):
             }
 
             for it in tracked:
-                raw_value = (request.form.get(f"count_{it.id}") or "0").strip()
+                raw_value = (request.form.get(f"count_{it.id}") or "").strip()
+                if raw_value == "":
+                    # Keep blank counts as "Not Counted" (no CountLine and no VenueItemCount row).
+                    continue
+
                 try:
                     raw_count = int(raw_value)
                 except ValueError:
-                    raw_count = 0
+                    continue
 
                 if raw_count < 0:
                     raw_count = 0
@@ -256,7 +260,7 @@ def quick_check(venue_id):
             .filter(VenueItemCount.venue_id == venue.id, VenueItemCount.item_id == it.id)
             .first()
         )
-        latest_counts[it.id] = row[0] if row else 0
+        latest_counts[it.id] = row[0] if row else None
 
     overall_counts = {"good": 0, "ok": 0, "low": 0, "out": 0, "not_checked": 0}
     for status in latest_status.values():

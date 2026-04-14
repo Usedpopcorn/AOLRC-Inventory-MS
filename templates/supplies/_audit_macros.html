@@ -1,0 +1,157 @@
+{% macro progress_meter(row) -%}
+  <div class="supply-par-meter-wrap">
+    <div
+      class="supply-par-meter supply-par-meter-{{ row.par_progress.tone }}"
+      aria-label="{{ row.par_progress.label }}"
+    >
+      {% for is_filled in row.par_progress.segments %}
+        <span class="supply-par-segment {{ 'is-filled' if is_filled else '' }}"></span>
+      {% endfor %}
+    </div>
+    <div class="supply-par-meter-label">
+      <span>{{ row.par_progress.label }}</span>
+    </div>
+  </div>
+{%- endmacro %}
+
+{% macro raw_count_state_badge(venue_row) -%}
+  {% if venue_row.is_missing %}
+    <span class="supply-audit-state-badge supply-audit-state-missing">
+      <i class="bi bi-dash-circle" aria-hidden="true"></i>
+      <span>Not Counted</span>
+    </span>
+  {% elif venue_row.raw_count == 0 %}
+    <span class="supply-audit-zero-value">
+      <i class="bi bi-x-circle-fill" aria-hidden="true"></i>
+      <span>0</span>
+    </span>
+  {% else %}
+    <span class="supply-value-strong">{{ venue_row.raw_count }}</span>
+  {% endif %}
+{%- endmacro %}
+
+{% macro desktop_detail_panel(row, detail_id, detail_row_id, request) -%}
+  <tr class="supplies-detail-row" id="{{ detail_row_id }}">
+    <td colspan="7" class="p-0 border-0">
+      <div class="collapse" id="{{ detail_id }}">
+        <div class="supply-detail-panel">
+          <div class="supply-detail-bar mb-3">
+            <div class="small text-muted">Venue-level raw counts and par values</div>
+            <div class="small text-muted">
+              {% if row.tracked_venue_count > 0 %}
+                {{ row.counted_venue_count }} counted / {{ row.tracked_venue_count }} tracked venues
+              {% else %}
+                No active venue assignments yet
+              {% endif %}
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0 supply-detail-table">
+              <thead>
+                <tr>
+                  <th>Venue</th>
+                  <th>Raw Count</th>
+                  <th>Par</th>
+                  <th>Last Updated</th>
+                  <th class="text-end">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for venue_row in row.venue_rows %}
+                  <tr>
+                    <td class="fw-semibold">{{ venue_row.venue_name }}</td>
+                    <td>
+                      {{ raw_count_state_badge(venue_row) }}
+                    </td>
+                    <td>
+                      {% if venue_row.par_count is not none %}
+                        {{ venue_row.par_count }}
+                      {% else %}
+                        <span class="text-muted">Not Set</span>
+                      {% endif %}
+                    </td>
+                    <td>{{ venue_row.updated_at_text }}</td>
+                    <td class="text-end">
+                      <a
+                        class="btn btn-sm btn-aolrc-primary"
+                        data-supplies-base-href="{{ url_for('venue_items.quick_check', venue_id=venue_row.venue_id, mode='raw_counts', focus_item_id=row.id) }}"
+                        href="{{ url_for('venue_items.quick_check', venue_id=venue_row.venue_id, mode='raw_counts', focus_item_id=row.id, next=request.full_path) }}"
+                      >
+                        Open Count
+                      </a>
+                    </td>
+                  </tr>
+                {% else %}
+                  <tr>
+                    <td colspan="5" class="text-muted py-3">
+                      This item is active, but it is not tracked at any active venue yet.
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </td>
+  </tr>
+{%- endmacro %}
+
+{% macro mobile_detail_panel(row, detail_id, request) -%}
+  <div class="collapse" id="{{ detail_id }}">
+    <div class="supply-mobile-detail-panel">
+      <div class="supply-mobile-detail-head">
+        <div class="small text-muted">Venue-level raw counts and par values</div>
+        <div class="small text-muted">
+          {% if row.tracked_venue_count > 0 %}
+            {{ row.counted_venue_count }} counted / {{ row.tracked_venue_count }} tracked venues
+          {% else %}
+            No active venue assignments yet
+          {% endif %}
+        </div>
+      </div>
+      <div class="supply-mobile-venue-list">
+        {% for venue_row in row.venue_rows %}
+          <article class="supply-mobile-venue-card">
+            <div class="supply-mobile-venue-top">
+              <div class="fw-semibold">{{ venue_row.venue_name }}</div>
+              <a
+                class="btn btn-sm btn-aolrc-primary supply-mobile-venue-action"
+                data-supplies-base-href="{{ url_for('venue_items.quick_check', venue_id=venue_row.venue_id, mode='raw_counts', focus_item_id=row.id) }}"
+                href="{{ url_for('venue_items.quick_check', venue_id=venue_row.venue_id, mode='raw_counts', focus_item_id=row.id, next=request.full_path) }}"
+              >
+                Open Count
+              </a>
+            </div>
+            <div class="supply-mobile-venue-grid">
+              <div class="supply-mobile-venue-metric">
+                <span class="supply-mobile-venue-label">Raw Count</span>
+                <span class="supply-mobile-venue-value">
+                  {{ raw_count_state_badge(venue_row) }}
+                </span>
+              </div>
+              <div class="supply-mobile-venue-metric">
+                <span class="supply-mobile-venue-label">Par</span>
+                <span class="supply-mobile-venue-value">
+                  {% if venue_row.par_count is not none %}
+                    {{ venue_row.par_count }}
+                  {% else %}
+                    <span class="text-muted">Not Set</span>
+                  {% endif %}
+                </span>
+              </div>
+              <div class="supply-mobile-venue-metric supply-mobile-venue-metric-wide">
+                <span class="supply-mobile-venue-label">Updated</span>
+                <span class="supply-mobile-venue-value">{{ venue_row.updated_at_text }}</span>
+              </div>
+            </div>
+          </article>
+        {% else %}
+          <div class="text-muted small">
+            This item is active, but it is not tracked at any active venue yet.
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{%- endmacro %}
