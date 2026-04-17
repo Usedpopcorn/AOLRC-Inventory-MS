@@ -201,8 +201,10 @@ def parse_item_payload(existing_item=None):
 @roles_required("admin")
 def items():
     form_values = build_item_form_values()
+    show_add_item_form = False
 
     if request.method == "POST":
+        show_add_item_form = True
         payload, form_values, errors = parse_item_payload()
         if errors:
             for error in errors:
@@ -240,6 +242,7 @@ def items():
         valid_tracking_modes=ITEM_TRACKING_MODES,
         valid_item_categories=ITEM_CATEGORY_OPTIONS,
         form_values=form_values,
+        show_add_item_form=show_add_item_form,
     )
 
 

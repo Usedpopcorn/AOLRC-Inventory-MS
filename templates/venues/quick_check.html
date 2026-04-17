@@ -286,16 +286,32 @@
       };
     }
 
-    function resolveOverallStatusFromCounts(total, counts) {
+    function resolveOverallStatusFromCounts(total, counts, detailCounts = null) {
       if (total <= 0) return { key: "not_checked", text: "Not Checked", iconClass: "bi-dash-circle" };
+      const detail = detailCounts || {
+        low_quantity: 0,
+        low_singleton: 0,
+        out_quantity: 0,
+        out_singleton: 0,
+      };
       const checkedCount = total - counts.not_checked;
       if (counts.out > 0) {
-        const outLabel = counts.out === 1 ? "Item" : "Items";
-        return { key: "out", text: `${counts.out} ${outLabel} out of stock`, iconClass: "bi-x-circle-fill" };
+        let outLabel = counts.out === 1 ? "item out of stock" : "items out of stock";
+        if (detail.out_singleton > 0 && detail.out_quantity === 0) {
+          outLabel = counts.out === 1 ? "item missing" : "items missing";
+        } else if (detail.out_singleton > 0 && detail.out_quantity > 0) {
+          outLabel = counts.out === 1 ? "item needs attention" : "items need attention";
+        }
+        return { key: "out", text: `${counts.out} ${outLabel}`, iconClass: "bi-x-circle-fill" };
       }
       if (counts.low > 0) {
-        const lowLabel = counts.low === 1 ? "Item" : "Items";
-        return { key: "low", text: `${counts.low} ${lowLabel} Low`, iconClass: "bi-exclamation-triangle-fill" };
+        let lowLabel = counts.low === 1 ? "item low" : "items low";
+        if (detail.low_singleton > 0 && detail.low_quantity === 0) {
+          lowLabel = counts.low === 1 ? "item damaged" : "items damaged";
+        } else if (detail.low_singleton > 0 && detail.low_quantity > 0) {
+          lowLabel = counts.low === 1 ? "item needs attention" : "items need attention";
+        }
+        return { key: "low", text: `${counts.low} ${lowLabel}`, iconClass: "bi-exclamation-triangle-fill" };
       }
       if (checkedCount > 0 && counts.ok > 0 && (counts.ok * 2 >= checkedCount)) {
         return { key: "ok", text: "OK", iconClass: "bi-check-circle-fill" };
@@ -307,9 +323,51 @@
       return { key: "not_checked", text: "Not Checked", iconClass: "bi-dash-circle" };
     }
 
+    function buildFamilyStatusLabel(total, counts, detailCounts, { assetOnly = false } = {}) {
+      const resolved = resolveOverallStatusFromCounts(total, counts);
+
+      if (assetOnly) {
+        if (resolved.key === "out") {
+          return counts.out > 0 ? `${counts.out} missing` : "Missing";
+        }
+        if (resolved.key === "low") {
+          return counts.low > 0 ? `${counts.low} damaged` : "Damaged";
+        }
+        return {
+          good: "Present",
+          ok: "OK",
+          not_checked: "Not checked",
+        }[resolved.key] || "Not checked";
+      }
+
+      if (resolved.key === "out") {
+        if (counts.out > 0 && detailCounts.out_singleton > 0 && detailCounts.out_quantity > 0) {
+          return `${counts.out} ${counts.out === 1 ? "item needs attention" : "items need attention"}`;
+        }
+        return `${counts.out} ${counts.out === 1 ? "item out" : "items out"}`;
+      }
+      if (resolved.key === "low") {
+        if (counts.low > 0 && detailCounts.low_singleton > 0 && detailCounts.low_quantity > 0) {
+          return `${counts.low} ${counts.low === 1 ? "item needs attention" : "items need attention"}`;
+        }
+        return `${counts.low} ${counts.low === 1 ? "item low" : "items low"}`;
+      }
+      return {
+        good: "Good",
+        ok: "OK",
+        not_checked: "Not checked",
+      }[resolved.key] || "Not checked";
+    }
+
     function refreshOverallStatus() {
       if (!overallStatusPill || !overallStatusIcon || !overallStatusText) return;
       const counts = { good: 0, ok: 0, low: 0, out: 0, not_checked: 0 };
+      const detailCounts = {
+        low_quantity: 0,
+        low_singleton: 0,
+        out_quantity: 0,
+        out_singleton: 0,
+      };
 
       getEntryRows().forEach((row) => {
         const itemId = row.dataset.itemId;
@@ -317,9 +375,13 @@
         let value = (input?.value || "not_checked").toLowerCase();
         if (!(value in counts)) value = "not_checked";
         counts[value] += 1;
+        if (value === "low" || value === "out") {
+          const suffix = (row.dataset.trackingMode || "") === "singleton_asset" ? "singleton" : "quantity";
+          detailCounts[`${value}_${suffix}`] += 1;
+        }
       });
 
-      const meta = resolveOverallStatusFromCounts(getEntryRows().length, counts);
+      const meta = resolveOverallStatusFromCounts(getEntryRows().length, counts, detailCounts);
       overallStatusPill.classList.remove("status-good", "status-ok", "status-low", "status-out", "status-na");
       const statusClassByKey = {
         good: "status-good",
@@ -412,12 +474,29 @@
         }
       });
 
-      const resolvedKey = resolveOverallStatusFromCounts(childCount, statusCounts).key;
+      const detailCounts = {
+        low_quantity: 0,
+        low_singleton: 0,
+        out_quantity: 0,
+        out_singleton: 0,
+      };
+      childRows.forEach((row) => {
+        const itemId = row.dataset.itemId;
+        const statusInput = itemId ? document.getElementById(`status_${itemId}`) : null;
+        const value = ((statusInput?.value || "not_checked").toLowerCase());
+        if (value === "low" || value === "out") {
+          const suffix = (row.dataset.trackingMode || "") === "singleton_asset" ? "singleton" : "quantity";
+          detailCounts[`${value}_${suffix}`] += 1;
+        }
+      });
+
+      const resolvedStatus = resolveOverallStatusFromCounts(childCount, statusCounts, detailCounts);
+      const resolvedKey = resolvedStatus.key;
       const worstMeta = {
         key: resolvedKey,
-        label: hasSingletonChildren && !hasQuantityChildren
-          ? ({ good: "Present", low: "Damaged", out: "Missing", not_checked: "Not checked" }[resolvedKey] || "Not checked")
-          : ({ good: "Good", ok: "OK", low: "Low", out: "Out", not_checked: "Not checked" }[resolvedKey] || "Not checked"),
+        label: buildFamilyStatusLabel(childCount, statusCounts, detailCounts, {
+          assetOnly: hasSingletonChildren && !hasQuantityChildren,
+        }),
       };
 
       const countSummaryEl = groupEl.querySelector("[data-family-summary-count]");

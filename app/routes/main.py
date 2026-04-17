@@ -98,6 +98,63 @@ def restock_status_meta_for_item(status_key, tracking_mode):
     return base_meta
 
 
+def build_status_detail_counts():
+    return {
+        "low_quantity": 0,
+        "low_singleton": 0,
+        "out_quantity": 0,
+        "out_singleton": 0,
+    }
+
+
+def build_overall_status_badge(total_tracked, counts, detail_counts=None):
+    if total_tracked <= 0:
+        return {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
+
+    detail_counts = detail_counts or build_status_detail_counts()
+    checked_count = total_tracked - counts["not_checked"]
+
+    if counts["out"] > 0:
+        out_count = counts["out"]
+        if detail_counts["out_singleton"] > 0 and detail_counts["out_quantity"] == 0:
+            label = "item missing" if out_count == 1 else "items missing"
+            return {"key": "out", "text": f"{out_count} {label}", "icon_class": "bi-x-circle-fill"}
+        if detail_counts["out_singleton"] > 0 and detail_counts["out_quantity"] > 0:
+            label = "item needs attention" if out_count == 1 else "items need attention"
+            return {"key": "out", "text": f"{out_count} {label}", "icon_class": "bi-x-circle-fill"}
+        label = "item out of stock" if out_count == 1 else "items out of stock"
+        return {"key": "out", "text": f"{out_count} {label}", "icon_class": "bi-x-circle-fill"}
+
+    if counts["low"] > 0:
+        low_count = counts["low"]
+        if detail_counts["low_singleton"] > 0 and detail_counts["low_quantity"] == 0:
+            label = "item damaged" if low_count == 1 else "items damaged"
+            return {
+                "key": "low",
+                "text": f"{low_count} {label}",
+                "icon_class": "bi-exclamation-triangle-fill",
+            }
+        if detail_counts["low_singleton"] > 0 and detail_counts["low_quantity"] > 0:
+            label = "item needs attention" if low_count == 1 else "items need attention"
+            return {
+                "key": "low",
+                "text": f"{low_count} {label}",
+                "icon_class": "bi-exclamation-triangle-fill",
+            }
+        label = "item low" if low_count == 1 else "items low"
+        return {
+            "key": "low",
+            "text": f"{low_count} {label}",
+            "icon_class": "bi-exclamation-triangle-fill",
+        }
+
+    if checked_count > 0 and counts["ok"] > 0 and (counts["ok"] * 2 >= checked_count):
+        return {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
+    if counts["good"] > 0:
+        return {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
+    return {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
+
+
 def _word_boundary_match(text, query):
     return bool(re.search(rf"(^|\W){re.escape(query)}", text))
 
@@ -776,10 +833,12 @@ def build_venue_rows(include_inactive=False):
     )
 
     latest_status_counts = {}
+    latest_status_detail_counts = {}
     for row in (
         db.session.query(
             latest_check_sq.c.venue_id.label("venue_id"),
             CheckLine.status.label("status"),
+            Item.tracking_mode.label("tracking_mode"),
             func.count(CheckLine.id).label("status_count"),
         )
         .join(CheckLine, CheckLine.check_id == latest_check_sq.c.latest_check_id)
@@ -793,10 +852,16 @@ def build_venue_rows(include_inactive=False):
         )
         .join(Item, Item.id == VenueItem.item_id)
         .filter(Item.active == True, Item.is_group_parent == False)
-        .group_by(latest_check_sq.c.venue_id, CheckLine.status)
+        .group_by(latest_check_sq.c.venue_id, CheckLine.status, Item.tracking_mode)
         .all()
     ):
-        latest_status_counts.setdefault(row.venue_id, {})[normalize_status(row.status)] = row.status_count
+        normalized_status = normalize_status(row.status)
+        latest_status_counts.setdefault(row.venue_id, {}).setdefault(normalized_status, 0)
+        latest_status_counts[row.venue_id][normalized_status] += row.status_count
+        if normalized_status in {"low", "out"}:
+            detail_counts = latest_status_detail_counts.setdefault(row.venue_id, build_status_detail_counts())
+            suffix = "singleton" if row.tracking_mode == "singleton_asset" else "quantity"
+            detail_counts[f"{normalized_status}_{suffix}"] += row.status_count
 
     last_updated_map = build_venue_last_updated_map(venue_ids)
     venue_rows = []
@@ -804,6 +869,7 @@ def build_venue_rows(include_inactive=False):
     for v in venues:
         total_tracked = tracked_totals.get(v.id, 0)
         counts = {"good": 0, "ok": 0, "low": 0, "out": 0, "not_checked": 0}
+        detail_counts = latest_status_detail_counts.get(v.id, build_status_detail_counts()).copy()
         notes_count = int(notes_count_map.get(v.id, 0) or 0)
         last_updated_at = last_updated_map.get(v.id)
         freshness = format_updated_label(last_updated_at)
@@ -844,26 +910,7 @@ def build_venue_rows(include_inactive=False):
             if counted < total_tracked:
                 counts["not_checked"] += (total_tracked - counted)
 
-        checked_count = total_tracked - counts["not_checked"]
-
-        if counts["out"] > 0:
-            out_count = counts["out"]
-            out_label = "Item" if out_count == 1 else "Items"
-            text = f"{out_count} {out_label} out of stock"
-            badge = {"key": "out", "text": text, "icon_class": "bi-x-circle-fill"}
-        elif counts["low"] > 0:
-            low_count = counts["low"]
-            low_label = "Item" if low_count == 1 else "Items"
-            text = f"{low_count} {low_label} Low"
-            badge = {"key": "low", "text": text, "icon_class": "bi-exclamation-triangle-fill"}
-        elif checked_count > 0 and counts["ok"] > 0 and (counts["ok"] * 2 >= checked_count):
-            badge = {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
-        elif counts["good"] > 0:
-            badge = {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
-
-        # only when all tracked items are not checked
-        else:
-            badge = {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
+        badge = build_overall_status_badge(total_tracked, counts, detail_counts)
 
         tooltip = (
             f"Total tracked: {total_tracked} | "

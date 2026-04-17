@@ -110,22 +110,33 @@ def build_overall_status(total_tracked, counts):
     if total_tracked <= 0:
         return {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
 
+    detail_counts = counts.get("_detail", {}) if isinstance(counts, dict) else {}
     checked_count = total_tracked - counts["not_checked"]
 
     if counts["out"] > 0:
         out_count = counts["out"]
-        out_label = "Item" if out_count == 1 else "Items"
+        if detail_counts.get("out_singleton", 0) > 0 and detail_counts.get("out_quantity", 0) == 0:
+            out_label = "item missing" if out_count == 1 else "items missing"
+        elif detail_counts.get("out_singleton", 0) > 0 and detail_counts.get("out_quantity", 0) > 0:
+            out_label = "item needs attention" if out_count == 1 else "items need attention"
+        else:
+            out_label = "item out of stock" if out_count == 1 else "items out of stock"
         return {
             "key": "out",
-            "text": f"{out_count} {out_label} out of stock",
+            "text": f"{out_count} {out_label}",
             "icon_class": "bi-x-circle-fill",
         }
     if counts["low"] > 0:
         low_count = counts["low"]
-        low_label = "Item" if low_count == 1 else "Items"
+        if detail_counts.get("low_singleton", 0) > 0 and detail_counts.get("low_quantity", 0) == 0:
+            low_label = "item damaged" if low_count == 1 else "items damaged"
+        elif detail_counts.get("low_singleton", 0) > 0 and detail_counts.get("low_quantity", 0) > 0:
+            low_label = "item needs attention" if low_count == 1 else "items need attention"
+        else:
+            low_label = "item low" if low_count == 1 else "items low"
         return {
             "key": "low",
-            "text": f"{low_count} {low_label} Low",
+            "text": f"{low_count} {low_label}",
             "icon_class": "bi-exclamation-triangle-fill",
         }
     if checked_count > 0 and counts["ok"] > 0 and (counts["ok"] * 2 >= checked_count):
@@ -167,6 +178,44 @@ def resolve_status_key_from_counts(total_tracked, counts):
     if checked_count > 0 and counts["ok"] > 0:
         return "ok"
     return "not_checked"
+
+
+def build_family_status_label(total_tracked, counts, has_singleton_children=False, has_quantity_children=True):
+    resolved_key = resolve_status_key_from_counts(total_tracked, counts)
+    asset_only = has_singleton_children and not has_quantity_children
+
+    if asset_only:
+        if resolved_key == "out":
+            count = counts["out"]
+            return f"{count} missing" if count > 0 else "Missing"
+        if resolved_key == "low":
+            count = counts["low"]
+            return f"{count} damaged" if count > 0 else "Damaged"
+        return {
+            "good": "Present",
+            "ok": "OK",
+            "not_checked": "Not checked",
+        }.get(resolved_key, "Not checked")
+
+    if resolved_key == "out":
+        count = counts["out"]
+        if counts["out"] > 0 and has_singleton_children and has_quantity_children:
+            label = "item needs attention" if count == 1 else "items need attention"
+            return f"{count} {label}"
+        label = "item out" if count == 1 else "items out"
+        return f"{count} {label}"
+    if resolved_key == "low":
+        count = counts["low"]
+        if counts["low"] > 0 and has_singleton_children and has_quantity_children:
+            label = "item needs attention" if count == 1 else "items need attention"
+            return f"{count} {label}"
+        label = "item low" if count == 1 else "items low"
+        return f"{count} {label}"
+    return {
+        "good": "Good",
+        "ok": "OK",
+        "not_checked": "Not checked",
+    }.get(resolved_key, "Not checked")
 
 
 def operational_item_sort_key(item):
@@ -284,21 +333,12 @@ def build_quick_check_groups(items, latest_status, latest_counts):
             group["children"][0],
             resolved_key,
         )["severity"]
-        if group["has_singleton_children"] and not group["has_quantity_children"]:
-            group["worst_status_label"] = {
-                "good": "Present",
-                "low": "Damaged",
-                "out": "Missing",
-                "not_checked": "Not checked",
-            }.get(resolved_key, "Not checked")
-        else:
-            group["worst_status_label"] = {
-                "good": "Good",
-                "ok": "OK",
-                "low": "Low",
-                "out": "Out",
-                "not_checked": "Not checked",
-            }.get(resolved_key, "Not checked")
+        group["worst_status_label"] = build_family_status_label(
+            group["child_count"],
+            group["status_counts"],
+            has_singleton_children=group["has_singleton_children"],
+            has_quantity_children=group["has_quantity_children"],
+        )
         group["checked_summary"] = f'{group["checked_count"]} of {group["child_count"]} checked'
         if group["has_singleton_children"] and not group["has_quantity_children"]:
             group["counted_summary"] = f'{group["counted_count"]} of {group["child_count"]} checked'
@@ -554,11 +594,22 @@ def quick_check(venue_id):
         latest_status[it.id] = resolved_status
 
     overall_counts = {"good": 0, "ok": 0, "low": 0, "out": 0, "not_checked": 0}
-    for status in latest_status.values():
+    overall_detail_counts = {
+        "low_quantity": 0,
+        "low_singleton": 0,
+        "out_quantity": 0,
+        "out_singleton": 0,
+    }
+    for it in tracked:
+        status = latest_status.get(it.id)
         normalized = (status or "not_checked").strip().lower()
         if normalized not in overall_counts:
             normalized = "not_checked"
         overall_counts[normalized] += 1
+        if normalized in {"low", "out"}:
+            suffix = "singleton" if it.tracking_mode == "singleton_asset" else "quantity"
+            overall_detail_counts[f"{normalized}_{suffix}"] += 1
+    overall_counts["_detail"] = overall_detail_counts
     overall_status = build_overall_status(len(tracked), overall_counts)
     quick_check_groups = build_quick_check_groups(tracked, latest_status, latest_counts)
 

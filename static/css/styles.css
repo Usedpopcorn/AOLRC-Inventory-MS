@@ -1467,13 +1467,16 @@ button.ui-control-sm {
   background: rgba(132, 96, 140, 0.14);
 }
 
-.quick-check-family-row.quick-check-family-row-good::before,
-.quick-check-family-row.quick-check-family-row-ok::before {
+.quick-check-family-row.quick-check-family-row-good::before {
   background: rgba(68, 146, 107, 0.28);
 }
 
+.quick-check-family-row.quick-check-family-row-ok::before {
+  background: rgba(224, 168, 0, 0.38);
+}
+
 .quick-check-family-row.quick-check-family-row-low::before {
-  background: rgba(216, 156, 53, 0.42);
+  background: rgba(253, 126, 20, 0.42);
 }
 
 .quick-check-family-row.quick-check-family-row-out::before,
@@ -1566,17 +1569,22 @@ button.ui-control-sm {
   white-space: nowrap;
 }
 
-.quick-check-family-status-good,
-.quick-check-family-status-ok {
+.quick-check-family-status-good {
   background: rgba(68, 146, 107, 0.08);
   border-color: rgba(68, 146, 107, 0.14);
   color: #2f6f50;
 }
 
-.quick-check-family-status-low {
-  background: rgba(216, 156, 53, 0.09);
-  border-color: rgba(216, 156, 53, 0.16);
+.quick-check-family-status-ok {
+  background: rgba(224, 168, 0, 0.12);
+  border-color: rgba(224, 168, 0, 0.22);
   color: #8a640f;
+}
+
+.quick-check-family-status-low {
+  background: rgba(253, 126, 20, 0.1);
+  border-color: rgba(253, 126, 20, 0.18);
+  color: #b25400;
 }
 
 .quick-check-family-status-out {

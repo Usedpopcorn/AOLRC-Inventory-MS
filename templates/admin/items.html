@@ -50,84 +50,103 @@
 
 <div class="card mb-4">
   <div class="card-body">
-    {% call ui.form_section("Add an Item", "Start new catalog entries on the same shared structure used throughout the app.") %}
-      <form method="post" class="row g-3">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div class="col-12 col-md-6">
-          <label class="form-label" for="item-name">Item name</label>
-          <input
-            id="item-name"
-            class="form-control ui-control"
-            name="name"
-            placeholder="Item name (e.g., Yoga Mats)"
-            value="{{ form_values.name }}"
-          >
+    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3">
+      <div>
+        <h2 class="h5 mb-1">Add an Item</h2>
+        <p class="text-muted mb-0">Start new catalog entries on the same shared structure used throughout the app.</p>
+      </div>
+      <button
+        class="btn btn-aolrc-accent ui-control"
+        type="button"
+        data-bs-toggle="collapse"
+        data-bs-target="#addItemCollapse"
+        aria-controls="addItemCollapse"
+        aria-expanded="{{ 'true' if show_add_item_form else 'false' }}"
+      >
+        Add Item
+      </button>
+    </div>
+
+    <div class="collapse{{ ' show' if show_add_item_form else '' }} mt-3" id="addItemCollapse">
+      {% call ui.form_section("New catalog item", "Use the shared inventory structure so assignment, checks, and audit screens stay aligned.") %}
+        <form method="post" class="row g-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="item-name">Item name</label>
+            <input
+              id="item-name"
+              class="form-control ui-control"
+              name="name"
+              placeholder="Item name (e.g., Yoga Mats)"
+              value="{{ form_values.name }}"
+            >
+          </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <label class="form-label" for="item-tracking-mode">Tracking mode</label>
+          <select id="item-tracking-mode" class="form-select ui-control" name="tracking_mode">
+            {% for value, label in tracking_mode_options %}
+              <option value="{{ value }}" {% if form_values.tracking_mode == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
         </div>
-      <div class="col-12 col-sm-6 col-md-3">
-        <label class="form-label" for="item-tracking-mode">Tracking mode</label>
-        <select id="item-tracking-mode" class="form-select ui-control" name="tracking_mode">
-          {% for value, label in tracking_mode_options %}
-            <option value="{{ value }}" {% if form_values.tracking_mode == value %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-12 col-sm-6 col-md-3">
-        <label class="form-label" for="item-category">Category</label>
-        <select id="item-category" class="form-select ui-control" name="item_category">
-          {% for value, label in item_category_options %}
-            <option value="{{ value }}" {% if form_values.item_category == value %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-12 col-sm-6 col-md-4">
-        <label class="form-label" for="item-parent">Parent family (optional)</label>
-        <select id="item-parent" class="form-select ui-control" name="parent_item_id">
-          <option value="">No parent</option>
-          {% for parent in parent_options %}
-            <option value="{{ parent.id }}" {% if form_values.parent_item_id == parent.id|string %}selected{% endif %}>{{ parent.name }} (family)</option>
-          {% endfor %}
-        </select>
-        <div class="form-text">Only family organizer items appear here.</div>
-      </div>
-      <div class="col-12 col-sm-6 col-md-2">
-        <label class="form-label" for="item-sort-order">Sort order</label>
-        <input id="item-sort-order" class="form-control ui-control" type="number" step="1" name="sort_order" value="{{ form_values.sort_order }}">
-      </div>
-      <div class="col-12 col-sm-6 col-md-3">
-        <label class="form-label" for="item-unit">Unit (optional)</label>
-        <input id="item-unit" class="form-control ui-control" name="unit" value="{{ form_values.unit }}" placeholder="each, box, bottle...">
-      </div>
-      <div class="col-12 col-sm-6 col-md-3">
-        <div class="form-check mt-md-4 pt-md-2">
-          <input class="form-check-input" type="checkbox" id="item-is-group-parent" name="is_group_parent" value="1" {% if form_values.is_group_parent %}checked{% endif %}>
-          <label class="form-check-label" for="item-is-group-parent">
-            Group parent (family)
-          </label>
+        <div class="col-12 col-sm-6 col-md-3">
+          <label class="form-label" for="item-category">Category</label>
+          <select id="item-category" class="form-select ui-control" name="item_category">
+            {% for value, label in item_category_options %}
+              <option value="{{ value }}" {% if form_values.item_category == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
         </div>
-      </div>
-      <div class="col-12 col-sm-6 col-md-3">
-        <div class="form-check mt-md-4 pt-md-2">
-          <input class="form-check-input" type="checkbox" id="item-active" name="active" value="1" {% if form_values.active %}checked{% endif %}>
-          <label class="form-check-label" for="item-active">
-            Active
-          </label>
+        <div class="col-12 col-sm-6 col-md-4">
+          <label class="form-label" for="item-parent">Parent family (optional)</label>
+          <select id="item-parent" class="form-select ui-control" name="parent_item_id">
+            <option value="">No parent</option>
+            {% for parent in parent_options %}
+              <option value="{{ parent.id }}" {% if form_values.parent_item_id == parent.id|string %}selected{% endif %}>{{ parent.name }} (family)</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">Only family organizer items appear here.</div>
         </div>
-      </div>
-      <div class="col-12 col-md-3 ms-md-auto">
-        <button class="btn w-100 btn-aolrc-accent ui-control">Add Item</button>
-      </div>
-      </form>
-    {% endcall %}
-    <section class="item-form-summary mt-3" id="itemFormSummary" aria-live="polite">
-      <div class="item-form-summary-eyebrow">How this item will behave</div>
-      <h3 class="item-form-summary-title h6 mb-1" id="itemFormSummaryTitle">Standalone quantity item</h3>
-      <p class="item-form-summary-text mb-0" id="itemFormSummaryText">This item will appear as a directly counted supply row.</p>
-      <div class="item-form-summary-points mt-3">
-        <div class="item-form-summary-point" id="itemFormSummaryTracking"></div>
-        <div class="item-form-summary-point" id="itemFormSummaryFamily"></div>
-        <div class="item-form-summary-point" id="itemFormSummaryCounted"></div>
-      </div>
-    </section>
+        <div class="col-12 col-sm-6 col-md-2">
+          <label class="form-label" for="item-sort-order">Sort order</label>
+          <input id="item-sort-order" class="form-control ui-control" type="number" step="1" name="sort_order" value="{{ form_values.sort_order }}">
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <label class="form-label" for="item-unit">Unit (optional)</label>
+          <input id="item-unit" class="form-control ui-control" name="unit" value="{{ form_values.unit }}" placeholder="each, box, bottle...">
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <div class="form-check mt-md-4 pt-md-2">
+            <input class="form-check-input" type="checkbox" id="item-is-group-parent" name="is_group_parent" value="1" {% if form_values.is_group_parent %}checked{% endif %}>
+            <label class="form-check-label" for="item-is-group-parent">
+              Group parent (family)
+            </label>
+          </div>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <div class="form-check mt-md-4 pt-md-2">
+            <input class="form-check-input" type="checkbox" id="item-active" name="active" value="1" {% if form_values.active %}checked{% endif %}>
+            <label class="form-check-label" for="item-active">
+              Active
+            </label>
+          </div>
+        </div>
+        <div class="col-12 col-md-3 ms-md-auto">
+          <button class="btn w-100 btn-aolrc-accent ui-control">Create Item</button>
+        </div>
+        </form>
+      {% endcall %}
+      <section class="item-form-summary mt-3" id="itemFormSummary" aria-live="polite">
+        <div class="item-form-summary-eyebrow">How this item will behave</div>
+        <h3 class="item-form-summary-title h6 mb-1" id="itemFormSummaryTitle">Standalone quantity item</h3>
+        <p class="item-form-summary-text mb-0" id="itemFormSummaryText">This item will appear as a directly counted supply row.</p>
+        <div class="item-form-summary-points mt-3">
+          <div class="item-form-summary-point" id="itemFormSummaryTracking"></div>
+          <div class="item-form-summary-point" id="itemFormSummaryFamily"></div>
+          <div class="item-form-summary-point" id="itemFormSummaryCounted"></div>
+        </div>
+      </section>
+    </div>
   </div>
 </div>
 
