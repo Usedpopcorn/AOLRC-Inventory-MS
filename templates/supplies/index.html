@@ -221,13 +221,11 @@
         {% endfor %}
       </div>
 
-      <div class="alert alert-info mt-3 d-none" id="suppliesClientEmptyState">
-        No supplies match the current filters.
+      <div class="d-none mt-3" id="suppliesClientEmptyState" aria-live="polite">
+        {{ ui.empty_state("No supplies match the current filters.", body="Adjust search, sort, or quick filters to show more inventory rows.", compact=True) }}
       </div>
     {% else %}
-      <div class="alert alert-info mb-0">
-        No supplies match the current filters.
-      </div>
+      {{ ui.empty_state("No supplies match the current filters.", body="Adjust search, sort, or quick filters to show more inventory rows.") }}
     {% endif %}
   </div>
 </section>

@@ -1,0 +1,22 @@
+---
+description: Preserve AOLRC inventory row, family, and singleton conventions
+alwaysApply: true
+---
+
+# Inventory Row Guardrails
+
+For operational inventory UI, `templates/_inventory_macros.html` is the source of truth.
+
+Required behavior:
+
+- Reuse shared inventory row shells before creating page-local row/card markup.
+- Preserve the parent/family summary row + nested child row pattern.
+- Keep child rows visually nested under the family row at every breakpoint.
+- Keep singleton assets in the same row shell, but use presence/condition language instead of quantity/par language.
+- Reuse shared detail panels, coverage pills, issue summaries, and state badges.
+
+Reject:
+
+- Flattening family hierarchies into unrelated standalone rows
+- Treating singleton assets like standard quantity rows
+- Rebuilding a second detail-panel or drilldown style locally

@@ -155,12 +155,12 @@
 
           </article>
         {% else %}
-          <div class="venue-directory-empty">No venues yet.</div>
+          {{ ui.empty_state("No venues yet.", body="Add a venue to start tracking venue checks and directory status.") }}
         {% endfor %}
       </div>
 
-      <div id="venueDirectoryEmptyFiltered" class="venue-directory-empty d-none mt-2">
-        No venues match your current filters.
+      <div id="venueDirectoryEmptyFiltered" class="d-none mt-2" aria-live="polite">
+        {{ ui.empty_state("No venues match your current filters.", body="Adjust the search or filter combination to show more venues.", compact=True) }}
       </div>
     </div>
   </div>

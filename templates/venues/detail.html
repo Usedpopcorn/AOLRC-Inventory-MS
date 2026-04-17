@@ -176,7 +176,7 @@
                 {% endfor %}
               </ul>
             {% else %}
-              <div class="text-muted">No notes added yet.</div>
+              {{ ui.empty_state("No notes added yet.", body="Add a venue note to capture room-specific context or operational reminders.", compact=True) }}
             {% endif %}
           </div>
         </div>
@@ -216,7 +216,7 @@
                 </div>
               </article>
             {% else %}
-              <div class="venue-directory-empty">No activity yet for this venue.</div>
+              {{ ui.empty_state("No activity yet for this venue.", body="Recent status and count updates will appear here once this venue is used.", compact=True) }}
             {% endfor %}
           </div>
         </div>

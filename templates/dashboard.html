@@ -172,8 +172,8 @@
               </a>
             </article>
           {% endfor %}
-          <div id="venuesMobileEmpty" class="text-muted venue-mobile-empty {{ 'd-none' if venue_rows else '' }}">
-            No venues match your current filters.
+          <div id="venuesMobileEmpty" class="venue-mobile-empty {{ 'd-none' if venue_rows else '' }}" aria-live="polite">
+            {{ ui.empty_state("No venues match your current filters.", body="Adjust the search or status filter to show more venues.", compact=True) }}
           </div>
         </div>
 
@@ -227,7 +227,7 @@
                   </td>
                 </tr>
               {% else %}
-                <tr><td colspan="3">No venues yet.</td></tr>
+                {{ ui.table_empty_row(3, "No venues yet.", body="Add venues to start tracking status and quick checks.") }}
               {% endfor %}
             </tbody>
           </table>
@@ -709,8 +709,8 @@
               </a>
             </article>
           {% endfor %}
-          <div id="restockMobileEmpty" class="text-muted restock-mobile-empty {{ 'd-none' if restock_rows else '' }}">
-            No restocking matches found for your current criteria.
+          <div id="restockMobileEmpty" class="restock-mobile-empty {{ 'd-none' if restock_rows else '' }}" aria-live="polite">
+            {{ ui.empty_state("No restocking matches found.", body="Try broadening the filters or clearing search to show more venues and items.", compact=True) }}
           </div>
         </div>
 
@@ -792,19 +792,30 @@
                   </td>
                 </tr>
               {% endfor %}
-              <tr id="restockTableEmptyRow" class="{{ 'd-none' if restock_rows else '' }}">
-                <td colspan="5" class="text-muted">No restocking matches found for your current criteria.</td>
+              <tr id="restockTableEmptyRow" class="ui-table-empty-row {{ 'd-none' if restock_rows else '' }}">
+                <td colspan="5">
+                  {{ ui.empty_state("No restocking matches found.", body="Try broadening the filters or clearing search to show more venues and items.", compact=True) }}
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
         <div id="restockLoadMoreArea" class="pt-2 {{ 'd-none' if not restock_has_more else '' }}">
-          <div id="restockLoadMoreSpinner" class="text-muted small text-center d-none">
-            Loading more results...
+          <div id="restockLoadMoreSpinner" class="d-none">
+            {{ ui.loading_state("Loading more results...", extra_classes="ui-loading-state-compact") }}
           </div>
-          <div id="restockLoadMoreError" class="text-danger small text-center d-none">
-            Could not load more results.
-            <button id="restockLoadMoreRetry" type="button" class="btn btn-link btn-sm p-0 align-baseline">Retry</button>
+          <div id="restockLoadMoreError" class="d-none">
+            <div class="ui-state-banner ui-state-banner-danger ui-state-banner-compact" role="alert">
+              <div class="ui-state-banner-icon" aria-hidden="true">
+                <i class="bi bi-exclamation-octagon-fill"></i>
+              </div>
+              <div class="ui-state-banner-copy">
+                <div class="ui-state-banner-title">Could not load more results.</div>
+                <div class="ui-state-banner-body">
+                  <button id="restockLoadMoreRetry" type="button" class="btn btn-link btn-sm p-0 align-baseline">Retry</button>
+                </div>
+              </div>
+            </div>
           </div>
           <div id="restockLoadMoreSentinel" aria-hidden="true"></div>
         </div>
@@ -1759,8 +1770,8 @@
               <div class="activity-detail-text mt-2">{{ row.detail_text }}</div>
             </article>
           {% endfor %}
-          <div id="activityMobileEmpty" class="text-muted activity-mobile-empty {{ 'd-none' if activity_rows else '' }}">
-            No activity matches your current filters.
+          <div id="activityMobileEmpty" class="activity-mobile-empty {{ 'd-none' if activity_rows else '' }}" aria-live="polite">
+            {{ ui.empty_state("No activity matches your current filters.", body="Adjust the date, type, or search filters to show more activity.", compact=True) }}
           </div>
         </div>
 
@@ -1822,8 +1833,10 @@
                   <td>{{ row.actor_name }}</td>
                 </tr>
               {% endfor %}
-              <tr id="activityTableEmpty" class="{{ 'd-none' if activity_rows else '' }}">
-                <td colspan="6" class="text-muted">No activity matches your current filters.</td>
+              <tr id="activityTableEmpty" class="ui-table-empty-row {{ 'd-none' if activity_rows else '' }}">
+                <td colspan="6">
+                  {{ ui.empty_state("No activity matches your current filters.", body="Adjust the date, type, or search filters to show more activity.", compact=True) }}
+                </td>
               </tr>
             </tbody>
           </table>

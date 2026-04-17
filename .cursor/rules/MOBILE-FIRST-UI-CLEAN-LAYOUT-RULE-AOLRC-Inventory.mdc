@@ -1,42 +1,28 @@
 ---
-alwaysApply: true
+description: Legacy compatibility rule for AOLRC UI work. Keep mobile-first expectations, but follow the Phase 3 UI docs and dedicated UI rules as the source of truth.
+globs:
+  - "templates/**/*.html"
+  - "static/css/**/*.css"
+alwaysApply: false
 ---
 
-Hard requirements:
-1) Mobile-first by default:
-   - Design for 360–430px width first, then enhance for md+ breakpoints.
-   - Use Bootstrap responsive utilities (d-flex, flex-column, flex-md-row, gap-*, w-100, container, table-responsive).
-   - Never assume hover is available; all key actions must be accessible via tap.
+# AOLRC UI Compatibility Rule
 
-2) Keep layouts simple and “scan-friendly”:
-   - Prefer one primary action per screen (gold .btn-aolrc-accent).
-   - Utility/edit actions may use Bootstrap blue (`.btn-primary`) for consistency with settings pages.
-   - Secondary actions should be outline buttons or links.
-   - Avoid dense toolbars: collapse rarely-used controls behind a button/collapse or a “More” menu.
+This older rule remains only as a compatibility pointer.
 
-3) Tables must degrade gracefully on mobile:
-   - Wrap tables in .table-responsive.
-   - Keep important columns visible; avoid wide fixed widths that force horizontal scrolling.
-   - If a table becomes too wide, convert rows to stacked “cards” on small screens OR reduce columns.
+For current UI work, use these sources of truth first:
 
-4) Touch targets and spacing:
-   - Buttons and tappable elements must be at least ~44px tall (use .btn, .py-2, .w-100 on mobile when needed).
-   - Use consistent spacing: gap-2/gap-3, mb-3/mb-4, avoid cramped UI.
+- `AGENTS.md`
+- `UI_COMPONENTS.md`
+- `RESPONSIVE_UI_RULES.md`
+- `UI_REGRESSION_CHECKLIST.md`
+- `.cursor/rules/UI-SHARED-PRIMITIVES-AOLRC.mdc`
+- `.cursor/rules/UI-INVENTORY-ROWS-AOLRC.mdc`
+- `.cursor/rules/UI-RESPONSIVE-QA-AOLRC.mdc`
+- `.cursor/rules/UI-NON-HAPPY-PATH-STATES-AOLRC.mdc`
 
-5) Performance + simplicity:
-   - Prefer server-rendered HTML + minimal vanilla JS (no heavy frontend frameworks).
-   - Use simple DOM filtering (like current search/filter) rather than complex client state.
-   - Do not add large JS libraries unless absolutely necessary.
+Still required:
 
-6) Styling consistency:
-   - No inline brand colors. Use CSS vars and classes in static/css/styles.css:
-    --aolrc-purple, --aolrc-gold, --bs-primary; .btn-aolrc-primary, .btn-aolrc-accent, .btn-primary; .badge-core.
-   - Keep contrast high. Never use hover/focus states that reduce readability.
-
-Implementation checklist (must verify before finalizing):
-- Test in narrow width (DevTools mobile emulation) and confirm:
-  a) navbar works and doesn’t consume too much vertical space
-  b) primary action is visible without scrolling where possible
-  c) forms don’t overflow and inputs are comfortable to tap
-  d) tables are readable and don’t require sideways scrolling (unless unavoidable)
-  e) no sticky hover behavior on touch devices
+- Build mobile-first and verify the shared breakpoints at `375`, `768`, `973`, `1199`, and `1440`.
+- Keep operational workflows usable without horizontal scrolling on small screens.
+- Reuse the shared toolbar, header, chip, form, and inventory-row primitives before adding page-local markup or CSS.

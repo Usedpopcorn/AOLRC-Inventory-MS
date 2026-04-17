@@ -215,7 +215,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="7">No items yet.</td></tr>
+          {{ ui.table_empty_row(7, "No items yet.", body="Add a catalog item to start assigning shared inventory across venues.") }}
           {% endfor %}
         </tbody>
       </table>

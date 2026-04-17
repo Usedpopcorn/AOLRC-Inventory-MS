@@ -1,0 +1,28 @@
+---
+description: Reuse the shared AOLRC UI system before adding page-local UI
+alwaysApply: true
+---
+
+# Shared UI Primitives
+
+Before adding or changing UI, inspect:
+
+- `templates/_ui_macros.html`
+- `templates/_inventory_macros.html`
+- `templates/_item_macros.html`
+- `static/css/styles.css`
+- `UI_COMPONENTS.md`
+
+Required behavior:
+
+- Use `ui.page_header` for page headers before building a custom title/action block.
+- Use `ui.toolbar` and shared control classes for search/filter/sort/action layouts.
+- Use shared chips/state helpers instead of Bootstrap badge drift.
+- Use `ui.form_section` for structured settings/admin forms unless the page already has a stronger shared pattern.
+- Use shared empty/loading/banner/validation states instead of one-off alerts or dashed boxes.
+
+Reject:
+
+- New page-local header systems
+- New badge systems
+- One-off control-height or spacing hacks when shared classes/tokens already exist

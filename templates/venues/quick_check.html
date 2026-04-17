@@ -137,11 +137,11 @@
 </div>
 
 {% if items|length == 0 %}
-  <div class="alert alert-info">No supplies are tracked for this venue yet.</div>
+  {{ ui.empty_state("No supplies are tracked for this venue yet.", body="Assign venue supplies first, then staff can update status or counts here.") }}
 {% else %}
 {% set is_view_only = not current_user.is_staff %}
 {% if is_view_only %}
-  <div class="alert alert-info">You have view-only access. Statuses and counts cannot be changed.</div>
+  {{ ui.state_banner("View-only access", "Statuses and counts cannot be changed from this account.", tone="info") }}
 {% endif %}
 <form method="post" id="quick-check-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -237,12 +237,12 @@
           </section>
         {% endfor %}
       </div>
-      <div id="suppliesFilteredEmpty" class="venue-directory-empty d-none mt-2">
-        No supplies match your current search.
+      <div id="suppliesFilteredEmpty" class="d-none mt-2" aria-live="polite">
+        {{ ui.empty_state("No supplies match your current search.", body="Try a shorter search term or clear the search field.", compact=True) }}
       </div>
 
       {% if current_user.is_staff %}
-        <button class="btn mt-3 w-100 btn-aolrc-accent" type="submit">
+        <button class="btn mt-3 w-100 btn-aolrc-accent ui-control" type="submit">
           Save Changes
         </button>
       {% endif %}

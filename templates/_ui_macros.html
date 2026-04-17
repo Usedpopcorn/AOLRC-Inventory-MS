@@ -139,3 +139,92 @@
     </div>
   </section>
 {%- endmacro %}
+
+{% macro state_banner(title=None, body=None, tone="info", icon_class=None, extra_classes="", live_region=None) -%}
+  {% if not icon_class %}
+    {% if tone in ["warning"] %}
+      {% set icon_class = "bi-exclamation-triangle-fill" %}
+    {% elif tone in ["danger", "error"] %}
+      {% set icon_class = "bi-exclamation-octagon-fill" %}
+    {% elif tone in ["success"] %}
+      {% set icon_class = "bi-check-circle-fill" %}
+    {% elif tone in ["muted", "neutral"] %}
+      {% set icon_class = "bi-info-circle" %}
+    {% else %}
+      {% set icon_class = "bi-info-circle-fill" %}
+    {% endif %}
+  {% endif %}
+  <div
+    class="ui-state-banner ui-state-banner-{{ 'danger' if tone == 'error' else tone }}{{ ' ' ~ extra_classes if extra_classes else '' }}"
+    role="{{ 'alert' if tone in ['warning', 'danger', 'error'] else 'status' }}"
+    {% if live_region %}aria-live="{{ live_region }}"{% endif %}
+  >
+    <div class="ui-state-banner-icon" aria-hidden="true">
+      <i class="bi {{ icon_class }}"></i>
+    </div>
+    <div class="ui-state-banner-copy">
+      {% if title %}
+        <div class="ui-state-banner-title">{{ title }}</div>
+      {% endif %}
+      {% if body %}
+        <div class="ui-state-banner-body">{{ body }}</div>
+      {% endif %}
+    </div>
+  </div>
+{%- endmacro %}
+
+{% macro empty_state(title, body=None, icon_class="bi-inbox", extra_classes="", compact=False, live_region=None) -%}
+  <div
+    class="ui-empty-state{{ ' ui-empty-state-compact' if compact else '' }}{{ ' ' ~ extra_classes if extra_classes else '' }}"
+    role="status"
+    {% if live_region %}aria-live="{{ live_region }}"{% endif %}
+  >
+    <div class="ui-empty-state-icon" aria-hidden="true">
+      <i class="bi {{ icon_class }}"></i>
+    </div>
+    <div class="ui-empty-state-copy">
+      <div class="ui-empty-state-title">{{ title }}</div>
+      {% if body %}
+        <div class="ui-empty-state-body">{{ body }}</div>
+      {% endif %}
+    </div>
+  </div>
+{%- endmacro %}
+
+{% macro loading_state(label="Loading…", detail=None, extra_classes="") -%}
+  <div class="ui-loading-state{{ ' ' ~ extra_classes if extra_classes else '' }}" role="status" aria-live="polite">
+    <span class="ui-loading-spinner" aria-hidden="true"></span>
+    <div class="ui-loading-copy">
+      <div class="ui-loading-title">{{ label }}</div>
+      {% if detail %}
+        <div class="ui-loading-detail">{{ detail }}</div>
+      {% endif %}
+    </div>
+  </div>
+{%- endmacro %}
+
+{% macro validation_summary(messages, title="Please review the following", extra_classes="") -%}
+  {% if messages %}
+    <div class="ui-state-banner ui-state-banner-danger ui-validation-summary{{ ' ' ~ extra_classes if extra_classes else '' }}" role="alert">
+      <div class="ui-state-banner-icon" aria-hidden="true">
+        <i class="bi bi-exclamation-octagon-fill"></i>
+      </div>
+      <div class="ui-state-banner-copy">
+        <div class="ui-state-banner-title">{{ title }}</div>
+        <ul class="ui-validation-list">
+          {% for message in messages %}
+            <li>{{ message }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  {% endif %}
+{%- endmacro %}
+
+{% macro table_empty_row(colspan, title, body=None, icon_class="bi-inbox") -%}
+  <tr class="ui-table-empty-row">
+    <td colspan="{{ colspan }}">
+      {{ empty_state(title, body=body, icon_class=icon_class, compact=True) }}
+    </td>
+  </tr>
+{%- endmacro %}
