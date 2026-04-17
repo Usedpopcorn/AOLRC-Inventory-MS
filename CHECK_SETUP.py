@@ -12,6 +12,7 @@ import sys
 
 from dotenv import load_dotenv
 
+
 def fail(msg: str) -> None:
     print(f"\n[FAIL] {msg}\n")
     sys.exit(1)

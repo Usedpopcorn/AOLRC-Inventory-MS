@@ -1,7 +1,7 @@
 """create venues table
 
 Revision ID: 85d0beb641da
-Revises: 
+Revises:
 Create Date: 2026-02-21 17:55:15.118090
 
 """

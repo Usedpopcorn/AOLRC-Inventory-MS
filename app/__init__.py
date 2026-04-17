@@ -121,7 +121,7 @@ def create_app():
 
     from .routes.supplies import supplies_bp
     app.register_blueprint(supplies_bp)
-    
+
     from . import models  # ensures models are registered for migrations
 
     @app.get("/healthz")

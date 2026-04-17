@@ -629,4 +629,3 @@ def _max_timestamp(*timestamps):
         if candidate and (resolved is None or candidate > resolved):
             resolved = candidate
     return resolved
-
