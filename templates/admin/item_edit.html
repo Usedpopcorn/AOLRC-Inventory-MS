@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% import "_item_macros.html" as item_ui %}
+{% import "_ui_macros.html" as ui %}
 {% block title %}Edit Item{% endblock %}
 {% macro help_tip(text, label='Field help') -%}
 <button
@@ -15,53 +16,56 @@
 {%- endmacro %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h1 class="h3 mb-0 fw-bold text-aolrc-purple page-heading">Edit Item</h1>
-  <a class="btn btn-back-nav" href="{{ url_for('admin.items') }}">
-    <i class="bi bi-arrow-left" aria-hidden="true"></i> Back to Items
-  </a>
-</div>
+{{ ui.page_header(
+  title="Edit Item",
+  subtitle="Update the structure once here so supplies, venue checks, and assignment screens stay aligned.",
+  back_url=url_for('admin.items'),
+  back_label="Items"
+) }}
 
 <div class="card">
   <div class="card-body">
-    <div class="mb-3">
-      <div class="small text-muted text-uppercase fw-semibold mb-2">Current item structure</div>
-      {{ item_ui.item_heading(
-        item.name,
-        parent_name=item.parent_item.name if item.parent_item else none,
-        is_group_parent=item.is_group_parent,
-        child_count=item.child_items|length if item.is_group_parent else none
-      ) }}
-      <div class="mt-2">
-        {{ item_ui.structure_badges(
-          tracking_mode=form_values.tracking_mode,
-          item_category=form_values.item_category,
+    {% call ui.form_section("Current Item Structure", "This is the item identity shared by supplies, quick checks, and venue assignment flows.") %}
+      <div>
+        <div class="small text-muted text-uppercase fw-semibold mb-2">Current item structure</div>
+        {{ item_ui.item_heading(
+          item.name,
           parent_name=item.parent_item.name if item.parent_item else none,
-          is_group_parent=item.is_group_parent
+          is_group_parent=item.is_group_parent,
+          child_count=item.child_items|length if item.is_group_parent else none
         ) }}
+        <div class="mt-2">
+          {{ item_ui.structure_badges(
+            tracking_mode=form_values.tracking_mode,
+            item_category=form_values.item_category,
+            parent_name=item.parent_item.name if item.parent_item else none,
+            is_group_parent=item.is_group_parent
+          ) }}
+        </div>
       </div>
-    </div>
-    <form method="post" class="row g-3">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="col-12 col-md-6">
-        <label class="form-label d-flex align-items-center" for="item-name">
-          <span>Item name</span>
-          {{ help_tip("Use the name staff will recognize in daily use. Example: Yoga Mats or Whiteboard.") }}
-        </label>
-        <input
-          id="item-name"
-          class="form-control"
-          name="name"
-          value="{{ form_values.name }}"
-          required
-        >
-      </div>
+    {% endcall %}
+    {% call ui.form_section("Edit Item Settings", "Keep structure, tracking mode, and family relationships consistent with how staff see this item day to day.") %}
+      <form method="post" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-12 col-md-6">
+          <label class="form-label d-flex align-items-center" for="item-name">
+            <span>Item name</span>
+            {{ help_tip("Use the name staff will recognize in daily use. Example: Yoga Mats or Whiteboard.") }}
+          </label>
+          <input
+            id="item-name"
+            class="form-control ui-control"
+            name="name"
+            value="{{ form_values.name }}"
+            required
+          >
+        </div>
       <div class="col-12 col-sm-6 col-md-3">
         <label class="form-label d-flex align-items-center" for="item-tracking-mode">
           <span>Tracking mode</span>
           {{ help_tip("Quantity is for countable stock. Singleton Asset is for one-per-room items where presence matters more than stock level.") }}
         </label>
-        <select id="item-tracking-mode" class="form-select" name="tracking_mode">
+        <select id="item-tracking-mode" class="form-select ui-control" name="tracking_mode">
           {% for value, label in tracking_mode_options %}
             <option value="{{ value }}" {% if form_values.tracking_mode == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
@@ -72,7 +76,7 @@
           <span>Category</span>
           {{ help_tip("Category helps organize and filter items. Pick the closest business category; it does not change count math.") }}
         </label>
-        <select id="item-category" class="form-select" name="item_category">
+        <select id="item-category" class="form-select ui-control" name="item_category">
           {% for value, label in item_category_options %}
             <option value="{{ value }}" {% if form_values.item_category == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
@@ -83,7 +87,7 @@
           <span>Parent family (optional)</span>
           {{ help_tip("Use this when the item is a subtype under a family. Example: Earl Grey can be a child of Tea.") }}
         </label>
-        <select id="item-parent" class="form-select" name="parent_item_id">
+        <select id="item-parent" class="form-select ui-control" name="parent_item_id">
           <option value="">No parent</option>
           {% for parent in parent_options %}
             <option value="{{ parent.id }}" {% if form_values.parent_item_id == parent.id|string %}selected{% endif %}>{{ parent.name }} (family)</option>
@@ -96,14 +100,14 @@
           <span>Sort order</span>
           {{ help_tip("Lower numbers appear first in lists. Use 0 for default and smaller numbers to pin important items higher.") }}
         </label>
-        <input id="item-sort-order" class="form-control" type="number" step="1" name="sort_order" value="{{ form_values.sort_order }}">
+        <input id="item-sort-order" class="form-control ui-control" type="number" step="1" name="sort_order" value="{{ form_values.sort_order }}">
       </div>
       <div class="col-12 col-sm-6 col-md-3">
         <label class="form-label d-flex align-items-center" for="item-unit">
           <span>Unit (optional)</span>
           {{ help_tip("The label used for counts, like each, box, bottle, or pack.") }}
         </label>
-        <input id="item-unit" class="form-control" name="unit" value="{{ form_values.unit }}" placeholder="each, box, bottle...">
+        <input id="item-unit" class="form-control ui-control" name="unit" value="{{ form_values.unit }}" placeholder="each, box, bottle...">
       </div>
       <div class="col-12 col-sm-6 col-md-3">
         <div class="form-check mt-md-4 pt-md-2">
@@ -124,10 +128,11 @@
         </div>
       </div>
       <div class="col-12 d-flex gap-2 justify-content-end">
-        <a class="btn btn-outline-secondary" href="{{ url_for('admin.items') }}">Cancel</a>
-        <button class="btn btn-aolrc-accent" type="submit">Save Item</button>
+        <a class="btn btn-outline-secondary ui-control" href="{{ url_for('admin.items') }}">Cancel</a>
+        <button class="btn btn-aolrc-accent ui-control" type="submit">Save Item</button>
       </div>
-    </form>
+      </form>
+    {% endcall %}
     <section class="item-form-summary mt-3" id="itemFormSummary" aria-live="polite">
       <div class="item-form-summary-eyebrow">How this item will behave</div>
       <h3 class="item-form-summary-title h6 mb-1" id="itemFormSummaryTitle">Standalone quantity item</h3>

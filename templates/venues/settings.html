@@ -1,76 +1,62 @@
 {% extends "base.html" %}
+{% import "_ui_macros.html" as ui %}
 {% block title %}{{ venue.name }} Settings{% endblock %}
 
 {% block content %}
-<div class="mb-2">
-  <a class="btn btn-back-nav" href="{{ back_url }}">
-    <i class="bi bi-arrow-left" aria-hidden="true"></i> Back to {{ back_label }}
-  </a>
-</div>
-<div class="mb-3">
-  <h1 class="h4 mb-0 d-flex align-items-center gap-2 fw-bold text-aolrc-purple page-heading">
-    {{ venue.name }}
+{% if not venue.is_core %}
+  <form method="post" id="deleteVenueForm" onsubmit="return confirm('Delete this venue? This cannot be undone.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="delete">
+    <input type="hidden" name="next" value="{{ back_url }}">
+  </form>
+{% endif %}
 
-    {% if not venue.is_core %}
-      <form method="post" class="d-inline"
-            onsubmit="return confirm('Delete this venue? This cannot be undone.');">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="action" value="delete">
-        <input type="hidden" name="next" value="{{ back_url }}">
-        <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete venue">
-          <i class="bi bi-trash"></i>
-        </button>
-      </form>
-    {% endif %}
-  </h1>
-  <div class="text-muted">Venue settings</div>
-</div>
+{% call ui.page_header(
+  title=venue.name,
+  subtitle="Venue settings",
+  back_url=back_url,
+  back_label=back_label,
+  action_text="Delete Venue" if not venue.is_core else none,
+  action_form_id="deleteVenueForm" if not venue.is_core else none,
+  action_class="btn btn-outline-danger ui-control"
+) %}
+  {{ ui.chip("Primary venue", tone="primary") if venue.is_core else ui.chip("Other venue", tone="secondary") }}
+  {{ ui.chip("Visible", tone="success") if venue.active else ui.chip("Hidden", tone="muted") }}
+{% endcall %}
 
 <div class="card mb-3">
   <div class="card-body">
-    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-      {% if venue.is_core %}
-        <span class="badge badge-core">Primary venue</span>
-      {% else %}
-        <span class="badge bg-secondary">Other</span>
-      {% endif %}
+    {% call ui.form_section("Venue Details", "Keep display settings and tracked supply assignments in sync.") %}
+      <form method="post" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="save">
+        <input type="hidden" name="next" value="{{ back_url }}">
 
-      {% if venue.active %}
-        <span class="badge bg-success">Visible</span>
-      {% else %}
-        <span class="badge bg-dark">Hidden</span>
-      {% endif %}
-    </div>
+        <div class="col-lg-6">
+          <label class="form-label">Venue name</label>
+          <input class="form-control ui-control" name="name" value="{{ venue.name }}">
+        </div>
 
-    <form method="post" class="row g-3">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="action" value="save">
-      <input type="hidden" name="next" value="{{ back_url }}">
+        <div class="col-lg-6">
+          <label class="form-label">Visibility</label>
+          <select class="form-select ui-control" name="active">
+            <option value="true" {% if venue.active %}selected{% endif %}>Show on dashboard</option>
+            <option value="false" {% if not venue.active %}selected{% endif %}>Hide from dashboard</option>
+          </select>
+        </div>
 
-      <div class="col-lg-6">
-        <label class="form-label">Venue name</label>
-        <input class="form-control" name="name" value="{{ venue.name }}">
-      </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-aolrc-accent ui-control" type="submit">
+            Save Settings
+          </button>
 
-      <div class="col-lg-6">
-        <label class="form-label">Visibility</label>
-        <select class="form-select" name="active">
-          <option value="true" {% if venue.active %}selected{% endif %}>Show on dashboard</option>
-          <option value="false" {% if not venue.active %}selected{% endif %}>Hide from dashboard</option>
-        </select>
-      </div>
-
-      <div class="col-12 d-flex flex-wrap gap-2">
-        <button class="btn btn-aolrc-accent" type="submit">
-          Save Settings
-        </button>
-
-        <a class="btn btn-primary"
-           href="{{ url_for('venue_items.supplies', venue_id=venue.id, next=url_for('venue_settings.settings', venue_id=venue.id, next=back_url)) }}">
-          Edit Supplies
-        </a>
-      </div>
-    </form>
+          <a class="btn btn-primary ui-control"
+             href="{{ url_for('venue_items.supplies', venue_id=venue.id, next=url_for('venue_settings.settings', venue_id=venue.id, next=back_url)) }}">
+            Edit Supplies
+          </a>
+        </div>
+      </form>
+    {% endcall %}
   </div>
 </div>
 {% endblock %}

@@ -1,4 +1,5 @@
 {% import "_item_macros.html" as item_ui %}
+{% import "_inventory_macros.html" as inventory_ui %}
 
 {% macro progress_meter(row) -%}
   {% if row.tracking_mode == "singleton_asset" %}
@@ -44,25 +45,13 @@
 
 {% macro raw_count_state_badge(venue_row, row) -%}
   {% if venue_row.is_missing %}
-    <span class="supply-audit-state-badge supply-audit-state-missing">
-      <i class="bi bi-dash-circle" aria-hidden="true"></i>
-      <span>Not Counted</span>
-    </span>
+    {{ inventory_ui.state_badge("Not Counted", tone="missing", icon_class="bi-dash-circle") }}
   {% elif row.tracking_mode == "singleton_asset" and venue_row.status_key == "low" %}
-    <span class="supply-audit-state-badge supply-audit-state-warning">
-      <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
-      <span>Damaged</span>
-    </span>
+    {{ inventory_ui.state_badge("Damaged", tone="warning", icon_class="bi-exclamation-triangle-fill") }}
   {% elif row.tracking_mode == "singleton_asset" and venue_row.status_key == "out" %}
-    <span class="supply-audit-state-badge supply-audit-state-missing">
-      <i class="bi bi-x-circle-fill" aria-hidden="true"></i>
-      <span>Missing</span>
-    </span>
+    {{ inventory_ui.state_badge("Missing", tone="missing", icon_class="bi-x-circle-fill") }}
   {% elif row.tracking_mode == "singleton_asset" %}
-    <span class="supply-audit-state-badge supply-audit-state-healthy">
-      <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
-      <span>Present</span>
-    </span>
+    {{ inventory_ui.state_badge("Present", tone="healthy", icon_class="bi-check-circle-fill") }}
   {% elif venue_row.raw_count == 0 %}
     <span class="supply-audit-zero-value">
       <i class="bi bi-x-circle-fill" aria-hidden="true"></i>
@@ -75,10 +64,7 @@
 
 {% macro stale_update_badge(venue_row) -%}
   {% if venue_row.is_stale %}
-    <span class="supply-audit-state-badge supply-audit-state-warning supply-audit-state-inline">
-      <i class="bi bi-clock-history" aria-hidden="true"></i>
-      <span>Stale update</span>
-    </span>
+    {{ inventory_ui.state_badge("Stale update", tone="warning", icon_class="bi-clock-history", inline=True) }}
   {% endif %}
 {%- endmacro %}
 
@@ -161,7 +147,7 @@
       </div>
     </td>
     <td class="supply-coverage-cell{{ ' supply-coverage-cell-child' if nested else '' }}">
-      <span class="supply-coverage-pill supply-coverage-{{ row.coverage_key }}">{{ row.coverage_label }}</span>
+      {{ inventory_ui.coverage_pill(row.coverage_label, row.coverage_key) }}
       <div class="supply-coverage-meta">{{ row.coverage_compact_summary }}</div>
     </td>
     <td class="supply-updated-cell{{ ' supply-updated-cell-child' if nested else '' }} {{ 'is-stale' if row.last_count_updated_label.is_stale else '' }}">
@@ -269,7 +255,7 @@
         {% endif %}
         <div class="supply-mobile-metric">
           <span class="supply-mobile-metric-label">Coverage</span>
-          <span class="supply-coverage-pill supply-coverage-{{ row.coverage_key }}">{{ row.coverage_label }}</span>
+          {{ inventory_ui.coverage_pill(row.coverage_label, row.coverage_key) }}
           <div class="supply-coverage-meta">
             {% if row.coverage_key == "not_tracked" %}
               No venues

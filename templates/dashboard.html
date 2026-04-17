@@ -1,15 +1,13 @@
 {% extends "base.html" %}
 {% import "_item_macros.html" as item_ui %}
+{% import "_ui_macros.html" as ui %}
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div>
-    <h1 class="h3 mb-0 fw-bold text-aolrc-purple page-heading">Dashboard</h1>
-    <div class="text-muted">Quick visibility and updates across all venues</div>
-  </div>
-
-</div>
+{{ ui.page_header(
+  title="Dashboard",
+  subtitle="Quick visibility and updates across venues, restocking needs, and recent activity."
+) }}
 
 <ul class="nav nav-pills dash-tabs mb-3" id="dashTabs" role="tablist">
   <li class="nav-item" role="presentation">
@@ -97,13 +95,13 @@
           <div class="venue-toolbar-controls">
             <input
               id="venueSearch"
-              class="form-control w-100 restock-compact-control"
+              class="form-control ui-control w-100 restock-compact-control"
               placeholder="Search venues..."
               aria-label="Search venues"
             >
             <select
               id="venueSort"
-              class="form-select w-100 restock-compact-control"
+              class="form-select ui-control w-100 restock-compact-control"
               aria-label="Sort venues"
             >
               <option value="venue">Sort: Venue</option>
@@ -111,7 +109,7 @@
             </select>
             <select
               id="statusFilter"
-              class="form-select w-100 restock-compact-control"
+              class="form-select ui-control w-100 restock-compact-control"
               aria-label="Filter venues by status"
             >
               <option value="all">All Statuses</option>
@@ -153,30 +151,10 @@
                     <i class="bi bi-arrow-up-right venue-name-link-icon" aria-hidden="true"></i>
                   </span>
                 </a>
-                <button
-                  type="button"
-                  class="status-pill status-pill-trigger
-                    {{ 'status-good' if row.badge.key == 'good' else '' }}
-                    {{ 'status-ok' if row.badge.key == 'ok' else '' }}
-                    {{ 'status-low' if row.badge.key == 'low' else '' }}
-                    {{ 'status-out' if row.badge.key == 'out' else '' }}
-                    {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
-                  data-status-popover
-                  data-status-key="{{ row.badge.key }}"
-                  data-status-icon="{{ row.badge.icon_class }}"
-                  data-status-summary="{{ row.badge.text }}"
-                  data-status-venue="{{ v.name }}"
-                  data-total-tracked="{{ row.total_tracked }}"
-                  data-count-good="{{ row.counts.good }}"
-                  data-count-ok="{{ row.counts.ok }}"
-                  data-count-low="{{ row.counts.low }}"
-                  data-count-out="{{ row.counts.out }}"
-                  data-count-not-checked="{{ row.counts.not_checked }}"
-                  aria-label="Show status details for {{ v.name }}"
-                >
-                  <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
-                  <i class="bi bi-info-circle status-pill-trigger-cue" aria-hidden="true"></i>
-                </button>
+                <div class="venue-directory-status-main justify-content-end">
+                  {{ ui.status_pill(row.badge.key, row.badge.text, row.badge.icon_class) }}
+                  {{ ui.status_info_button(row.badge.key, row.badge.text, row.badge.icon_class, v.name, row.total_tracked, row.counts) }}
+                </div>
               </div>
               <div class="venue-mobile-meta">
                 <div class="venue-mobile-meta-row venue-mobile-meta-row-solo">
@@ -232,30 +210,10 @@
                   </td>
 
                   <td>
-                    <button
-                      type="button"
-                      class="status-pill status-pill-trigger
-                        {{ 'status-good' if row.badge.key == 'good' else '' }}
-                        {{ 'status-ok' if row.badge.key == 'ok' else '' }}
-                        {{ 'status-low' if row.badge.key == 'low' else '' }}
-                        {{ 'status-out' if row.badge.key == 'out' else '' }}
-                        {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
-                      data-status-popover
-                      data-status-key="{{ row.badge.key }}"
-                      data-status-icon="{{ row.badge.icon_class }}"
-                      data-status-summary="{{ row.badge.text }}"
-                      data-status-venue="{{ v.name }}"
-                      data-total-tracked="{{ row.total_tracked }}"
-                      data-count-good="{{ row.counts.good }}"
-                      data-count-ok="{{ row.counts.ok }}"
-                      data-count-low="{{ row.counts.low }}"
-                      data-count-out="{{ row.counts.out }}"
-                      data-count-not-checked="{{ row.counts.not_checked }}"
-                      aria-label="Show status details for {{ v.name }}"
-                    >
-                      <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
-                      <i class="bi bi-info-circle status-pill-trigger-cue" aria-hidden="true"></i>
-                    </button>
+                    <div class="venue-directory-status-main">
+                      {{ ui.status_pill(row.badge.key, row.badge.text, row.badge.icon_class) }}
+                      {{ ui.status_info_button(row.badge.key, row.badge.text, row.badge.icon_class, v.name, row.total_tracked, row.counts) }}
+                    </div>
                   </td>
 
                   <td>

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_ui_macros.html" as ui %}
 {% block title %}{{ venue.name }}{% endblock %}
 
 {% block content %}
@@ -15,14 +16,14 @@
           <h1 class="h3 mb-1 fw-bold text-aolrc-purple page-heading">{{ venue.name }}</h1>
           <div class="d-flex flex-wrap gap-1">
             {% if venue.is_core %}
-              <span class="badge badge-core">Primary venue</span>
+              {{ ui.chip("Primary venue", tone="primary") }}
             {% else %}
-              <span class="badge bg-secondary">Other venue</span>
+              {{ ui.chip("Other venue", tone="secondary") }}
             {% endif %}
             {% if venue.active %}
-              <span class="badge bg-success">Visible</span>
+              {{ ui.chip("Visible", tone="success") }}
             {% else %}
-              <span class="badge bg-dark">Hidden</span>
+              {{ ui.chip("Hidden", tone="muted") }}
             {% endif %}
           </div>
         </div>

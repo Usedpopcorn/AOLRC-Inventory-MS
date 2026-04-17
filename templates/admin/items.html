@@ -1,9 +1,13 @@
 {% extends "base.html" %}
 {% import "_item_macros.html" as item_ui %}
+{% import "_ui_macros.html" as ui %}
 {% block title %}Manage Items{% endblock %}
 
 {% block content %}
-<h1 class="h3 mb-3 fw-bold text-aolrc-purple page-heading">Manage Items</h1>
+{{ ui.page_header(
+  title="Manage Items",
+  subtitle="Define shared item structure once so supplies, venue assignment, and venue checks use the same language."
+) }}
 
 <section class="item-structure-guide card border-0 shadow-sm mb-4">
   <div class="card-body">
@@ -46,22 +50,22 @@
 
 <div class="card mb-4">
   <div class="card-body">
-    <h2 class="h5 mb-3">Add an item</h2>
-    <form method="post" class="row g-3">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="col-12 col-md-6">
-        <label class="form-label" for="item-name">Item name</label>
-        <input
-          id="item-name"
-          class="form-control"
-          name="name"
-          placeholder="Item name (e.g., Yoga Mats)"
-          value="{{ form_values.name }}"
-        >
-      </div>
+    {% call ui.form_section("Add an Item", "Start new catalog entries on the same shared structure used throughout the app.") %}
+      <form method="post" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-12 col-md-6">
+          <label class="form-label" for="item-name">Item name</label>
+          <input
+            id="item-name"
+            class="form-control ui-control"
+            name="name"
+            placeholder="Item name (e.g., Yoga Mats)"
+            value="{{ form_values.name }}"
+          >
+        </div>
       <div class="col-12 col-sm-6 col-md-3">
         <label class="form-label" for="item-tracking-mode">Tracking mode</label>
-        <select id="item-tracking-mode" class="form-select" name="tracking_mode">
+        <select id="item-tracking-mode" class="form-select ui-control" name="tracking_mode">
           {% for value, label in tracking_mode_options %}
             <option value="{{ value }}" {% if form_values.tracking_mode == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
@@ -69,7 +73,7 @@
       </div>
       <div class="col-12 col-sm-6 col-md-3">
         <label class="form-label" for="item-category">Category</label>
-        <select id="item-category" class="form-select" name="item_category">
+        <select id="item-category" class="form-select ui-control" name="item_category">
           {% for value, label in item_category_options %}
             <option value="{{ value }}" {% if form_values.item_category == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
@@ -77,7 +81,7 @@
       </div>
       <div class="col-12 col-sm-6 col-md-4">
         <label class="form-label" for="item-parent">Parent family (optional)</label>
-        <select id="item-parent" class="form-select" name="parent_item_id">
+        <select id="item-parent" class="form-select ui-control" name="parent_item_id">
           <option value="">No parent</option>
           {% for parent in parent_options %}
             <option value="{{ parent.id }}" {% if form_values.parent_item_id == parent.id|string %}selected{% endif %}>{{ parent.name }} (family)</option>
@@ -87,11 +91,11 @@
       </div>
       <div class="col-12 col-sm-6 col-md-2">
         <label class="form-label" for="item-sort-order">Sort order</label>
-        <input id="item-sort-order" class="form-control" type="number" step="1" name="sort_order" value="{{ form_values.sort_order }}">
+        <input id="item-sort-order" class="form-control ui-control" type="number" step="1" name="sort_order" value="{{ form_values.sort_order }}">
       </div>
       <div class="col-12 col-sm-6 col-md-3">
         <label class="form-label" for="item-unit">Unit (optional)</label>
-        <input id="item-unit" class="form-control" name="unit" value="{{ form_values.unit }}" placeholder="each, box, bottle...">
+        <input id="item-unit" class="form-control ui-control" name="unit" value="{{ form_values.unit }}" placeholder="each, box, bottle...">
       </div>
       <div class="col-12 col-sm-6 col-md-3">
         <div class="form-check mt-md-4 pt-md-2">
@@ -110,9 +114,10 @@
         </div>
       </div>
       <div class="col-12 col-md-3 ms-md-auto">
-        <button class="btn w-100 btn-aolrc-accent">Add Item</button>
+        <button class="btn w-100 btn-aolrc-accent ui-control">Add Item</button>
       </div>
-    </form>
+      </form>
+    {% endcall %}
     <section class="item-form-summary mt-3" id="itemFormSummary" aria-live="polite">
       <div class="item-form-summary-eyebrow">How this item will behave</div>
       <h3 class="item-form-summary-title h6 mb-1" id="itemFormSummaryTitle">Standalone quantity item</h3>
@@ -181,18 +186,18 @@
             </td>
             <td>
               {% if it.active %}
-                <span class="badge bg-success">Active</span>
+                {{ ui.chip("Active", tone="success") }}
               {% else %}
-                <span class="badge bg-secondary">Inactive</span>
+                {{ ui.chip("Inactive", tone="secondary") }}
               {% endif %}
             </td>
             <td>
-              <a class="btn btn-sm btn-outline-primary me-1" href="{{ url_for('admin.edit_item', item_id=it.id) }}">
+              <a class="btn btn-sm btn-outline-primary me-1 ui-control-sm" href="{{ url_for('admin.edit_item', item_id=it.id) }}">
                 Edit
               </a>
               {% if it.active %}
                 <a
-                  class="btn btn-sm btn-outline-danger"
+                  class="btn btn-sm btn-outline-danger ui-control-sm"
                   href="{{ url_for('admin.deactivate_item', item_id=it.id) }}"
                 >
                   Deactivate
@@ -202,7 +207,7 @@
                       action="{{ url_for('admin.activate_item', item_id=it.id) }}"
                       class="d-inline">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button class="btn btn-sm btn-outline-success" type="submit">
+                  <button class="btn btn-sm btn-outline-success ui-control-sm" type="submit">
                     Activate
                   </button>
                 </form>

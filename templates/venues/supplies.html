@@ -1,20 +1,17 @@
 {% extends "base.html" %}
 {% import "_item_macros.html" as item_ui %}
+{% import "_ui_macros.html" as ui %}
 {% block title %}{{ venue.name }} Supplies{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-2">
-  <a class="btn btn-back-nav" href="{{ next_url }}">
-    <i class="bi bi-arrow-left" aria-hidden="true"></i> Back to {{ back_label }}
-  </a>
-  {% if items|length > 0 %}
-    <button class="btn btn-aolrc-accent" type="submit" form="venue-supplies-form">Save Supplies</button>
-  {% endif %}
-</div>
-<div class="mb-3">
-  <h1 class="h3 mb-0 fw-bold text-aolrc-purple page-heading">{{ venue.name }}</h1>
-  <div class="text-muted">Select which tracked items belong in this venue. Family organizer rows stay out of this list so staff only assign the actual counted child items.</div>
-</div>
+{{ ui.page_header(
+  title=venue.name,
+  subtitle="Select which tracked items belong in this venue. Family organizer rows stay out of this list so staff only assign the actual counted child items.",
+  back_url=next_url,
+  back_label=back_label,
+  action_text="Save Supplies" if items|length > 0 else none,
+  action_form_id="venue-supplies-form"
+) }}
 
 <div class="card">
   <div class="card-body">
@@ -24,7 +21,7 @@
     <form method="post" id="venue-supplies-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="next" value="{{ next_url }}">
-      <div class="table-responsive">
+      <div class="table-responsive d-none d-md-block">
         <table class="table align-middle">
           <thead>
             <tr>
@@ -48,14 +45,6 @@
                   note="Presence-tracked asset" if it.tracking_mode == "singleton_asset" else none,
                   compact=True
                 ) }}
-                <div class="mt-2">
-                  {{ item_ui.structure_badges(
-                    tracking_mode=it.tracking_mode,
-                    parent_name=it.parent_item.name if it.parent_item else none,
-                    show_category=False,
-                    compact=True
-                  ) }}
-                </div>
               </td>
               <td>{{ item_ui.structure_badges(tracking_mode=it.tracking_mode, show_kind=False, show_category=False, compact=True) }}</td>
               <td>{{ item_ui.structure_badges(item_category=(it.item_category or it.item_type), show_tracking=False, show_kind=False, compact=True) }}</td>
@@ -63,6 +52,42 @@
             {% endfor %}
           </tbody>
         </table>
+      </div>
+
+      <div class="d-md-none d-grid gap-3">
+        {% for it in items %}
+          <article class="restock-mobile-card">
+            <div class="d-flex align-items-start justify-content-between gap-3">
+              <div class="flex-grow-1">
+                {{ item_ui.item_heading(
+                  it.name,
+                  parent_name=it.parent_item.name if it.parent_item else none,
+                  note="Presence-tracked asset" if it.tracking_mode == "singleton_asset" else none,
+                  compact=True
+                ) }}
+                <div class="mt-2">
+                  {{ item_ui.structure_badges(
+                    tracking_mode=it.tracking_mode,
+                    parent_name=it.parent_item.name if it.parent_item else none,
+                    item_category=(it.item_category or it.item_type),
+                    compact=True
+                  ) }}
+                </div>
+              </div>
+              <div class="form-check m-0 pt-1">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  id="venue-item-mobile-{{ it.id }}"
+                  name="item_ids"
+                  value="{{ it.id }}"
+                  {% if it.id in active_item_ids %}checked{% endif %}
+                >
+                <label class="visually-hidden" for="venue-item-mobile-{{ it.id }}">Track {{ it.name }}</label>
+              </div>
+            </div>
+          </article>
+        {% endfor %}
       </div>
 
       <button class="btn mt-3 w-100 btn-aolrc-accent">Save Supplies</button>

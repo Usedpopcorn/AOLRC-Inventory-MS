@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% import "supplies/_audit_macros.html" as audit %}
 {% import "_item_macros.html" as item_ui %}
+{% import "_ui_macros.html" as ui %}
 {% block title %}Supplies Audit{% endblock %}
 
 {% block content %}
@@ -54,32 +55,34 @@
 <section class="card border-0 shadow-sm mb-3">
   <div class="card-body">
     <form method="get" action="{{ url_for('supplies.index') }}" class="supplies-filter-form" id="suppliesFilterForm">
-      <div class="supplies-filter-toolbar">
-        <div class="supplies-filter-search">
-          <label class="form-label" for="suppliesSearch">Search supplies</label>
-          <input
-            id="suppliesSearch"
-            name="q"
-            class="form-control"
-            type="search"
-            value="{{ filters.q }}"
-            placeholder="Search by item name"
-          >
+      {% call ui.toolbar("ui-toolbar-split") %}
+        <div class="ui-toolbar-main ui-toolbar-main-2">
+          <div class="supplies-filter-search">
+            <label class="form-label" for="suppliesSearch">Search supplies</label>
+            <input
+              id="suppliesSearch"
+              name="q"
+              class="form-control ui-control"
+              type="search"
+              value="{{ filters.q }}"
+              placeholder="Search by item name"
+            >
+          </div>
+          <div class="supplies-filter-sort">
+            <label class="form-label" for="suppliesSort">Sort</label>
+            <select id="suppliesSort" name="sort" class="form-select ui-control">
+              <option value="par_ratio_asc" {% if filters.sort == "par_ratio_asc" %}selected{% endif %}>Lowest % of par</option>
+              <option value="missing_venues_desc" {% if filters.sort == "missing_venues_desc" %}selected{% endif %}>Most missing venues</option>
+              <option value="last_updated" {% if filters.sort == "last_updated" %}selected{% endif %}>Recently updated</option>
+              <option value="item_name" {% if filters.sort == "item_name" %}selected{% endif %}>Alphabetical</option>
+            </select>
+          </div>
         </div>
-        <div class="supplies-filter-sort">
-          <label class="form-label" for="suppliesSort">Sort</label>
-          <select id="suppliesSort" name="sort" class="form-select">
-            <option value="par_ratio_asc" {% if filters.sort == "par_ratio_asc" %}selected{% endif %}>Lowest % of par</option>
-            <option value="missing_venues_desc" {% if filters.sort == "missing_venues_desc" %}selected{% endif %}>Most missing venues</option>
-            <option value="last_updated" {% if filters.sort == "last_updated" %}selected{% endif %}>Recently updated</option>
-            <option value="item_name" {% if filters.sort == "item_name" %}selected{% endif %}>Alphabetical</option>
-          </select>
-        </div>
-        <div class="supplies-filter-actions">
+        <div class="ui-toolbar-actions supplies-filter-actions">
           <button class="btn btn-aolrc-accent supplies-filter-submit" type="submit">Apply</button>
           <a class="btn btn-outline-secondary" href="{{ url_for('supplies.index') }}">Clear</a>
         </div>
-      </div>
+      {% endcall %}
 
       <div class="supplies-quick-filter-bar">
         <div class="supplies-quick-filter-label">Quick filters</div>
@@ -139,7 +142,7 @@
     </div>
 
     {% if supply_rows %}
-      <div class="table-responsive d-none d-md-block supplies-audit-table-wrap">
+      <div class="table-responsive supplies-desktop-view supplies-audit-table-wrap">
         <table class="table align-middle supplies-audit-table">
           <colgroup>
             <col class="supplies-col-item">
@@ -297,7 +300,7 @@
         </table>
       </div>
 
-      <div class="d-md-none supply-mobile-list">
+      <div class="supplies-card-view supply-mobile-list">
         {% for group in supply_groups %}
           {% set is_family = (group.kind == "family") %}
           {% set base_row = group.row if not is_family else none %}
@@ -832,7 +835,7 @@
         visibleMobileCount += applyMobileGroupState(groupEl, searchQuery, quickFilters);
       });
 
-      const visibleCount = window.matchMedia("(max-width: 767.98px)").matches ? visibleMobileCount : visibleDesktopCount;
+      const visibleCount = window.matchMedia("(max-width: 1199.98px)").matches ? visibleMobileCount : visibleDesktopCount;
       if (suppliesEmptyState) {
         suppliesEmptyState.classList.toggle("d-none", visibleCount > 0);
       }

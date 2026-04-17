@@ -1,0 +1,23 @@
+{% macro state_badge(label, tone="neutral", icon_class=None, inline=False, extra_classes="") -%}
+  <span class="inventory-state-chip supply-audit-state-badge{{ ' supply-audit-state-inline' if inline else '' }} inventory-state-chip-{{ tone }}{{ ' ' ~ extra_classes if extra_classes else '' }}">
+    {% if icon_class %}
+      <i class="bi {{ icon_class }}" aria-hidden="true"></i>
+    {% endif %}
+    <span>{{ label }}</span>
+  </span>
+{%- endmacro %}
+
+{% macro coverage_pill(label, key, extra_classes="") -%}
+  <span class="supply-coverage-pill inventory-coverage-pill supply-coverage-{{ key }}{{ ' ' ~ extra_classes if extra_classes else '' }}">
+    {{ label }}
+  </span>
+{%- endmacro %}
+
+{% macro detail_panel_bar(primary_text, secondary_text=None, extra_classes="") -%}
+  <div class="supply-detail-bar inventory-detail-bar{{ ' ' ~ extra_classes if extra_classes else '' }}">
+    <div class="small text-muted">{{ primary_text }}</div>
+    {% if secondary_text %}
+      <div class="small text-muted">{{ secondary_text }}</div>
+    {% endif %}
+  </div>
+{%- endmacro %}
