@@ -1,6 +1,5 @@
 {% extends "base.html" %}
-{% import "supplies/_audit_macros.html" as audit %}
-{% import "_item_macros.html" as item_ui %}
+{% import "_inventory_macros.html" as inventory_ui %}
 {% import "_ui_macros.html" as ui %}
 {% block title %}Supplies Audit{% endblock %}
 
@@ -15,10 +14,10 @@
 ] %}
 <section class="supplies-audit-hero card border-0 shadow-sm mb-2">
   <div class="card-body supplies-audit-hero-body p-4">
-    <div class="supplies-audit-hero-copy">
-      <h1 class="h3 mb-1 fw-bold text-aolrc-purple page-heading">Supplies</h1>
-        <p class="text-muted mb-0">Cross-venue counts and presence checks for tracked supply items.</p>
-    </div>
+    {{ ui.page_header(
+      title="Supplies",
+      subtitle="Cross-venue counts and presence checks for tracked supply items."
+    ) }}
 
     <div class="supply-summary-grid supply-summary-grid-compact">
       <article class="supply-summary-card supply-summary-card-primary">
@@ -79,8 +78,8 @@
           </div>
         </div>
         <div class="ui-toolbar-actions supplies-filter-actions">
-          <button class="btn btn-aolrc-accent supplies-filter-submit" type="submit">Apply</button>
-          <a class="btn btn-outline-secondary" href="{{ url_for('supplies.index') }}">Clear</a>
+          <button class="btn btn-aolrc-accent ui-control supplies-filter-submit" type="submit">Apply</button>
+          <a class="btn btn-outline-secondary ui-control" href="{{ url_for('supplies.index') }}">Clear</a>
         </div>
       {% endcall %}
 
@@ -130,10 +129,7 @@
       </p>
       <div class="supply-audit-legend" aria-label="Audit count legend">
       <span class="supply-audit-legend-label">Count legend</span>
-      <span class="supply-audit-state-badge supply-audit-state-missing">
-        <i class="bi bi-dash-circle" aria-hidden="true"></i>
-        <span>Not Counted = venue skipped or not submitted</span>
-      </span>
+      {{ inventory_ui.state_badge("Not Counted = venue skipped or not submitted", tone="missing", icon_class="bi-dash-circle") }}
       <span class="supply-audit-zero-value supply-audit-zero-legend">
         <i class="bi bi-x-circle-fill" aria-hidden="true"></i>
         <span>0 = counted and confirmed empty</span>
@@ -184,116 +180,11 @@
               data-attention-level="{{ group.worst_attention_level if is_family else base_row.attention_level }}"
             >
               {% if is_family %}
-                <tr
-                  class="supply-audit-row supply-audit-row-clickable supply-family-summary-row supply-audit-row-{{ group.worst_attention_level }}"
-                  data-row-toggle-family="true"
-                >
-                  <td>
-                    <button
-                      class="supply-item-toggle supply-item-toggle-family"
-                      type="button"
-                      data-family-toggle
-                      aria-expanded="false"
-                      aria-controls="{{ group.id }}-children"
-                    >
-                      <span class="supply-item-toggle-main">
-                        {{ item_ui.item_heading(
-                          group.family_name,
-                          is_group_parent=True,
-                          compact=True
-                        ) }}
-                        <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>
-                      </span>
-                      {% if group.issue_summary_short != "Variants look healthy" %}
-                        <span class="supply-item-meta supply-item-summary supply-item-summary-{{ group.worst_attention_level }}">
-                          {% if group.worst_attention_level == "critical" %}
-                            <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
-                          {% elif group.worst_attention_level == "warning" %}
-                            <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
-                          {% else %}
-                            <i class="bi bi-info-circle" aria-hidden="true"></i>
-                          {% endif %}
-                          <span>{{ group.issue_summary_short }}</span>
-                        </span>
-                      {% endif %}
-                    </button>
-                  </td>
-                  <td class="supply-model-cell supply-family-model-cell">
-                    <span class="inventory-item-badge inventory-item-badge-{{ group.tracking_badge_kind }} supply-family-model-badge">
-                      {% if group.tracking_badge_kind == "asset" %}
-                        <i class="bi bi-shield-check" aria-hidden="true"></i>
-                      {% elif group.tracking_badge_kind == "quantity" %}
-                        <i class="bi bi-123" aria-hidden="true"></i>
-                      {% else %}
-                        <i class="bi bi-diagram-3" aria-hidden="true"></i>
-                      {% endif %}
-                      <span>{{ group.tracking_summary }}</span>
-                    </span>
-                  </td>
-                  <td class="supply-count-cell">
-                    <span class="supply-count-stack supply-count-stack-compact">
-                      <span class="supply-value-strong">{{ group.child_count }}</span>
-                      <span class="supply-count-note">variants</span>
-                    </span>
-                  </td>
-                  <td class="supply-progress-cell supply-progress-cell-{{ group.family_progress.tone }}">
-                    <div class="supply-family-progress">
-                      <div class="supply-par-meter supply-par-meter-{{ group.family_progress.tone }}" aria-label="{{ group.counted_summary }}">
-                        {% for is_filled in group.family_progress.segments %}
-                          <span class="supply-par-segment {{ 'is-filled' if is_filled else '' }}"></span>
-                        {% endfor %}
-                      </div>
-                      <div class="supply-family-progress-label">{{ group.family_progress_caption }}</div>
-                    </div>
-                  </td>
-                  <td class="supply-par-cell">
-                    <span class="text-muted">&mdash;</span>
-                  </td>
-                  <td class="supply-coverage-cell">
-                    <span class="supply-coverage-pill supply-coverage-{{ group.coverage_key }}">{{ group.coverage_label }}</span>
-                    <div class="supply-coverage-meta supply-family-coverage-meta">{{ group.counted_summary }}</div>
-                  </td>
-                  <td class="supply-updated-cell {{ 'is-stale' if group.last_count_updated_label.is_stale else '' }}">
-                    <div class="supply-updated-primary">{{ group.last_count_updated_label.text }}</div>
-                    <div class="supply-updated-secondary">
-                      {% if group.last_count_updated_label.is_missing %}
-                        No timestamp
-                      {% else %}
-                        {{ group.last_count_updated_at_text }}
-                      {% endif %}
-                    </div>
-                  </td>
-                </tr>
-                <tr class="supplies-detail-row supply-family-children-row">
-                  <td colspan="7" class="p-0 border-0">
-                    <div class="collapse supply-row-collapse supply-family-collapse" id="{{ group.id }}-children">
-                      <div class="supply-family-children-panel">
-                        <table class="table align-middle mb-0 supplies-audit-table supply-family-children-table">
-                          <colgroup>
-                            <col class="supplies-col-item">
-                            <col class="supplies-col-model">
-                            <col class="supplies-col-count">
-                            <col class="supplies-col-progress">
-                            <col class="supplies-col-par">
-                            <col class="supplies-col-coverage">
-                            <col class="supplies-col-updated">
-                          </colgroup>
-                          <tbody>
-                            {% for row in group.children %}
-                              {% set detail_id = "supply-detail-desktop-" ~ row.id %}
-                              {% set detail_row_id = "supply-detail-row-desktop-" ~ row.id %}
-                              {{ audit.desktop_item_row(row, detail_id, detail_row_id, request, nested=True) }}
-                            {% endfor %}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
+                {{ inventory_ui.desktop_family_group(group, request) }}
               {% else %}
                 {% set detail_id = "supply-detail-desktop-" ~ base_row.id %}
                 {% set detail_row_id = "supply-detail-row-desktop-" ~ base_row.id %}
-                {{ audit.desktop_item_row(base_row, detail_id, detail_row_id, request) }}
+                {{ inventory_ui.desktop_item_row(base_row, detail_id, detail_row_id, request) }}
               {% endif %}
             </tbody>
           {% endfor %}
@@ -321,74 +212,10 @@
             data-attention-level="{{ group.worst_attention_level if is_family else base_row.attention_level }}"
           >
             {% if is_family %}
-              <article class="supply-mobile-family-card supply-mobile-family-card-{{ group.worst_attention_level }}">
-                <button
-                  class="supply-mobile-family-button"
-                  type="button"
-                  data-family-toggle
-                  aria-expanded="false"
-                  aria-controls="{{ group.id }}-mobile-children"
-                >
-                  <div class="supply-mobile-family-head">
-                    <div class="supply-mobile-family-title">
-                      {{ item_ui.item_heading(
-                        group.family_name,
-                        is_group_parent=True,
-                        compact=True
-                      ) }}
-                    </div>
-                    <i class="bi bi-chevron-down supply-family-summary-icon" aria-hidden="true"></i>
-                  </div>
-                  <div class="supply-mobile-family-subtitle">
-                    <span class="inventory-item-badge inventory-item-badge-{{ group.tracking_badge_kind }} supply-family-model-badge">
-                      {% if group.tracking_badge_kind == "asset" %}
-                        <i class="bi bi-shield-check" aria-hidden="true"></i>
-                      {% elif group.tracking_badge_kind == "quantity" %}
-                        <i class="bi bi-123" aria-hidden="true"></i>
-                      {% else %}
-                        <i class="bi bi-diagram-3" aria-hidden="true"></i>
-                      {% endif %}
-                      <span>{{ group.tracking_summary }}</span>
-                    </span>
-                  </div>
-                  <div class="supply-mobile-family-metrics">
-                    <div class="supply-mobile-family-metric">
-                      <span class="supply-mobile-metric-label">Variants</span>
-                      <span class="supply-mobile-metric-value">{{ group.child_count }}</span>
-                    </div>
-                    <div class="supply-mobile-family-metric">
-                      <span class="supply-mobile-metric-label">Coverage</span>
-                      <span class="supply-coverage-pill supply-coverage-{{ group.coverage_key }}">{{ group.coverage_label }}</span>
-                    </div>
-                    <div class="supply-mobile-family-metric">
-                      <span class="supply-mobile-metric-label">Updated</span>
-                      <span class="supply-mobile-family-updated">{{ group.last_count_updated_label.text }}</span>
-                    </div>
-                  </div>
-                  <div class="supply-mobile-family-progress">
-                    <span class="supply-par-meter supply-par-meter-{{ group.family_progress.tone }}" aria-label="{{ group.counted_summary }}">
-                      {% for is_filled in group.family_progress.segments %}
-                        <span class="supply-par-segment {{ 'is-filled' if is_filled else '' }}"></span>
-                      {% endfor %}
-                    </span>
-                    <div class="supply-mobile-family-progress-copy">
-                      <div class="supply-mobile-family-counted">{{ group.counted_summary }}</div>
-                      <div class="supply-family-summary-support supply-family-summary-support-{{ group.worst_attention_level }}">{{ group.issue_summary_short }}</div>
-                    </div>
-                  </div>
-                </button>
-                <div class="collapse supply-row-collapse supply-mobile-family-collapse" id="{{ group.id }}-mobile-children">
-                  <div class="supply-mobile-family-children">
-                    {% for row in group.children %}
-                      {% set detail_id = "supply-detail-mobile-" ~ row.id %}
-                      {{ audit.mobile_item_card(row, detail_id, request, nested=True) }}
-                    {% endfor %}
-                  </div>
-                </div>
-              </article>
+              {{ inventory_ui.mobile_family_card(group, request) }}
             {% else %}
               {% set detail_id = "supply-detail-mobile-" ~ base_row.id %}
-              {{ audit.mobile_item_card(base_row, detail_id, request) }}
+              {{ inventory_ui.mobile_item_card(base_row, detail_id, request) }}
             {% endif %}
           </section>
         {% endfor %}

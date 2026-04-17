@@ -249,13 +249,16 @@ html {
   line-height: 1.2;
 }
 
-.ui-control,
-.restock-compact-control {
+.ui-control {
   min-height: var(--ui-control-height);
 }
 
 .ui-control-sm {
   min-height: var(--ui-control-height-sm);
+}
+
+.ui-control-area {
+  min-height: calc(var(--ui-control-height) * 2.5);
 }
 
 .btn.ui-control,
@@ -292,6 +295,12 @@ button.ui-control-sm {
 
 .ui-chip i {
   font-size: 0.8rem;
+}
+
+.ui-chip-compact {
+  min-height: 1.55rem;
+  padding: 0.18rem 0.48rem;
+  font-size: 0.7rem;
 }
 
 .ui-chip-neutral {
@@ -578,6 +587,11 @@ button.ui-control-sm {
   gap: 0.75rem;
 }
 
+.venue-directory-toolbar-shell .card-body {
+  display: grid;
+  gap: var(--ui-space-3);
+}
+
 .venue-directory-toolbar-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -591,6 +605,24 @@ button.ui-control-sm {
 
 .venue-directory-add-btn {
   width: 100%;
+}
+
+.venue-directory-add-collapse {
+  margin-top: 0;
+}
+
+.venue-directory-add-collapse .ui-form-section {
+  margin-top: 0;
+}
+
+.venue-directory-add-collapse.collapsing,
+.venue-directory-add-collapse.show {
+  display: block;
+}
+
+.venue-directory-add-collapse .ui-form-section {
+  border-top-left-radius: 0.85rem;
+  border-top-right-radius: 0.85rem;
 }
 
 .venue-directory-grid {
@@ -942,26 +974,12 @@ button.ui-control-sm {
   gap: 0.95rem;
 }
 
-.venue-profile-head {
-  display: grid;
-  gap: 0.9rem;
+.venue-profile-header {
+  margin-bottom: 0;
 }
 
-.venue-profile-title-block {
-  min-width: 0;
-}
-
-.venue-profile-utility {
-  display: grid;
-  gap: 0.4rem;
-}
-
-.venue-profile-utility-top {
-  display: flex;
+.venue-profile-header .ui-page-header-meta {
   align-items: center;
-  justify-content: flex-start;
-  gap: 0.5rem;
-  flex-wrap: wrap;
 }
 
 .venue-profile-last-update {
@@ -1008,12 +1026,6 @@ button.ui-control-sm {
   outline: none;
   border-radius: 0.45rem;
   box-shadow: 0 0 0 3px rgba(132, 96, 140, 0.16);
-}
-
-.venue-profile-primary-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
 }
 
 .venue-profile-settings-btn {
@@ -1976,7 +1988,7 @@ body.restock-filters-open {
 }
 
 @media (max-width: 767.98px) {
-  .restock-input-row .restock-compact-control.form-select {
+  .restock-input-row .ui-control.form-select {
     min-height: 48px;
     height: 48px;
     line-height: 1.4;
@@ -2205,19 +2217,6 @@ body.restock-filters-open {
   }
 
   .venue-directory-actions {
-    justify-content: flex-end;
-  }
-
-  .venue-profile-head {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: start;
-  }
-
-  .venue-profile-utility {
-    justify-items: end;
-  }
-
-  .venue-profile-utility-top {
     justify-content: flex-end;
   }
 
@@ -2580,10 +2579,12 @@ body.restock-filters-open {
   padding: 0.82rem 0.92rem !important;
 }
 
-.supplies-audit-hero-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 0.06rem;
+.supplies-audit-hero .ui-page-header {
+  margin-bottom: 0;
+}
+
+.supplies-audit-hero .ui-page-subtitle {
+  max-width: 42rem;
 }
 
 .supply-summary-grid {
@@ -2694,12 +2695,6 @@ body.restock-filters-open {
   display: flex;
   flex-direction: column;
   gap: 0.95rem;
-}
-
-.supplies-filter-toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.8rem;
 }
 
 .supplies-filter-search,
@@ -4090,7 +4085,7 @@ body.restock-filters-open {
     margin-bottom: 0.1rem !important;
   }
 
-  .supplies-audit-hero-copy .text-muted {
+  .supplies-audit-hero .ui-page-subtitle {
     font-size: 0.77rem;
     line-height: 1.18;
   }
@@ -4173,11 +4168,6 @@ body.restock-filters-open {
 
   .supplies-card-view {
     display: block;
-  }
-
-  .supplies-filter-toolbar {
-    grid-template-columns: minmax(0, 1.6fr) minmax(220px, 0.8fr) auto;
-    align-items: end;
   }
 
   .supplies-filter-actions {

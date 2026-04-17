@@ -5,16 +5,10 @@
 {% block content %}
   {{ ui.page_header(
     title="Venues",
-    subtitle="Search venue status, filter by type, and manage the directory from one consistent toolbar.",
-    action_text="Add Venue" if current_user.is_admin else none,
-    action_class="btn btn-aolrc-accent ui-control venue-directory-add-btn",
-    action_toggle="collapse" if current_user.is_admin else none,
-    action_target="#addVenueCollapse" if current_user.is_admin else none,
-    action_controls="addVenueCollapse" if current_user.is_admin else none,
-    action_expanded="false" if current_user.is_admin else none
+    subtitle="Search venue status, filter by type, and manage the directory from one consistent toolbar."
   ) }}
 
-  <div class="card mb-3">
+  <div class="card mb-3 venue-directory-toolbar-shell">
     <div class="card-body">
       {% call ui.toolbar("ui-toolbar-split venue-directory-toolbar") %}
         <div class="ui-toolbar-main ui-toolbar-main-3 venue-directory-toolbar-row venue-toolbar-controls">
@@ -38,41 +32,51 @@
             <option value="other">Other only</option>
           </select>
         </div>
+        {% if current_user.is_admin %}
+          <div class="ui-toolbar-actions venue-directory-toolbar-actions">
+            <button
+              class="btn btn-aolrc-accent ui-control venue-directory-add-btn"
+              type="button"
+              data-bs-toggle="collapse"
+              data-bs-target="#addVenueCollapse"
+              aria-controls="addVenueCollapse"
+              aria-expanded="false"
+            >
+              Add Venue
+            </button>
+          </div>
+        {% endif %}
       {% endcall %}
+      {% if current_user.is_admin %}
+        <div class="collapse venue-directory-add-collapse" id="addVenueCollapse">
+          {% call ui.form_section("Add a venue", "Primary venues are protected from deletion; other venues are editable and removable.") %}
+            <form method="post" class="row g-3 align-items-end">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <div class="col-lg-6">
+                <label class="form-label mb-1">Venue name</label>
+                <input class="form-control ui-control" type="text" name="name" placeholder="e.g., Veda 5">
+              </div>
+              <div class="col-lg-4">
+                <label class="form-label mb-1">Venue type</label>
+                <select class="form-select ui-control" name="is_core">
+                  <option value="false" selected>Other (can be deleted later)</option>
+                  <option value="true">Primary (cannot be deleted)</option>
+                </select>
+              </div>
+              <div class="col-12">
+                <div class="form-text">
+                  Primary venues are protected from deletion; other venues are editable and removable.
+                </div>
+              </div>
+              <div class="col-lg-2">
+                <button class="btn w-100 btn-aolrc-accent ui-control">Create</button>
+              </div>
+            </form>
+          {% endcall %}
+        </div>
+      {% endif %}
     </div>
   </div>
-
-  {% if current_user.is_admin %}
-    <div class="collapse mb-4" id="addVenueCollapse">
-      <div class="card">
-        <div class="card-body">
-          <h2 class="h5 mb-2">Add a venue</h2>
-          <form method="post" class="row g-2 align-items-end">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="col-lg-6">
-              <label class="form-label mb-1">Venue name</label>
-              <input class="form-control" type="text" name="name" placeholder="e.g., Veda 5">
-            </div>
-            <div class="col-lg-4">
-              <label class="form-label mb-1">Venue type</label>
-              <select class="form-select" name="is_core">
-                <option value="false" selected>Other (can be deleted later)</option>
-                <option value="true">Primary (cannot be deleted)</option>
-              </select>
-            </div>
-            <div class="col-12">
-              <div class="form-text">
-                Primary venues are protected from deletion; other venues are editable/removable.
-              </div>
-            </div>
-            <div class="col-lg-2">
-              <button class="btn w-100 btn-aolrc-accent">Create</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-  {% endif %}
 
   <div class="card">
     <div class="card-body">

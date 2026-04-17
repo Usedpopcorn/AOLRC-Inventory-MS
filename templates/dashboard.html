@@ -95,13 +95,13 @@
           <div class="venue-toolbar-controls">
             <input
               id="venueSearch"
-              class="form-control ui-control w-100 restock-compact-control"
+              class="form-control ui-control w-100"
               placeholder="Search venues..."
               aria-label="Search venues"
             >
             <select
               id="venueSort"
-              class="form-select ui-control w-100 restock-compact-control"
+              class="form-select ui-control w-100"
               aria-label="Sort venues"
             >
               <option value="venue">Sort: Venue</option>
@@ -109,7 +109,7 @@
             </select>
             <select
               id="statusFilter"
-              class="form-select ui-control w-100 restock-compact-control"
+              class="form-select ui-control w-100"
               aria-label="Filter venues by status"
             >
               <option value="all">All Statuses</option>
@@ -386,7 +386,7 @@
               <input
                 id="restockSearch"
                 name="restock_search"
-                class="form-control w-100 restock-compact-control"
+              class="form-control ui-control w-100"
                 placeholder="Search..."
                 aria-label="Search restocking results"
                 value="{{ restock_filters.search }}"
@@ -394,7 +394,7 @@
               <select
                 id="restockSort"
                 name="restock_sort"
-                class="form-select w-100 restock-compact-control"
+              class="form-select ui-control w-100"
                 aria-label="Sort restocking results"
               >
                 <option value="item" {{ 'selected' if restock_filters.sort == 'item' else '' }}>Sort: Item</option>
@@ -422,7 +422,7 @@
                   <span id="restockFiltersToggleLabel">Edit Filters</span>
                   <span
                     id="restockActiveFilterBadge"
-                    class="badge rounded-pill text-bg-secondary ms-1 {{ 'd-none' if not restock_active_filter_count else '' }}"
+                    class="ui-chip ui-chip-secondary ui-chip-compact ms-1 {{ 'd-none' if not restock_active_filter_count else '' }}"
                   >
                     {{ restock_active_filter_count }}
                   </span>
@@ -460,7 +460,7 @@
                 <div class="fw-semibold">Filters</div>
                 <button
                   type="button"
-                  class="btn btn-outline-secondary btn-sm"
+                  class="btn btn-outline-secondary btn-sm ui-control-sm"
                   data-bs-toggle="collapse"
                   data-bs-target="#restockFilters"
                   aria-label="Close filters"
@@ -473,7 +473,7 @@
                   <div class="restock-filter-panel">
                     <button
                       type="button"
-                      class="btn btn-outline-secondary w-100 restock-section-toggle d-md-none"
+                      class="btn btn-outline-secondary ui-control w-100 restock-section-toggle d-md-none"
                       data-bs-toggle="collapse"
                       data-bs-target="#statusFilterPanel"
                       aria-expanded="false"
@@ -481,26 +481,26 @@
                     >
                       <span class="fw-semibold d-inline-flex align-items-center gap-1">
                         Statuses
-                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="statusOptions">{{ restock_filter_counts['statuses']['selected'] }}/{{ restock_filter_counts['statuses']['total'] }}</span>
+                        <span class="ui-chip ui-chip-secondary ui-chip-compact" data-filter-count-target="statusOptions">{{ restock_filter_counts['statuses']['selected'] }}/{{ restock_filter_counts['statuses']['total'] }}</span>
                       </span>
                       <i class="bi bi-chevron-down"></i>
                     </button>
                     <div class="d-none d-md-flex justify-content-between align-items-center gap-2 mb-2">
                       <div class="fw-semibold d-inline-flex align-items-center gap-1">
                         Statuses
-                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="statusOptions">{{ restock_filter_counts['statuses']['selected'] }}/{{ restock_filter_counts['statuses']['total'] }}</span>
+                        <span class="ui-chip ui-chip-secondary ui-chip-compact" data-filter-count-target="statusOptions">{{ restock_filter_counts['statuses']['selected'] }}/{{ restock_filter_counts['statuses']['total'] }}</span>
                       </div>
                       <div class="d-flex gap-2 restock-filter-actions">
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="all" data-target="statusOptions">Select all</button>
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="clear" data-target="statusOptions">Clear all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2" data-filter-action="all" data-target="statusOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2" data-filter-action="clear" data-target="statusOptions">Clear all</button>
                       </div>
                     </div>
                     <div class="collapse d-md-block mt-2 mt-md-0" id="statusFilterPanel">
                       <div class="d-flex gap-2 restock-filter-actions mb-2 d-md-none">
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="all" data-target="statusOptions">Select all</button>
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="clear" data-target="statusOptions">Clear all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2 flex-fill" data-filter-action="all" data-target="statusOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2 flex-fill" data-filter-action="clear" data-target="statusOptions">Clear all</button>
                       </div>
-                      <input type="text" class="form-control mb-2" data-filter-search="statusOptions" placeholder="Search statuses...">
+                      <input type="text" class="form-control ui-control mb-2" data-filter-search="statusOptions" placeholder="Search statuses...">
                       <div class="restock-filter-options" id="statusOptions">
                         {% for status_key, status_meta in restock_status_options.items() %}
                           <div class="form-check">
@@ -524,7 +524,7 @@
                   <div class="restock-filter-panel">
                     <button
                       type="button"
-                      class="btn btn-outline-secondary w-100 restock-section-toggle d-md-none"
+                      class="btn btn-outline-secondary ui-control w-100 restock-section-toggle d-md-none"
                       data-bs-toggle="collapse"
                       data-bs-target="#itemFilterPanel"
                       aria-expanded="false"
@@ -532,26 +532,26 @@
                     >
                       <span class="fw-semibold d-inline-flex align-items-center gap-1">
                         Items
-                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="itemOptions">{{ restock_filter_counts['items']['selected'] }}/{{ restock_filter_counts['items']['total'] }}</span>
+                        <span class="ui-chip ui-chip-secondary ui-chip-compact" data-filter-count-target="itemOptions">{{ restock_filter_counts['items']['selected'] }}/{{ restock_filter_counts['items']['total'] }}</span>
                       </span>
                       <i class="bi bi-chevron-down"></i>
                     </button>
                     <div class="d-none d-md-flex justify-content-between align-items-center gap-2 mb-2">
                       <div class="fw-semibold d-inline-flex align-items-center gap-1">
                         Items
-                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="itemOptions">{{ restock_filter_counts['items']['selected'] }}/{{ restock_filter_counts['items']['total'] }}</span>
+                        <span class="ui-chip ui-chip-secondary ui-chip-compact" data-filter-count-target="itemOptions">{{ restock_filter_counts['items']['selected'] }}/{{ restock_filter_counts['items']['total'] }}</span>
                       </div>
                       <div class="d-flex gap-2 restock-filter-actions">
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="all" data-target="itemOptions">Select all</button>
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="clear" data-target="itemOptions">Clear all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2" data-filter-action="all" data-target="itemOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2" data-filter-action="clear" data-target="itemOptions">Clear all</button>
                       </div>
                     </div>
                     <div class="collapse d-md-block mt-2 mt-md-0" id="itemFilterPanel">
                       <div class="d-flex gap-2 restock-filter-actions mb-2 d-md-none">
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="all" data-target="itemOptions">Select all</button>
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="clear" data-target="itemOptions">Clear all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2 flex-fill" data-filter-action="all" data-target="itemOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2 flex-fill" data-filter-action="clear" data-target="itemOptions">Clear all</button>
                       </div>
-                      <input type="text" class="form-control mb-2" data-filter-search="itemOptions" placeholder="Search items...">
+                      <input type="text" class="form-control ui-control mb-2" data-filter-search="itemOptions" placeholder="Search items...">
                       <div class="restock-filter-options" id="itemOptions">
                         {% for item in restock_items %}
                           <div class="form-check">
@@ -575,7 +575,7 @@
                   <div class="restock-filter-panel">
                     <button
                       type="button"
-                      class="btn btn-outline-secondary w-100 restock-section-toggle d-md-none"
+                      class="btn btn-outline-secondary ui-control w-100 restock-section-toggle d-md-none"
                       data-bs-toggle="collapse"
                       data-bs-target="#venueFilterPanel"
                       aria-expanded="false"
@@ -583,26 +583,26 @@
                     >
                       <span class="fw-semibold d-inline-flex align-items-center gap-1">
                         Venues
-                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="venueOptions">{{ restock_filter_counts['venues']['selected'] }}/{{ restock_filter_counts['venues']['total'] }}</span>
+                        <span class="ui-chip ui-chip-secondary ui-chip-compact" data-filter-count-target="venueOptions">{{ restock_filter_counts['venues']['selected'] }}/{{ restock_filter_counts['venues']['total'] }}</span>
                       </span>
                       <i class="bi bi-chevron-down"></i>
                     </button>
                     <div class="d-none d-md-flex justify-content-between align-items-center gap-2 mb-2">
                       <div class="fw-semibold d-inline-flex align-items-center gap-1">
                         Venues
-                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="venueOptions">{{ restock_filter_counts['venues']['selected'] }}/{{ restock_filter_counts['venues']['total'] }}</span>
+                        <span class="ui-chip ui-chip-secondary ui-chip-compact" data-filter-count-target="venueOptions">{{ restock_filter_counts['venues']['selected'] }}/{{ restock_filter_counts['venues']['total'] }}</span>
                       </div>
                       <div class="d-flex gap-2 restock-filter-actions">
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="all" data-target="venueOptions">Select all</button>
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="clear" data-target="venueOptions">Clear all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2" data-filter-action="all" data-target="venueOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2" data-filter-action="clear" data-target="venueOptions">Clear all</button>
                       </div>
                     </div>
                     <div class="collapse d-md-block mt-2 mt-md-0" id="venueFilterPanel">
                       <div class="d-flex gap-2 restock-filter-actions mb-2 d-md-none">
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="all" data-target="venueOptions">Select all</button>
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="clear" data-target="venueOptions">Clear all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2 flex-fill" data-filter-action="all" data-target="venueOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2 flex-fill" data-filter-action="clear" data-target="venueOptions">Clear all</button>
                       </div>
-                      <input type="text" class="form-control mb-2" data-filter-search="venueOptions" placeholder="Search venues...">
+                      <input type="text" class="form-control ui-control mb-2" data-filter-search="venueOptions" placeholder="Search venues...">
                       <div class="restock-filter-options" id="venueOptions">
                         {% for venue in restock_venues %}
                           <div class="form-check">
@@ -1589,7 +1589,7 @@
               <input
                 id="activitySearch"
                 name="activity_q"
-                class="form-control w-100 restock-compact-control"
+              class="form-control ui-control w-100"
                 placeholder="Search activity..."
                 aria-label="Search activity log"
                 value="{{ activity_filters.search }}"
@@ -1601,7 +1601,7 @@
                     id="activityStartDate"
                     name="activity_start"
                     type="date"
-                    class="form-control restock-compact-control"
+              class="form-control ui-control"
                     aria-label="Filter activity from date"
                     value="{{ activity_filters.start_date }}"
                   >
@@ -1612,7 +1612,7 @@
                     id="activityEndDate"
                     name="activity_end"
                     type="date"
-                    class="form-control restock-compact-control"
+              class="form-control ui-control"
                     aria-label="Filter activity to date"
                     value="{{ activity_filters.end_date }}"
                   >
@@ -1623,7 +1623,7 @@
               <select
                 id="activityTypeFilter"
                 name="activity_type"
-                class="form-select w-100 restock-compact-control"
+              class="form-select ui-control w-100"
                 aria-label="Filter activity log by change type"
               >
                 <option value="all" {{ 'selected' if activity_filters.type == 'all' else '' }}>All Types</option>
@@ -1633,7 +1633,7 @@
               <select
                 id="activitySort"
                 name="activity_sort"
-                class="form-select w-100 restock-compact-control"
+              class="form-select ui-control w-100"
                 aria-label="Sort activity log"
               >
                 <option value="newest" {{ 'selected' if activity_filters.sort == 'newest' else '' }}>Sort: Newest</option>
@@ -1677,7 +1677,7 @@
             <input
               id="activityPageJumpInputTop"
               type="number"
-              class="form-control restock-compact-control activity-page-inline-input"
+              class="form-control ui-control activity-page-inline-input"
               min="1"
               max="{{ activity_pagination.total_pages }}"
               step="1"
@@ -1844,7 +1844,7 @@
             <input
               id="activityPageJumpInput"
               type="number"
-              class="form-control restock-compact-control activity-page-inline-input"
+              class="form-control ui-control activity-page-inline-input"
               min="1"
               max="{{ activity_pagination.total_pages }}"
               step="1"
