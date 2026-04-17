@@ -8,6 +8,12 @@ from sqlalchemy.orm import aliased
 from app import db
 from app.authz import roles_required
 from app.models import Check, CheckLine, Item, Venue, VenueItem, VenueItemCount
+from app.services.inventory_status import (
+    derive_singleton_count_from_status as shared_derive_singleton_count,
+    ensure_utc as shared_ensure_utc,
+    is_signal_stale as shared_is_signal_stale,
+    normalize_singleton_status as shared_normalize_singleton_status,
+)
 
 supplies_bp = Blueprint("supplies", __name__)
 
@@ -24,35 +30,15 @@ STALE_UPDATE_THRESHOLD = timedelta(days=2)
 
 
 def normalize_singleton_status_key(value):
-    normalized = (value or "not_checked").strip().lower()
-    aliases = {
-        "present": "good",
-        "damaged": "low",
-        "missing": "out",
-    }
-    normalized = aliases.get(normalized, normalized)
-    if normalized == "ok":
-        normalized = "good"
-    if normalized not in {"good", "low", "out", "not_checked"}:
-        return "not_checked"
-    return normalized
+    return shared_normalize_singleton_status(value)
 
 
 def derive_singleton_count_from_status(value):
-    normalized = normalize_singleton_status_key(value)
-    if normalized in {"good", "low"}:
-        return 1
-    if normalized == "out":
-        return 0
-    return None
+    return shared_derive_singleton_count(value)
 
 
 def ensure_utc(value):
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+    return shared_ensure_utc(value)
 
 
 def format_supply_timestamp(value):
@@ -105,11 +91,7 @@ def build_supply_updated_label(value):
 
 
 def is_supply_update_stale(value):
-    updated_at = ensure_utc(value)
-    if updated_at is None:
-        return False
-    now = datetime.now(timezone.utc)
-    return max(now - updated_at, timedelta(0)) >= STALE_UPDATE_THRESHOLD
+    return shared_is_signal_stale(value)
 
 
 def build_family_progress(counted, total, attention_level):

@@ -9,6 +9,7 @@ from sqlalchemy.orm import aliased
 from app import db
 from app.authz import roles_required
 from app.models import Venue, VenueItem, VenueNote, Item, Check, CheckLine, CountSession, CountLine, User
+from app.services.venue_profile import build_venue_profile_view_model
 
 main_bp = Blueprint("main", __name__)
 RESTOCK_PAGE_SIZE = 50
@@ -1441,16 +1442,20 @@ def venues():
 @roles_required("viewer", "staff", "admin")
 def venue_detail(venue_id):
     venue = Venue.query.get_or_404(venue_id)
-    active_profile_tab = (request.args.get("profile_tab") or request.form.get("profile_tab") or "details").strip().lower()
-    if active_profile_tab not in {"details", "notes", "activity"}:
-        active_profile_tab = "details"
+    active_profile_tab = (request.args.get("profile_tab") or request.form.get("profile_tab") or "overview").strip().lower()
+    if active_profile_tab == "details":
+        active_profile_tab = "overview"
+    if active_profile_tab not in {"overview", "notes", "activity", "files"}:
+        active_profile_tab = "overview"
     next_path = normalize_next_path(
         request.args.get("next") or request.form.get("next"),
         url_for("main.venues"),
     )
     submit_profile_tab = (request.form.get("profile_tab") or active_profile_tab).strip().lower()
-    if submit_profile_tab not in {"details", "notes", "activity"}:
-        submit_profile_tab = "details"
+    if submit_profile_tab == "details":
+        submit_profile_tab = "overview"
+    if submit_profile_tab not in {"overview", "notes", "activity", "files"}:
+        submit_profile_tab = "overview"
 
     if request.method == "POST":
         action = (request.form.get("action") or "").strip().lower()
@@ -1586,29 +1591,7 @@ def venue_detail(venue_id):
                 )
             )
 
-    total_tracked = (
-        db.session.query(func.count(VenueItem.id))
-        .join(Item, Item.id == VenueItem.item_id)
-        .filter(
-            VenueItem.venue_id == venue.id,
-            VenueItem.active == True,
-            Item.active == True,
-            Item.is_group_parent == False,
-        )
-        .scalar()
-    ) or 0
-    latest_status_check_at = (
-        db.session.query(func.max(Check.created_at))
-        .filter(Check.venue_id == venue.id)
-        .scalar()
-    )
-    latest_raw_count_at = (
-        db.session.query(func.max(CountSession.created_at))
-        .filter(CountSession.venue_id == venue.id)
-        .scalar()
-    )
-    venue_last_updated_at = build_venue_last_updated_map([venue.id]).get(venue.id)
-    venue_freshness = format_updated_label(venue_last_updated_at)
+    venue_profile = build_venue_profile_view_model(venue.id)
     recent_activity_rows = build_recent_venue_activity_rows(venue.id, limit=20)
     note_rows = []
     note_query_rows = (
@@ -1651,16 +1634,9 @@ def venue_detail(venue_id):
     return render_template(
         "venues/detail.html",
         venue=venue,
+        venue_profile=venue_profile,
         back_url=next_path,
         back_label=describe_back_destination(next_path, venue.id),
-        total_tracked=total_tracked,
-        latest_status_check_at=latest_status_check_at,
-        latest_raw_count_at=latest_raw_count_at,
-        venue_last_updated_at=venue_last_updated_at,
-        venue_last_updated_text=(
-            format_activity_timestamp(venue_last_updated_at) if venue_last_updated_at else "No updates yet"
-        ),
-        venue_freshness=venue_freshness,
         recent_activity_rows=recent_activity_rows,
         note_rows=note_rows,
         active_profile_tab=active_profile_tab,

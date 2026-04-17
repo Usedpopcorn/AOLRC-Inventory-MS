@@ -1,4 +1,5 @@
 {% import "_item_macros.html" as item_ui %}
+{% import "_ui_macros.html" as ui %}
 
 {% macro state_badge(label, tone="neutral", icon_class=None, inline=False, extra_classes="", extra_attrs="") -%}
   <span class="inventory-state-chip supply-audit-state-badge{{ ' supply-audit-state-inline' if inline else '' }} inventory-state-chip-{{ tone }}{{ ' ' ~ extra_classes if extra_classes else '' }}"{% if extra_attrs %} {{ extra_attrs|safe }}{% endif %}>
@@ -117,7 +118,7 @@
 
 {% macro quick_check_action(row, venue_row, request, extra_classes="") -%}
   <a
-    class="btn btn-sm btn-aolrc-primary{{ ' ' ~ extra_classes if extra_classes else '' }}"
+    class="btn btn-sm btn-aolrc-primary inventory-action-btn{{ ' ' ~ extra_classes if extra_classes else '' }}"
     data-supplies-base-href="{{ url_for('venue_items.quick_check', venue_id=venue_row.venue_id, mode='status' if row.tracking_mode == 'singleton_asset' else 'raw_counts', focus_item_id=row.id) }}"
     href="{{ quick_check_action_href(venue_row, row, request) }}"
   >
@@ -612,4 +613,465 @@
       </div>
     </div>
   </div>
+{%- endmacro %}
+
+{% macro venue_profile_consistency_badge(consistency, compact=False, extra_classes="") -%}
+  {{ state_badge(
+    consistency.label,
+    tone=consistency.tone,
+    icon_class=consistency.icon_class,
+    inline=compact,
+    extra_classes=extra_classes
+  ) }}
+{%- endmacro %}
+
+{% macro venue_profile_family_badges(group) -%}
+  <div class="inventory-item-badges inventory-item-badges-compact">
+    <span class="inventory-item-badge inventory-item-badge-family">
+      <i class="bi bi-diagram-3" aria-hidden="true"></i>
+      <span>Family</span>
+    </span>
+    {% if group.has_singleton_children and not group.has_quantity_children %}
+      <span class="inventory-item-badge inventory-item-badge-asset">
+        <i class="bi bi-shield-check" aria-hidden="true"></i>
+        <span>Asset</span>
+      </span>
+    {% elif group.has_quantity_children and not group.has_singleton_children %}
+      <span class="inventory-item-badge inventory-item-badge-quantity">
+        <i class="bi bi-123" aria-hidden="true"></i>
+        <span>Quantity</span>
+      </span>
+    {% else %}
+      <span class="inventory-item-badge inventory-item-badge-category">
+        <i class="bi bi-diagram-2" aria-hidden="true"></i>
+        <span>Mixed</span>
+      </span>
+    {% endif %}
+  </div>
+{%- endmacro %}
+
+{% macro venue_profile_family_review_summary(group) -%}
+  {% if group.needs_review_count %}
+    {{ state_badge("Needs review", tone="warning", icon_class="bi-exclamation-triangle-fill", inline=True) }}
+    <div class="venue-profile-inventory-meta">{{ group.review_summary }}</div>
+  {% elif group.has_review_issue %}
+    {{ state_badge("Follow up", tone="warning", icon_class="bi-clock-history", inline=True) }}
+    <div class="venue-profile-inventory-meta">{{ group.review_summary }}</div>
+  {% else %}
+    <span class="venue-profile-review-text">No review issues</span>
+    <div class="venue-profile-inventory-meta">Signals aligned</div>
+  {% endif %}
+{%- endmacro %}
+
+{% macro venue_profile_family_freshness_note(group) -%}
+  {% if group.has_singleton_children and not group.has_quantity_children %}
+    Latest asset check
+  {% elif group.has_quantity_children and not group.has_singleton_children %}
+    Latest variant update
+  {% else %}
+    Latest family update
+  {% endif %}
+{%- endmacro %}
+
+{% macro venue_profile_inventory_action_link(row, label, mode, tone="primary", extra_classes="") -%}
+  {% set button_class = "btn-aolrc-primary" %}
+  {% if tone == "accent" %}
+    {% set button_class = "btn-aolrc-accent" %}
+  {% elif tone == "secondary" %}
+    {% set button_class = "btn-outline-secondary" %}
+  {% endif %}
+  <a
+    class="btn btn-sm {{ button_class }} inventory-action-btn venue-profile-row-action{{ ' ' ~ extra_classes if extra_classes else '' }}"
+    data-venue-profile-base-href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.id, mode=mode) }}"
+    href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.id, mode=mode, next=request.full_path) }}"
+  >
+    {{ label }}
+  </a>
+{%- endmacro %}
+
+{% macro venue_profile_inventory_row_actions(row, mobile=False) -%}
+  <div class="venue-profile-row-actions{{ ' venue-profile-row-actions-mobile' if mobile else '' }}">
+    {{ venue_profile_inventory_action_link(
+      row,
+      row.primary_action_label,
+      row.primary_action_mode,
+      tone="accent" if row.has_count_gap else "primary"
+    ) }}
+    {% if row.secondary_action_label %}
+      {{ venue_profile_inventory_action_link(row, row.secondary_action_label, row.secondary_action_mode, tone="secondary") }}
+    {% endif %}
+  </div>
+{%- endmacro %}
+
+{% macro venue_profile_inventory_detail(row, detail_id) -%}
+  <div class="collapse venue-profile-inventory-detail" id="{{ detail_id }}">
+    <div class="venue-profile-audit-detail-panel">
+      <div class="venue-profile-audit-detail-grid">
+        <div class="venue-profile-audit-detail-block">
+          <div class="venue-profile-audit-detail-label">Quick status</div>
+          <div class="venue-profile-audit-detail-value">
+            {{ ui.status_pill(row.status_meta.key, row.status_meta.text, row.status_meta.icon_class) }}
+          </div>
+          <div class="venue-profile-audit-detail-note">{{ row.status_absolute_text }}</div>
+          <div class="venue-profile-audit-detail-subnote">{{ row.status_freshness.text }}</div>
+        </div>
+        <div class="venue-profile-audit-detail-block">
+          <div class="venue-profile-audit-detail-label">{{ "Asset state" if row.tracking_mode == "singleton_asset" else "Latest count" }}</div>
+          <div class="venue-profile-audit-detail-value">{{ row.count_context_text }}</div>
+          {% if row.tracking_mode == "singleton_asset" %}
+            <div class="venue-profile-audit-detail-note">Status-first asset check</div>
+          {% else %}
+            <div class="venue-profile-audit-detail-note">
+              {% if row.par_value is not none %}
+                Par {{ row.par_value }}
+              {% else %}
+                No par set
+              {% endif %}
+              {% if row.consistency.suggested_status_label %}
+                / Suggests {{ row.consistency.suggested_status_label }}
+              {% endif %}
+            </div>
+            <div class="venue-profile-audit-detail-subnote">
+              {{ row.count_freshness.text }}{% if not row.count_freshness.is_missing %} / {{ row.count_absolute_text }}{% endif %}
+            </div>
+          {% endif %}
+        </div>
+        <div class="venue-profile-audit-detail-block">
+          <div class="venue-profile-audit-detail-label">Consistency</div>
+          <div class="venue-profile-audit-detail-value">
+            {{ venue_profile_consistency_badge(row.consistency, compact=True) }}
+          </div>
+          <div class="venue-profile-audit-detail-note">{{ row.consistency.detail }}</div>
+          {% if row.review_meta_text %}
+            <div class="venue-profile-audit-detail-subnote">{{ row.review_meta_text }}</div>
+          {% endif %}
+        </div>
+        <div class="venue-profile-audit-detail-block">
+          <div class="venue-profile-audit-detail-label">Freshness</div>
+          <div class="venue-profile-audit-detail-value">{{ row.freshness_primary_text }}</div>
+          <div class="venue-profile-audit-detail-note">{{ row.freshness_secondary_text }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+{%- endmacro %}
+
+{% macro venue_profile_inventory_desktop_item(row, detail_id, nested=False) -%}
+  <article
+    class="venue-profile-group venue-profile-inventory-row venue-profile-inventory-row-{{ row.attention_level }}{{ ' venue-profile-inventory-row-child' if nested else '' }}"
+    data-group-id="item-{{ row.id }}"
+    data-kind="item"
+    data-name="{{ (row.name ~ ' ' ~ (row.parent_name or ''))|lower }}"
+    data-item-name="{{ row.name|lower }}"
+    data-family="{{ row.family_name|lower }}"
+    data-tracking-mode="{{ row.tracking_mode }}"
+    data-status-key="{{ row.status_key }}"
+    data-consistency="{{ row.consistency.state }}"
+    data-attention-level="{{ row.attention_level }}"
+    data-operational-issue="{{ 'true' if row.is_operational_issue else 'false' }}"
+    data-review-issue="{{ 'true' if row.has_review_issue else 'false' }}"
+    data-count-gap="{{ 'true' if row.has_count_gap else 'false' }}"
+    data-status-gap="{{ 'true' if row.has_status_gap else 'false' }}"
+    data-last-updated="{{ row.last_signal_timestamp }}"
+    data-count-coverage="{{ row.count_coverage_score }}"
+    data-nested="{{ 'true' if nested else 'false' }}"
+  >
+    <div class="venue-profile-inventory-row-shell">
+      <button
+        class="venue-profile-inventory-toggle"
+        type="button"
+        data-bs-toggle="collapse"
+        data-bs-target="#{{ detail_id }}"
+        aria-expanded="false"
+        aria-controls="{{ detail_id }}"
+      >
+        <div class="venue-profile-inventory-main">
+          <div class="venue-profile-inventory-identity">
+            {{ item_ui.item_heading(
+              row.name,
+              parent_name=row.parent_name if not nested else none,
+              compact=True
+            ) }}
+            <div class="mt-2">
+              {{ item_ui.structure_badges(
+                tracking_mode=row.tracking_mode,
+                item_category=row.item_category,
+                parent_name=none if nested else row.parent_name,
+                show_kind=not nested,
+                compact=True
+              ) }}
+            </div>
+          </div>
+          <div class="venue-profile-inventory-status">
+            {{ ui.status_pill(row.status_meta.key, row.status_meta.text, row.status_meta.icon_class) }}
+          </div>
+          <div class="venue-profile-inventory-count">
+            <div class="venue-profile-inventory-count-value">{{ row.count_context_text }}</div>
+            <div class="venue-profile-inventory-meta">{{ row.count_support_text }}</div>
+          </div>
+          <div class="venue-profile-inventory-review">
+            {% if row.tracking_mode == "singleton_asset" and row.consistency.state == "not_comparable" %}
+              <span class="venue-profile-review-text">Asset status only</span>
+              <div class="venue-profile-inventory-meta">No quantity comparison</div>
+            {% elif row.consistency.state == "aligned" %}
+              <span class="venue-profile-review-text">{{ row.consistency.label }}</span>
+            {% else %}
+              {{ venue_profile_consistency_badge(row.consistency, compact=True) }}
+            {% endif %}
+            {% if row.review_meta_text %}
+              <div class="venue-profile-inventory-meta">{{ row.review_meta_text }}</div>
+            {% endif %}
+          </div>
+          <div class="venue-profile-inventory-updated">
+            <div class="venue-profile-inventory-updated-primary">{{ row.freshness_primary_text }}</div>
+            <div class="venue-profile-inventory-meta">{{ row.freshness_secondary_text }}</div>
+          </div>
+          <div class="venue-profile-inventory-expand">
+            <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>
+          </div>
+        </div>
+      </button>
+      {{ venue_profile_inventory_row_actions(row) }}
+    </div>
+    {{ venue_profile_inventory_detail(row, detail_id) }}
+  </article>
+{%- endmacro %}
+{% macro venue_profile_inventory_desktop_family(group) -%}
+  <article
+    class="venue-profile-group venue-profile-family-group venue-profile-family-group-{{ group.attention_level }}"
+    data-group-id="{{ group.id }}"
+    data-kind="family"
+    data-name="{{ group.search_text }}"
+    data-item-name="{{ group.family_name|lower }}"
+    data-family="{{ group.family_name|lower }}"
+    data-tracking-mode="{% if group.has_singleton_children and not group.has_quantity_children %}singleton_asset{% elif group.has_quantity_children and not group.has_singleton_children %}quantity{% else %}mixed{% endif %}"
+    data-attention-level="{{ group.attention_level }}"
+    data-operational-issue="{{ 'true' if group.operational_issue_count else 'false' }}"
+    data-review-issue="{{ 'true' if group.has_review_issue else 'false' }}"
+    data-count-gap="{{ 'true' if group.has_count_gap else 'false' }}"
+    data-status-gap="{{ 'true' if group.has_status_gap else 'false' }}"
+    data-asset-issue="{{ 'true' if (group.missing_asset_count or group.damaged_asset_count) else 'false' }}"
+    data-no-count="{{ group.no_count_count }}"
+    data-count-stale="{{ group.count_stale_count }}"
+    data-no-status="{{ group.no_status_count }}"
+    data-status-stale="{{ group.status_stale_count }}"
+    data-has-singleton="{{ 'true' if group.has_singleton_children else 'false' }}"
+    data-has-quantity="{{ 'true' if group.has_quantity_children else 'false' }}"
+    data-last-updated="{{ group.last_signal_timestamp }}"
+    data-count-coverage="{{ group.count_coverage_score }}"
+  >
+    <div class="venue-profile-family-row-shell">
+      <button
+        class="venue-profile-family-toggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="{{ group.id }}-children"
+        data-family-toggle
+      >
+        <div class="venue-profile-inventory-main venue-profile-family-main">
+          <div class="venue-profile-inventory-identity venue-profile-family-title">
+            {{ item_ui.item_heading(
+              group.family_name,
+              is_group_parent=True,
+              child_count=group.child_count,
+              compact=True,
+              count_label="variant"
+            ) }}
+            <div class="mt-2">
+              {{ venue_profile_family_badges(group) }}
+            </div>
+          </div>
+          <div class="venue-profile-inventory-status">
+            {{ ui.status_pill(group.worst_status_key, group.status_summary, group.worst_status_meta.icon_class) }}
+          </div>
+          <div class="venue-profile-inventory-count">
+            <div class="venue-profile-inventory-count-value">{{ group.count_summary }}</div>
+            <div class="venue-profile-inventory-meta">{{ group.tracking_summary }}</div>
+          </div>
+          <div class="venue-profile-inventory-review">
+            {{ venue_profile_family_review_summary(group) }}
+          </div>
+          <div class="venue-profile-inventory-updated">
+            <div class="venue-profile-inventory-updated-primary">{{ group.latest_update_freshness.text }}</div>
+            <div class="venue-profile-inventory-meta">{{ venue_profile_family_freshness_note(group) }}</div>
+          </div>
+          <div class="venue-profile-family-expand">
+            <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>
+          </div>
+        </div>
+      </button>
+    </div>
+    <div class="collapse venue-profile-family-children" id="{{ group.id }}-children">
+      <div class="venue-profile-family-children-inner">
+        {% for child in group.children %}
+          {% set detail_id = "venue-profile-detail-" ~ child.id %}
+          {{ venue_profile_inventory_desktop_item(child, detail_id, nested=True) }}
+        {% endfor %}
+      </div>
+    </div>
+  </article>
+{%- endmacro %}
+
+{% macro venue_profile_inventory_mobile_item(row, detail_id, nested=False) -%}
+  <article
+    class="venue-profile-group venue-profile-mobile-card venue-profile-mobile-card-{{ row.attention_level }}{{ ' venue-profile-mobile-card-child' if nested else '' }}"
+    data-group-id="item-{{ row.id }}"
+    data-kind="item"
+    data-name="{{ (row.name ~ ' ' ~ (row.parent_name or ''))|lower }}"
+    data-item-name="{{ row.name|lower }}"
+    data-family="{{ row.family_name|lower }}"
+    data-tracking-mode="{{ row.tracking_mode }}"
+    data-status-key="{{ row.status_key }}"
+    data-consistency="{{ row.consistency.state }}"
+    data-attention-level="{{ row.attention_level }}"
+    data-operational-issue="{{ 'true' if row.is_operational_issue else 'false' }}"
+    data-review-issue="{{ 'true' if row.has_review_issue else 'false' }}"
+    data-count-gap="{{ 'true' if row.has_count_gap else 'false' }}"
+    data-status-gap="{{ 'true' if row.has_status_gap else 'false' }}"
+    data-last-updated="{{ row.last_signal_timestamp }}"
+    data-count-coverage="{{ row.count_coverage_score }}"
+    data-nested="{{ 'true' if nested else 'false' }}"
+  >
+    <button
+      class="venue-profile-mobile-toggle"
+      type="button"
+      data-bs-toggle="collapse"
+      data-bs-target="#{{ detail_id }}"
+      aria-expanded="false"
+      aria-controls="{{ detail_id }}"
+    >
+      <div class="venue-profile-mobile-head">
+        <div class="venue-profile-mobile-title-wrap">
+          {{ item_ui.item_heading(
+            row.name,
+            parent_name=row.parent_name if not nested else none,
+            compact=True
+          ) }}
+          <div class="mt-2">
+            {{ item_ui.structure_badges(
+              tracking_mode=row.tracking_mode,
+              item_category=row.item_category,
+              parent_name=none if nested else row.parent_name,
+              show_kind=not nested,
+              compact=True
+            ) }}
+          </div>
+        </div>
+        <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>
+      </div>
+      <div class="venue-profile-mobile-status-row">
+        {{ ui.status_pill(row.status_meta.key, row.status_meta.text, row.status_meta.icon_class) }}
+        {% if row.tracking_mode == "singleton_asset" and row.consistency.state == "not_comparable" %}
+          <span class="venue-profile-review-text">Asset status only</span>
+        {% elif row.consistency.state != "aligned" %}
+          {{ venue_profile_consistency_badge(row.consistency, compact=True) }}
+        {% endif %}
+      </div>
+      <div class="venue-profile-mobile-metrics">
+        <div class="venue-profile-mobile-metric">
+          <span class="venue-profile-mobile-label">Count context</span>
+          <span class="venue-profile-mobile-value">{{ row.count_context_text }}</span>
+          <span class="venue-profile-mobile-note">{{ row.count_support_text }}</span>
+        </div>
+        <div class="venue-profile-mobile-metric">
+          <span class="venue-profile-mobile-label">Review</span>
+          <span class="venue-profile-mobile-value">{{ "Asset status only" if row.tracking_mode == "singleton_asset" and row.consistency.state == "not_comparable" else row.consistency.label }}</span>
+          {% if row.tracking_mode == "singleton_asset" and row.consistency.state == "not_comparable" %}
+            <span class="venue-profile-mobile-note">No quantity comparison</span>
+          {% elif row.review_meta_text %}
+            <span class="venue-profile-mobile-note">{{ row.review_meta_text }}</span>
+          {% endif %}
+        </div>
+        <div class="venue-profile-mobile-metric">
+          <span class="venue-profile-mobile-label">Freshness</span>
+          <span class="venue-profile-mobile-value">{{ row.freshness_primary_text }}</span>
+          <span class="venue-profile-mobile-note">{{ row.freshness_secondary_text }}</span>
+        </div>
+      </div>
+    </button>
+    {{ venue_profile_inventory_row_actions(row, mobile=True) }}
+    {{ venue_profile_inventory_detail(row, detail_id) }}
+  </article>
+{%- endmacro %}
+
+{% macro venue_profile_inventory_mobile_family(group) -%}
+  <article
+    class="venue-profile-group venue-profile-mobile-family venue-profile-mobile-family-{{ group.attention_level }}"
+    data-group-id="{{ group.id }}"
+    data-kind="family"
+    data-name="{{ group.search_text }}"
+    data-item-name="{{ group.family_name|lower }}"
+    data-family="{{ group.family_name|lower }}"
+    data-tracking-mode="{% if group.has_singleton_children and not group.has_quantity_children %}singleton_asset{% elif group.has_quantity_children and not group.has_singleton_children %}quantity{% else %}mixed{% endif %}"
+    data-attention-level="{{ group.attention_level }}"
+    data-operational-issue="{{ 'true' if group.operational_issue_count else 'false' }}"
+    data-review-issue="{{ 'true' if group.has_review_issue else 'false' }}"
+    data-count-gap="{{ 'true' if group.has_count_gap else 'false' }}"
+    data-status-gap="{{ 'true' if group.has_status_gap else 'false' }}"
+    data-asset-issue="{{ 'true' if (group.missing_asset_count or group.damaged_asset_count) else 'false' }}"
+    data-no-count="{{ group.no_count_count }}"
+    data-count-stale="{{ group.count_stale_count }}"
+    data-no-status="{{ group.no_status_count }}"
+    data-status-stale="{{ group.status_stale_count }}"
+    data-has-singleton="{{ 'true' if group.has_singleton_children else 'false' }}"
+    data-has-quantity="{{ 'true' if group.has_quantity_children else 'false' }}"
+    data-last-updated="{{ group.last_signal_timestamp }}"
+    data-count-coverage="{{ group.count_coverage_score }}"
+  >
+    <button
+      class="venue-profile-mobile-family-toggle"
+      type="button"
+      aria-expanded="false"
+      aria-controls="{{ group.id }}-mobile-children"
+      data-family-toggle
+    >
+      <div class="venue-profile-mobile-family-head">
+        <div class="venue-profile-mobile-title-wrap">
+          {{ item_ui.item_heading(
+            group.family_name,
+            is_group_parent=True,
+            child_count=group.child_count,
+            compact=True,
+            count_label="variant"
+          ) }}
+          <div class="mt-2">
+            {{ venue_profile_family_badges(group) }}
+          </div>
+        </div>
+        <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>
+      </div>
+      <div class="venue-profile-mobile-status-row">
+        {{ ui.status_pill(group.worst_status_key, group.status_summary, group.worst_status_meta.icon_class) }}
+      </div>
+      <div class="venue-profile-mobile-metrics">
+        <div class="venue-profile-mobile-metric">
+          <span class="venue-profile-mobile-label">Count context</span>
+          <span class="venue-profile-mobile-value">{{ group.count_summary }}</span>
+          <span class="venue-profile-mobile-note">{{ group.tracking_summary }}</span>
+        </div>
+        <div class="venue-profile-mobile-metric">
+          <span class="venue-profile-mobile-label">Review</span>
+          <span class="venue-profile-mobile-value">
+            {{ "Needs review" if group.needs_review_count else ("Follow up" if group.has_review_issue else "No review issues") }}
+          </span>
+          <span class="venue-profile-mobile-note">
+            {{ group.review_summary if group.has_review_issue else "Signals aligned" }}
+          </span>
+        </div>
+        <div class="venue-profile-mobile-metric">
+          <span class="venue-profile-mobile-label">Freshness</span>
+          <span class="venue-profile-mobile-value">{{ group.latest_update_freshness.text }}</span>
+          <span class="venue-profile-mobile-note">{{ venue_profile_family_freshness_note(group) }}</span>
+        </div>
+      </div>
+    </button>
+    <div class="collapse venue-profile-mobile-family-children" id="{{ group.id }}-mobile-children">
+      <div class="venue-profile-mobile-family-stack">
+        {% for child in group.children %}
+          {% set detail_id = "venue-profile-mobile-detail-" ~ child.id %}
+          {{ venue_profile_inventory_mobile_item(child, detail_id, nested=True) }}
+        {% endfor %}
+      </div>
+    </div>
+  </article>
 {%- endmacro %}

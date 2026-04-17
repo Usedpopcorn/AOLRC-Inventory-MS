@@ -14,39 +14,27 @@ from app.models import (
     CountLine,
     VenueItemCount,
 )
+from app.services.inventory_status import (
+    build_overall_status_badge as shared_build_overall_status_badge,
+    derive_singleton_count_from_status as shared_derive_singleton_count,
+    infer_singleton_status_from_count as shared_infer_singleton_status_from_count,
+    normalize_singleton_status as shared_normalize_singleton_status,
+)
 
 venue_items_bp = Blueprint("venue_items", __name__, url_prefix="/venues")
 MAX_DB_INT = 2_147_483_647
 
 
 def normalize_singleton_status(status):
-    normalized = (status or "not_checked").strip().lower()
-    aliases = {
-        "present": "good",
-        "damaged": "low",
-        "missing": "out",
-    }
-    normalized = aliases.get(normalized, normalized)
-    if normalized == "ok":
-        normalized = "good"
-    if normalized not in {"good", "low", "out", "not_checked"}:
-        return "not_checked"
-    return normalized
+    return shared_normalize_singleton_status(status)
 
 
 def derive_singleton_count(status):
-    normalized = normalize_singleton_status(status)
-    if normalized in {"good", "low"}:
-        return 1
-    if normalized == "out":
-        return 0
-    return None
+    return shared_derive_singleton_count(status)
 
 
 def infer_singleton_status_from_count(raw_count):
-    if raw_count is None:
-        return "not_checked"
-    return "good" if raw_count > 0 else "out"
+    return shared_infer_singleton_status_from_count(raw_count)
 
 
 def sync_singleton_compat_count(existing_counts, venue_id, item_id, status):
@@ -107,45 +95,8 @@ def describe_back_destination(next_path, venue_id):
 
 
 def build_overall_status(total_tracked, counts):
-    if total_tracked <= 0:
-        return {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
-
     detail_counts = counts.get("_detail", {}) if isinstance(counts, dict) else {}
-    checked_count = total_tracked - counts["not_checked"]
-
-    if counts["out"] > 0:
-        out_count = counts["out"]
-        if detail_counts.get("out_singleton", 0) > 0 and detail_counts.get("out_quantity", 0) == 0:
-            out_label = "item missing" if out_count == 1 else "items missing"
-        elif detail_counts.get("out_singleton", 0) > 0 and detail_counts.get("out_quantity", 0) > 0:
-            out_label = "item needs attention" if out_count == 1 else "items need attention"
-        else:
-            out_label = "item out of stock" if out_count == 1 else "items out of stock"
-        return {
-            "key": "out",
-            "text": f"{out_count} {out_label}",
-            "icon_class": "bi-x-circle-fill",
-        }
-    if counts["low"] > 0:
-        low_count = counts["low"]
-        if detail_counts.get("low_singleton", 0) > 0 and detail_counts.get("low_quantity", 0) == 0:
-            low_label = "item damaged" if low_count == 1 else "items damaged"
-        elif detail_counts.get("low_singleton", 0) > 0 and detail_counts.get("low_quantity", 0) > 0:
-            low_label = "item needs attention" if low_count == 1 else "items need attention"
-        else:
-            low_label = "item low" if low_count == 1 else "items low"
-        return {
-            "key": "low",
-            "text": f"{low_count} {low_label}",
-            "icon_class": "bi-exclamation-triangle-fill",
-        }
-    if checked_count > 0 and counts["ok"] > 0 and (counts["ok"] * 2 >= checked_count):
-        return {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
-    if counts["good"] > 0:
-        return {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
-    if checked_count > 0 and counts["ok"] > 0:
-        return {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
-    return {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
+    return shared_build_overall_status_badge(total_tracked, counts, detail_counts)
 
 
 def sanitize_raw_count(raw_value):
