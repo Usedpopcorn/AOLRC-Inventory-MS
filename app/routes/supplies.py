@@ -20,6 +20,7 @@ SUPPLY_QUICK_FILTER_OPTIONS = {
     "durable",
     "singleton_asset",
 }
+STALE_UPDATE_THRESHOLD = timedelta(days=2)
 
 
 def normalize_singleton_status_key(value):
@@ -99,8 +100,16 @@ def build_supply_updated_label(value):
     return {
         "text": relative,
         "is_missing": False,
-        "is_stale": delta >= timedelta(days=2),
+        "is_stale": delta >= STALE_UPDATE_THRESHOLD,
     }
+
+
+def is_supply_update_stale(value):
+    updated_at = ensure_utc(value)
+    if updated_at is None:
+        return False
+    now = datetime.now(timezone.utc)
+    return max(now - updated_at, timedelta(0)) >= STALE_UPDATE_THRESHOLD
 
 
 def build_family_progress(counted, total, attention_level):
@@ -278,6 +287,9 @@ def build_issue_summary(row):
         if row["singleton_damaged_venue_count"] > 0:
             label = "venue" if row["singleton_damaged_venue_count"] == 1 else "venues"
             return f'{row["singleton_damaged_venue_count"]} damaged {label}'
+        if row["stale_update_venue_count"] > 0:
+            label = "update" if row["stale_update_venue_count"] == 1 else "updates"
+            return f'{row["stale_update_venue_count"]} stale {label}'
         return "All tracked venues reported present"
 
     if row["tracked_venue_count"] == 0:
@@ -285,6 +297,9 @@ def build_issue_summary(row):
     if row["missing_count_venue_count"] > 0:
         label = "venue" if row["missing_count_venue_count"] == 1 else "venues"
         return f'{row["missing_count_venue_count"]} missing {label}'
+    if row["stale_update_venue_count"] > 0:
+        label = "update" if row["stale_update_venue_count"] == 1 else "updates"
+        return f'{row["stale_update_venue_count"]} stale {label}'
     if row["zero_count_venue_count"] > 0:
         label = "venue" if row["zero_count_venue_count"] == 1 else "venues"
         return f'{row["zero_count_venue_count"]} zero-count {label}'
@@ -302,6 +317,9 @@ def build_desktop_issue_summary(row, updated_label):
         elif row["missing_count_venue_count"] > 0:
             label = "venue" if row["missing_count_venue_count"] == 1 else "venues"
             issues.append(f'{row["missing_count_venue_count"]} not checked {label}')
+        if row["stale_update_venue_count"] > 0:
+            label = "update" if row["stale_update_venue_count"] == 1 else "updates"
+            issues.append(f'{row["stale_update_venue_count"]} stale {label}')
         if row["singleton_missing_venue_count"] > 0:
             label = "venue" if row["singleton_missing_venue_count"] == 1 else "venues"
             issues.append(f'{row["singleton_missing_venue_count"]} missing {label}')
@@ -316,13 +334,14 @@ def build_desktop_issue_summary(row, updated_label):
         elif row["missing_count_venue_count"] > 0:
             label = "venue" if row["missing_count_venue_count"] == 1 else "venues"
             issues.append(f'{row["missing_count_venue_count"]} missing {label}')
+        if row["stale_update_venue_count"] > 0:
+            label = "update" if row["stale_update_venue_count"] == 1 else "updates"
+            issues.append(f'{row["stale_update_venue_count"]} stale {label}')
         if row["is_below_par"]:
             issues.append("Below par")
 
     if updated_label["is_missing"] and row["tracked_venue_count"] > 0:
         issues.append("Never updated")
-    elif updated_label["is_stale"]:
-        issues.append("Stale update")
 
     if not issues and row["zero_count_venue_count"] > 0:
         label = "venue" if row["zero_count_venue_count"] == 1 else "venues"
@@ -338,7 +357,7 @@ def build_attention_level(row, updated_label):
         return "critical"
     if row["tracking_mode"] == "singleton_asset" and row["singleton_damaged_venue_count"] > 0:
         return "warning"
-    if row["is_below_par"] or updated_label["is_stale"]:
+    if row["is_below_par"] or row["stale_update_venue_count"] > 0:
         return "warning"
     return "healthy"
 
@@ -408,6 +427,7 @@ def build_supply_audit_rows():
             "counted_venue_count": 0,
             "missing_count_venue_count": 0,
             "zero_count_venue_count": 0,
+            "stale_update_venue_count": 0,
             "singleton_present_venue_count": 0,
             "singleton_missing_venue_count": 0,
             "singleton_damaged_venue_count": 0,
@@ -523,6 +543,9 @@ def build_supply_audit_rows():
         else:
             item_row["counted_venue_count"] += 1
             item_row["total_raw_count"] += effective_raw_count
+            venue_is_stale = is_supply_update_stale(updated_at)
+            if venue_is_stale:
+                item_row["stale_update_venue_count"] += 1
             if is_singleton:
                 if singleton_status == "low":
                     item_row["singleton_damaged_venue_count"] += 1
@@ -548,6 +571,7 @@ def build_supply_audit_rows():
                 "status_key": singleton_status if is_singleton else None,
                 "raw_count_text": "Not Counted" if effective_raw_count is None else str(effective_raw_count),
                 "is_missing": effective_raw_count is None,
+                "is_stale": is_supply_update_stale(updated_at) if effective_raw_count is not None else False,
                 "par_count": row.par_count,
                 "par_count_text": "Not Set" if row.par_count is None else str(row.par_count),
                 "updated_at_text": (
@@ -688,6 +712,7 @@ def build_supply_display_groups(rows):
                 "worst_attention_level": "healthy",
                 "worst_attention_severity": -1,
                 "missing_count_venue_count": 0,
+                "stale_update_venue_count": 0,
                 "counted_child_count": 0,
                 "tracked_child_count": 0,
                 "has_singleton_children": False,
@@ -701,6 +726,7 @@ def build_supply_display_groups(rows):
         group["children"].append(row)
         group["search_text"] = f'{group["search_text"]} {row["name"].lower()}'
         group["missing_count_venue_count"] += row["missing_count_venue_count"]
+        group["stale_update_venue_count"] += row.get("stale_update_venue_count", 0)
         if row["counted_venue_count"] > 0:
             group["counted_child_count"] += 1
         if row["tracked_venue_count"] > 0:
@@ -768,6 +794,10 @@ def build_supply_display_groups(rows):
         elif group["missing_count_venue_count"] > 0:
             group["issue_summary"] = f'{group["missing_count_venue_count"]} missing venue counts'
             group["issue_summary_short"] = f'{group["missing_count_venue_count"]} missing venue counts'
+        elif group["stale_update_venue_count"] > 0:
+            label = "update" if group["stale_update_venue_count"] == 1 else "updates"
+            group["issue_summary"] = f'{group["stale_update_venue_count"]} stale {label}'
+            group["issue_summary_short"] = f'{group["stale_update_venue_count"]} stale {label}'
         elif group["worst_attention_level"] == "critical":
             group["issue_summary"] = "At least one variant needs attention"
             group["issue_summary_short"] = "Variant needs attention"

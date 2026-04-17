@@ -181,7 +181,10 @@
               data-attention-level="{{ group.worst_attention_level if is_family else base_row.attention_level }}"
             >
               {% if is_family %}
-                <tr class="supply-audit-row supply-family-summary-row supply-audit-row-{{ group.worst_attention_level }}">
+                <tr
+                  class="supply-audit-row supply-audit-row-clickable supply-family-summary-row supply-audit-row-{{ group.worst_attention_level }}"
+                  data-row-toggle-family="true"
+                >
                   <td>
                     <button
                       class="supply-item-toggle supply-item-toggle-family"
@@ -194,10 +197,7 @@
                         {{ item_ui.item_heading(
                           group.family_name,
                           is_group_parent=True,
-                          child_count=group.child_count,
-                          note=group.tracking_summary,
-                          compact=True,
-                          count_label="variant"
+                          compact=True
                         ) }}
                         <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>
                       </span>
@@ -261,11 +261,32 @@
                     </div>
                   </td>
                 </tr>
-                {% for row in group.children %}
-                  {% set detail_id = "supply-detail-desktop-" ~ row.id %}
-                  {% set detail_row_id = "supply-detail-row-desktop-" ~ row.id %}
-                  {{ audit.desktop_item_row(row, detail_id, detail_row_id, request, nested=True, hidden=True) }}
-                {% endfor %}
+                <tr class="supplies-detail-row supply-family-children-row">
+                  <td colspan="7" class="p-0 border-0">
+                    <div class="collapse supply-row-collapse supply-family-collapse" id="{{ group.id }}-children">
+                      <div class="supply-family-children-panel">
+                        <table class="table align-middle mb-0 supplies-audit-table supply-family-children-table">
+                          <colgroup>
+                            <col class="supplies-col-item">
+                            <col class="supplies-col-model">
+                            <col class="supplies-col-count">
+                            <col class="supplies-col-progress">
+                            <col class="supplies-col-par">
+                            <col class="supplies-col-coverage">
+                            <col class="supplies-col-updated">
+                          </colgroup>
+                          <tbody>
+                            {% for row in group.children %}
+                              {% set detail_id = "supply-detail-desktop-" ~ row.id %}
+                              {% set detail_row_id = "supply-detail-row-desktop-" ~ row.id %}
+                              {{ audit.desktop_item_row(row, detail_id, detail_row_id, request, nested=True) }}
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
               {% else %}
                 {% set detail_id = "supply-detail-desktop-" ~ base_row.id %}
                 {% set detail_row_id = "supply-detail-row-desktop-" ~ base_row.id %}
@@ -310,9 +331,7 @@
                       {{ item_ui.item_heading(
                         group.family_name,
                         is_group_parent=True,
-                        child_count=group.child_count,
-                        compact=True,
-                        count_label="variant"
+                        compact=True
                       ) }}
                     </div>
                     <i class="bi bi-chevron-down supply-family-summary-icon" aria-hidden="true"></i>
@@ -355,11 +374,13 @@
                     </div>
                   </div>
                 </button>
-                <div class="supply-mobile-family-children" id="{{ group.id }}-mobile-children" hidden>
-                  {% for row in group.children %}
-                    {% set detail_id = "supply-detail-mobile-" ~ row.id %}
-                    {{ audit.mobile_item_card(row, detail_id, request, nested=True, hidden=True) }}
-                  {% endfor %}
+                <div class="collapse supply-row-collapse supply-mobile-family-collapse" id="{{ group.id }}-mobile-children">
+                  <div class="supply-mobile-family-children">
+                    {% for row in group.children %}
+                      {% set detail_id = "supply-detail-mobile-" ~ row.id %}
+                      {{ audit.mobile_item_card(row, detail_id, request, nested=True) }}
+                    {% endfor %}
+                  </div>
                 </div>
               </article>
             {% else %}
@@ -537,16 +558,30 @@
       });
     }
 
+    function getFamilyCollapseElement(groupEl) {
+      const toggleButton = groupEl.querySelector("[data-family-toggle]");
+      const controlsId = toggleButton?.getAttribute("aria-controls");
+      if (!controlsId) return null;
+      return document.getElementById(controlsId);
+    }
+
     function updateFamilyExpansion(groupEl, expanded) {
       const toggleButton = groupEl.querySelector("[data-family-toggle]");
-      const childrenWrap = groupEl.querySelector(".supply-mobile-family-children");
+      const collapseEl = getFamilyCollapseElement(groupEl);
       if (toggleButton) {
         toggleButton.classList.toggle("is-open", expanded);
         toggleButton.setAttribute("aria-expanded", expanded ? "true" : "false");
       }
-      if (childrenWrap) {
-        childrenWrap.hidden = !expanded;
-      }
+      if (!collapseEl || !window.bootstrap?.Collapse) return;
+      const collapseInstance = window.bootstrap.Collapse.getOrCreateInstance(collapseEl, { toggle: false });
+      if (expanded) collapseInstance.show();
+      else collapseInstance.hide();
+    }
+
+    function setDesktopChildRowVisibility(row, showRow) {
+      const detailRow = row.dataset.detailRowId ? document.getElementById(row.dataset.detailRowId) : null;
+      row.hidden = !showRow;
+      if (detailRow) detailRow.hidden = !showRow;
     }
 
     function getDesktopStandaloneRow(groupEl) {
@@ -599,26 +634,20 @@
       groupEl.hidden = !groupVisible;
       if (!groupVisible) {
         childRows.forEach((row) => {
-          row.hidden = true;
-          const detailRow = row.dataset.detailRowId ? document.getElementById(row.dataset.detailRowId) : null;
-          if (detailRow) detailRow.hidden = true;
           collapseIfHidden(row.querySelector(".supply-item-toggle"));
+          setDesktopChildRowVisibility(row, false);
         });
         updateFamilyExpansion(groupEl, false);
         return 0;
       }
 
       const expanded = hasActiveFilters || groupEl.dataset.manuallyExpanded === "true";
-      updateFamilyExpansion(groupEl, expanded);
-
       childRows.forEach((row) => {
         const isVisibleByFilter = row.dataset.filterVisible !== "false";
-        const showRow = expanded && isVisibleByFilter;
-        row.hidden = !showRow;
-        const detailRow = row.dataset.detailRowId ? document.getElementById(row.dataset.detailRowId) : null;
-        if (detailRow) detailRow.hidden = !showRow;
-        if (!showRow) collapseIfHidden(row.querySelector(".supply-item-toggle"));
+        setDesktopChildRowVisibility(row, isVisibleByFilter);
+        if (!expanded || !isVisibleByFilter) collapseIfHidden(row.querySelector(".supply-item-toggle"));
       });
+      updateFamilyExpansion(groupEl, expanded);
 
       return hasActiveFilters ? visibleChildCount : childRows.length;
     }
@@ -667,14 +696,12 @@
       }
 
       const expanded = hasActiveFilters || groupEl.dataset.manuallyExpanded === "true";
-      updateFamilyExpansion(groupEl, expanded);
-
       childCards.forEach((card) => {
         const isVisibleByFilter = card.dataset.filterVisible !== "false";
-        const showCard = expanded && isVisibleByFilter;
-        card.hidden = !showCard;
-        if (!showCard) collapseIfHidden(card.querySelector(".supply-mobile-card-toggle"));
+        card.hidden = !isVisibleByFilter;
+        if (!expanded || !isVisibleByFilter) collapseIfHidden(card.querySelector(".supply-mobile-card-toggle"));
       });
+      updateFamilyExpansion(groupEl, expanded);
 
       return hasActiveFilters ? visibleChildCount : childCards.length;
     }
@@ -882,6 +909,20 @@
         syncFamilyExpandedState(groupEl.dataset.groupId, !isExpanded);
         applySupplyLiveView();
       });
+    });
+
+    suppliesTable?.addEventListener("click", (event) => {
+      if (event.target.closest("button, a, input, select, textarea, label")) return;
+
+      const row = event.target.closest(".supply-audit-row-clickable");
+      if (!row || row.hidden) return;
+
+      if (row.dataset.rowToggleFamily === "true") {
+        row.querySelector("[data-family-toggle]")?.click();
+        return;
+      }
+
+      row.querySelector(".supply-item-toggle")?.click();
     });
 
     document.querySelectorAll(".supply-item-toggle, .supply-mobile-card-toggle").forEach((button) => {

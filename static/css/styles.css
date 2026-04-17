@@ -2,6 +2,8 @@
   --aolrc-purple: #84608C;
   --aolrc-gold:   #F8AD26;
   --aolrc-gold-hi: #FFDA94; /* optional */
+  --supply-row-expand-duration: 280ms;
+  --supply-row-expand-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --aolrc-purple-gradient: linear-gradient(
     180deg,
     rgba(255, 255, 255, 0.12) 0%,
@@ -33,6 +35,12 @@
     rgba(255, 255, 255, 0.04) 46%,
     rgba(0, 0, 0, 0.08) 100%
   );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --supply-row-expand-duration: 1ms;
+  }
 }
 
 /* AOLRC filled buttons: stay filled on hover/active/focus (no outline/transparent) */
@@ -2628,6 +2636,7 @@ body.restock-filters-open {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.65),
     inset 0 -1px 0 rgba(132, 96, 140, 0.08);
+  transition: background-color 160ms ease, box-shadow 160ms ease;
 }
 
 .supply-group > .supply-audit-row:not(.supply-audit-row-child) > td:first-child,
@@ -2757,7 +2766,9 @@ body.restock-filters-open {
 .supply-family-summary-icon {
   color: rgba(48, 55, 66, 0.45);
   font-size: 0.82rem;
-  transition: transform 140ms ease, color 140ms ease;
+  transition:
+    transform var(--supply-row-expand-duration) var(--supply-row-expand-ease),
+    color 140ms ease;
 }
 
 .supply-mobile-family-button.is-open .supply-family-summary-icon {
@@ -2851,13 +2862,29 @@ body.restock-filters-open {
   background: rgba(193, 72, 89, 0.52);
 }
 
-.supply-audit-row:hover > td {
-  background: rgba(132, 96, 140, 0.04);
+.supply-audit-row-clickable {
+  cursor: pointer;
+}
+
+.supplies-audit-table .supply-group > .supply-audit-row.supply-audit-row-clickable:hover > td,
+.supplies-audit-table .supply-group > .supply-family-summary-row.supply-audit-row-clickable:hover > td,
+.supplies-audit-table .supply-group-family[data-manually-expanded="true"] > .supply-family-summary-row.supply-audit-row-clickable:hover > td {
+  background: rgba(132, 96, 140, 0.075);
+}
+
+.supply-audit-row-clickable:hover .inventory-item-name,
+.supply-audit-row-clickable:hover .supply-updated-primary {
+  color: var(--aolrc-purple);
+}
+
+.supply-audit-row-clickable:hover .supply-item-toggle-icon {
+  color: var(--aolrc-purple);
 }
 
 .supply-audit-row-child > td {
   background: rgba(132, 96, 140, 0.028);
   border-bottom-color: rgba(132, 96, 140, 0.06);
+  transition: background-color 160ms ease, box-shadow 160ms ease;
 }
 
 .supply-group-family .supply-audit-row-child > td {
@@ -2913,12 +2940,39 @@ body.restock-filters-open {
   display: none;
 }
 
-.supply-family-summary-row + .supply-audit-row-child .supply-item-toggle-child .inventory-item::after {
+.supply-family-children-table .supply-audit-row-child:first-of-type .supply-item-toggle-child .inventory-item::after {
   top: 0.72rem;
 }
 
 .supplies-detail-row > td {
   background: transparent !important;
+}
+
+.supply-family-children-row > td {
+  background: transparent !important;
+}
+
+.supply-family-collapse {
+  margin-top: -1px;
+}
+
+.supply-family-children-panel {
+  padding: 0.2rem 0 0.85rem;
+}
+
+.supply-family-children-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.supply-family-children-table tbody > tr:not(.supplies-detail-row) > td {
+  padding-top: 0.7rem;
+  padding-bottom: 0.7rem;
+}
+
+.supply-row-collapse.collapsing {
+  transition:
+    height var(--supply-row-expand-duration) var(--supply-row-expand-ease) !important;
 }
 
 .supply-detail-panel {
@@ -3007,7 +3061,9 @@ body.restock-filters-open {
 .supply-item-toggle-icon {
   color: rgba(48, 55, 66, 0.45);
   font-size: 0.78rem;
-  transition: transform 140ms ease, color 140ms ease;
+  transition:
+    transform var(--supply-row-expand-duration) var(--supply-row-expand-ease),
+    color 140ms ease;
 }
 
 .supply-item-toggle:hover .inventory-item-name,
@@ -3331,6 +3387,10 @@ body.restock-filters-open {
   white-space: nowrap;
 }
 
+.supply-audit-state-inline {
+  margin-top: 0.32rem;
+}
+
 .supply-audit-state-badge i {
   font-size: 0.82rem;
 }
@@ -3482,13 +3542,16 @@ body.restock-filters-open {
   font-weight: 580;
 }
 
+.supply-mobile-family-collapse {
+  border-top: 1px solid rgba(132, 96, 140, 0.08);
+  background: rgba(132, 96, 140, 0.03);
+}
+
 .supply-mobile-family-children {
   display: flex;
   flex-direction: column;
   gap: 0.58rem;
   padding: 0.7rem 0.85rem 0.85rem 1rem;
-  border-top: 1px solid rgba(132, 96, 140, 0.08);
-  background: rgba(132, 96, 140, 0.03);
   box-shadow: inset 3px 0 0 rgba(132, 96, 140, 0.08);
 }
 

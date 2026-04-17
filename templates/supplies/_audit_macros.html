@@ -73,9 +73,18 @@
   {% endif %}
 {%- endmacro %}
 
+{% macro stale_update_badge(venue_row) -%}
+  {% if venue_row.is_stale %}
+    <span class="supply-audit-state-badge supply-audit-state-warning supply-audit-state-inline">
+      <i class="bi bi-clock-history" aria-hidden="true"></i>
+      <span>Stale update</span>
+    </span>
+  {% endif %}
+{%- endmacro %}
+
 {% macro desktop_item_row(row, detail_id, detail_row_id, request, nested=False, hidden=False) -%}
   <tr
-    class="supply-audit-row supply-audit-row-{{ row.attention_level }}{{ ' supply-audit-row-child' if nested else '' }}"
+    class="supply-audit-row supply-audit-row-clickable supply-audit-row-{{ row.attention_level }}{{ ' supply-audit-row-child' if nested else '' }}"
     data-row-id="{{ row.id }}"
     data-detail-row-id="{{ detail_row_id }}"
     data-name="{{ (row.name ~ ' ' ~ (row.parent_name or ''))|lower }}"
@@ -89,6 +98,7 @@
     data-par-ratio="{% if row.par_ratio is not none %}{{ row.par_ratio }}{% endif %}"
     data-last-updated="{% if row.last_updated_timestamp is not none %}{{ row.last_updated_timestamp }}{% endif %}"
     data-attention-level="{{ row.attention_level }}"
+    data-row-toggle-target="#{{ detail_id }}"
     {{ 'hidden' if hidden else '' }}
   >
     <td>
@@ -104,7 +114,6 @@
           {{ item_ui.item_heading(
             row.name,
             parent_name=row.parent_name if not nested else none,
-            note="Presence-tracked asset" if row.tracking_mode == "singleton_asset" else none,
             compact=True
           ) }}
           <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>
@@ -200,7 +209,6 @@
             {{ item_ui.item_heading(
               row.name,
               parent_name=row.parent_name if not nested else none,
-              note="Presence-tracked asset" if row.tracking_mode == "singleton_asset" else none,
               compact=True
             ) }}
           </div>
@@ -290,7 +298,7 @@
 {% macro desktop_detail_panel(row, detail_id, detail_row_id, request, hidden=False) -%}
   <tr class="supplies-detail-row" id="{{ detail_row_id }}" {{ 'hidden' if hidden else '' }}>
     <td colspan="7" class="p-0 border-0">
-      <div class="collapse" id="{{ detail_id }}">
+      <div class="collapse supply-row-collapse" id="{{ detail_id }}">
         <div class="supply-detail-panel">
           <div class="supply-detail-bar mb-3">
             <div class="small text-muted">
@@ -341,7 +349,10 @@
                         {% endif %}
                       </td>
                     {% endif %}
-                    <td>{{ venue_row.updated_at_text }}</td>
+                    <td>
+                      <div>{{ venue_row.updated_at_text }}</div>
+                      {{ stale_update_badge(venue_row) }}
+                    </td>
                     <td class="text-end">
                       <a
                         class="btn btn-sm btn-aolrc-primary"
@@ -369,7 +380,7 @@
 {%- endmacro %}
 
 {% macro mobile_detail_panel(row, detail_id, request) -%}
-  <div class="collapse" id="{{ detail_id }}">
+  <div class="collapse supply-row-collapse" id="{{ detail_id }}">
     <div class="supply-mobile-detail-panel">
       <div class="supply-mobile-detail-head">
         <div class="small text-muted">
@@ -426,6 +437,7 @@
               <div class="supply-mobile-venue-metric supply-mobile-venue-metric-wide">
                 <span class="supply-mobile-venue-label">Updated</span>
                 <span class="supply-mobile-venue-value">{{ venue_row.updated_at_text }}</span>
+                {{ stale_update_badge(venue_row) }}
               </div>
             </div>
           </article>
