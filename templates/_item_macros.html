@@ -1,0 +1,64 @@
+{% macro item_heading(name, parent_name=None, is_group_parent=False, child_count=None, note=None, compact=False, count_label=None) -%}
+  <div class="inventory-item{{ ' inventory-item-compact' if compact else '' }}{{ ' inventory-item-child' if parent_name else '' }}{{ ' inventory-item-family' if is_group_parent else '' }}">
+    <div class="inventory-item-name-line">
+      <span class="inventory-item-name">{{ name }}</span>
+      {% if is_group_parent and child_count %}
+        {% if count_label %}
+          <span class="inventory-item-count">{{ child_count }} {{ count_label if child_count == 1 else count_label ~ "s" }}</span>
+        {% else %}
+          <span class="inventory-item-count">{{ child_count }} {{ "child" if child_count == 1 else "children" }}</span>
+        {% endif %}
+      {% endif %}
+    </div>
+    {% if parent_name %}
+      <div class="inventory-item-context">
+        <span class="inventory-item-context-label">Family</span>
+        <span>{{ parent_name }}</span>
+      </div>
+    {% elif is_group_parent %}
+      {% if compact and note %}
+        <div class="inventory-item-context">
+          <span>{{ note }}</span>
+        </div>
+      {% elif not compact %}
+        <div class="inventory-item-context">
+          <span class="inventory-item-context-label">Role</span>
+          <span>Organizer for related child items</span>
+        </div>
+      {% endif %}
+    {% elif note %}
+      <div class="inventory-item-context">
+        <span>{{ note }}</span>
+      </div>
+    {% endif %}
+  </div>
+{%- endmacro %}
+
+{% macro structure_badges(tracking_mode='quantity', item_category=None, parent_name=None, is_group_parent=False, show_tracking=True, show_category=True, show_kind=True, compact=False) -%}
+  <div class="inventory-item-badges{{ ' inventory-item-badges-compact' if compact else '' }}">
+    {% if show_kind %}
+      {% if is_group_parent %}
+        <span class="inventory-item-badge inventory-item-badge-family">
+          <i class="bi bi-diagram-3" aria-hidden="true"></i>
+          <span>Family</span>
+        </span>
+      {% elif parent_name %}
+        <span class="inventory-item-badge inventory-item-badge-child">
+          <i class="bi bi-arrow-return-right" aria-hidden="true"></i>
+          <span>Family member</span>
+        </span>
+      {% endif %}
+    {% endif %}
+    {% if show_tracking %}
+      <span class="inventory-item-badge {{ 'inventory-item-badge-asset' if tracking_mode == 'singleton_asset' else 'inventory-item-badge-quantity' }}">
+        <i class="bi {{ 'bi-shield-check' if tracking_mode == 'singleton_asset' else 'bi-123' }}" aria-hidden="true"></i>
+        <span>{{ "Asset" if tracking_mode == "singleton_asset" else "Quantity" }}</span>
+      </span>
+    {% endif %}
+    {% if show_category and item_category %}
+      <span class="inventory-item-badge inventory-item-badge-category">
+        <span>{{ item_category|replace('_', ' ')|title }}</span>
+      </span>
+    {% endif %}
+  </div>
+{%- endmacro %}

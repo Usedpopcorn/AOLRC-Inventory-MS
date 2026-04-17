@@ -118,6 +118,9 @@ def create_app():
 
     from .routes.venue_settings import venue_settings_bp
     app.register_blueprint(venue_settings_bp)
+
+    from .routes.supplies import supplies_bp
+    app.register_blueprint(supplies_bp)
     
     from . import models  # ensures models are registered for migrations
 
@@ -177,5 +180,4 @@ def create_app():
         )
         action = "Created" if created else "Updated existing"
         click.echo(f"{action} user: {user.email} ({user.role})")
-
     return app

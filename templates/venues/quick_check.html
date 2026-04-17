@@ -1,5 +1,90 @@
 {% extends "base.html" %}
+{% import "_item_macros.html" as item_ui %}
 {% block title %}{{ venue.name }} Check{% endblock %}
+
+{% macro check_row(it, latest_status, latest_counts, is_counts_mode, is_view_only, nested=False, hidden=False) -%}
+  {% set current_status = latest_status[it.id] %}
+  <div
+    class="quick-check-row quick-check-entry-row supply-status-row d-flex flex-column flex-md-row align-items-md-center gap-2{{ ' quick-check-row-child' if nested else '' }}"
+    data-name="{{ (it.name ~ ' ' ~ (it.parent_item.name if it.parent_item else ''))|lower }}"
+    data-item-name="{{ it.name|lower }}"
+    data-family-name="{{ (it.parent_item.name if it.parent_item else it.name)|lower }}"
+    data-display-name="{{ it.name|lower }}"
+    data-item-id="{{ it.id }}"
+    data-tracking-mode="{{ it.tracking_mode }}"
+    {{ 'hidden' if hidden else '' }}
+  >
+    <div class="quick-check-row-main">
+      {{ item_ui.item_heading(
+        it.name,
+        parent_name=it.parent_item.name if (it.parent_item and not nested) else none,
+        note="Presence-tracked asset" if it.tracking_mode == "singleton_asset" else none,
+        compact=True
+      ) }}
+      {% if it.tracking_mode == "singleton_asset" %}
+        <div class="mt-2">
+          {{ item_ui.structure_badges(
+            tracking_mode=it.tracking_mode,
+            show_category=False,
+            show_kind=False,
+            compact=True
+          ) }}
+        </div>
+      {% endif %}
+    </div>
+
+    <input type="hidden" name="status_{{ it.id }}" id="status_{{ it.id }}" value="{{ current_status }}">
+
+    <div class="status-seg{% if is_counts_mode and it.tracking_mode != 'singleton_asset' %} status-mode-only d-none{% endif %}" role="group" aria-label="Status for {{ it.name }}">
+      {% if it.tracking_mode == "singleton_asset" %}
+        <button type="button" class="status-seg-btn status-seg-good status-btn"
+                data-item="{{ it.id }}" data-value="good" {{ "disabled" if is_view_only else "" }}>Present</button>
+        <button type="button" class="status-seg-btn status-seg-low status-btn"
+                data-item="{{ it.id }}" data-value="low" {{ "disabled" if is_view_only else "" }}>Damaged</button>
+        <button type="button" class="status-seg-btn status-seg-out status-btn"
+                data-item="{{ it.id }}" data-value="out" {{ "disabled" if is_view_only else "" }}>Missing</button>
+        <button type="button" class="status-seg-btn status-seg-na status-btn"
+                data-item="{{ it.id }}" data-value="not_checked" {{ "disabled" if is_view_only else "" }}>&mdash;</button>
+      {% else %}
+        <button type="button" class="status-seg-btn status-seg-good status-btn"
+                data-item="{{ it.id }}" data-value="good" {{ "disabled" if is_view_only else "" }}>Good</button>
+        <button type="button" class="status-seg-btn status-seg-ok status-btn"
+                data-item="{{ it.id }}" data-value="ok" {{ "disabled" if is_view_only else "" }}>OK</button>
+        <button type="button" class="status-seg-btn status-seg-low status-btn"
+                data-item="{{ it.id }}" data-value="low" {{ "disabled" if is_view_only else "" }}>Low</button>
+        <button type="button" class="status-seg-btn status-seg-out status-btn"
+                data-item="{{ it.id }}" data-value="out" {{ "disabled" if is_view_only else "" }}>Out</button>
+        <button type="button" class="status-seg-btn status-seg-na status-btn"
+                data-item="{{ it.id }}" data-value="not_checked" {{ "disabled" if is_view_only else "" }}>&mdash;</button>
+      {% endif %}
+    </div>
+
+    {% if it.tracking_mode != "singleton_asset" %}
+      <div class="count-wrap counts-mode-only{% if not is_counts_mode %} d-none{% endif %}">
+        <label class="visually-hidden" for="count_{{ it.id }}">Count for {{ it.name }}</label>
+        <span
+          class="supply-audit-state-badge supply-audit-state-missing count-not-counted-badge{% if latest_counts[it.id] is not none %} d-none{% endif %}"
+          data-not-counted-badge-for="count_{{ it.id }}"
+        >
+          <i class="bi bi-dash-circle" aria-hidden="true"></i>
+          <span>Not Counted</span>
+        </span>
+        <input
+          type="number"
+          min="0"
+          step="1"
+          inputmode="numeric"
+          class="form-control count-input"
+          id="count_{{ it.id }}"
+          name="count_{{ it.id }}"
+          value="{{ '' if latest_counts[it.id] is none else latest_counts[it.id] }}"
+          placeholder="-"
+          {{ "disabled" if is_view_only else "" }}
+        >
+      </div>
+    {% endif %}
+  </div>
+{%- endmacro %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -31,10 +116,10 @@
       {% endif %}
     </h1>
     <div class="text-muted status-mode-only{% if selected_mode == 'raw_counts' %} d-none{% endif %}">
-      Tap a status for each item, then Save Changes.
+      Expand a family when needed, tap a status for each tracked item, then Save Changes.
     </div>
     <div class="text-muted counts-mode-only{% if selected_mode != 'raw_counts' %} d-none{% endif %}">
-      Enter a raw count for each item, then Save Changes.
+      Expand a family when needed, enter counts for quantity items, and update singleton asset status directly. Leave quantity fields blank for Not counted yet.
     </div>
     <div class="quick-check-overall-status mt-2">
       <span class="text-muted small">Overall Status:</span>
@@ -73,7 +158,7 @@
           <label class="visually-hidden" for="check_mode">Check mode</label>
           <select class="form-select" id="check_mode" name="check_mode" aria-label="Check mode" {{ "disabled" if is_view_only else "" }}>
             <option value="status" {% if not is_counts_mode %}selected{% endif %}>Quick Status</option>
-            <option value="raw_counts" {% if is_counts_mode %}selected{% endif %}>Raw Counts</option>
+            <option value="raw_counts" {% if is_counts_mode %}selected{% endif %}>Counts</option>
           </select>
         </div>
       </div>
@@ -96,54 +181,65 @@
           id="mode_column_header"
           class="d-none d-md-block mode-column-header{% if is_counts_mode %} raw-mode{% endif %}"
         >
-          {% if is_counts_mode %}Raw Count{% else %}Status{% endif %}
+          {% if is_counts_mode %}Entry{% else %}Status{% endif %}
         </div>
       </div>
 
-      <div id="suppliesList">
-      {% for it in items %}
-      {% set s = latest_status[it.id] %}
-      <div
-        class="quick-check-row supply-status-row{% if loop.index is odd %} supply-status-row-alt{% endif %} d-flex flex-column flex-md-row align-items-md-center py-2 border-top gap-2"
-        data-item-name="{{ it.name|lower }}"
-        data-item-id="{{ it.id }}"
-      >
-        <div style="flex: 1;">
-          <div class="fw-semibold">{{ it.name }}</div>
-        </div>
-
-        <input type="hidden" name="status_{{ it.id }}" id="status_{{ it.id }}" value="{{ s }}">
-
-        <div class="status-seg status-mode-only{% if is_counts_mode %} d-none{% endif %}" role="group" aria-label="Status for {{ it.name }}">
-          <button type="button" class="status-seg-btn status-seg-good status-btn"
-                  data-item="{{ it.id }}" data-value="good" {{ "disabled" if is_view_only else "" }}>Good</button>
-          <button type="button" class="status-seg-btn status-seg-ok status-btn"
-                  data-item="{{ it.id }}" data-value="ok" {{ "disabled" if is_view_only else "" }}>OK</button>
-          <button type="button" class="status-seg-btn status-seg-low status-btn"
-                  data-item="{{ it.id }}" data-value="low" {{ "disabled" if is_view_only else "" }}>Low</button>
-          <button type="button" class="status-seg-btn status-seg-out status-btn"
-                  data-item="{{ it.id }}" data-value="out" {{ "disabled" if is_view_only else "" }}>Out</button>
-          <button type="button" class="status-seg-btn status-seg-na status-btn"
-                  data-item="{{ it.id }}" data-value="not_checked" {{ "disabled" if is_view_only else "" }}>—</button>
-        </div>
-
-        <div class="raw-count-wrap counts-mode-only{% if not is_counts_mode %} d-none{% endif %}">
-          <label class="visually-hidden" for="count_{{ it.id }}">Raw count for {{ it.name }}</label>
-          <input
-            type="number"
-            min="0"
-            max="2147483647"
-            step="1"
-            inputmode="numeric"
-            class="form-control raw-count-input"
-            id="count_{{ it.id }}"
-            name="count_{{ it.id }}"
-            value="{{ latest_counts[it.id] }}"
-            {{ "disabled" if is_view_only else "" }}
+      <div id="suppliesList" class="quick-check-groups">
+        {% for group in quick_check_groups %}
+          <section
+            class="quick-check-group{{ ' quick-check-group-family' if group.kind == 'family' else ' quick-check-group-single' }}"
+            data-group-id="{{ group.id }}"
+            data-kind="{{ group.kind }}"
+            data-name="{{ group.search_text }}"
+            data-family-name="{{ group.family_name|lower if group.kind == 'family' else group.item.name|lower }}"
           >
-        </div>
-      </div>
-      {% endfor %}
+            {% if group.kind == "family" %}
+              <button
+                class="quick-check-family-row quick-check-family-row-{{ group.worst_status_key }}"
+                type="button"
+                data-family-toggle
+                aria-expanded="false"
+                aria-controls="{{ group.id }}-children"
+              >
+                <span class="quick-check-family-main">
+                  <span class="quick-check-family-leading">
+                    <span class="quick-check-family-title">
+                    {{ item_ui.item_heading(
+                      group.family_name,
+                      is_group_parent=True,
+                      child_count=group.child_count,
+                      note=group.tracking_summary,
+                      compact=True,
+                      count_label="variant"
+                    ) }}
+                    </span>
+                    <span class="quick-check-family-meta-line">
+                      <span class="quick-check-family-meta-text" data-family-summary-count>
+                      {% if is_counts_mode %}{{ group.counted_summary }}{% else %}{{ group.checked_summary }}{% endif %}
+                      </span>
+                      <span class="quick-check-family-meta-dot" aria-hidden="true">·</span>
+                      <span class="quick-check-family-meta-text quick-check-family-meta-hint">Expand to review variant items</span>
+                    </span>
+                  </span>
+                  <span class="quick-check-family-trailing">
+                    <span class="quick-check-family-status quick-check-family-status-{{ group.worst_status_key }}" data-family-summary-status>
+                      {{ group.worst_status_label }}
+                    </span>
+                    <i class="bi bi-chevron-down quick-check-family-icon" aria-hidden="true"></i>
+                  </span>
+                </span>
+              </button>
+              <div class="quick-check-family-children" id="{{ group.id }}-children" hidden>
+                {% for it in group.children %}
+                  {{ check_row(it, latest_status, latest_counts, is_counts_mode, is_view_only, nested=True, hidden=True) }}
+                {% endfor %}
+              </div>
+            {% else %}
+              {{ check_row(group.item, latest_status, latest_counts, is_counts_mode, is_view_only) }}
+            {% endif %}
+          </section>
+        {% endfor %}
       </div>
       <div id="suppliesFilteredEmpty" class="venue-directory-empty d-none mt-2">
         No supplies match your current search.
@@ -159,211 +255,373 @@
 </form>
 
 <script>
-  // Set initial selected button style based on hidden input values
-  const modeSelect = document.getElementById("check_mode");
-  const supplySearchEl = document.getElementById("supplySearch");
-  const rows = Array.from(document.querySelectorAll(".quick-check-row"));
-  const rowsContainer = document.getElementById("suppliesList");
-  const emptyFilteredEl = document.getElementById("suppliesFilteredEmpty");
-  const overallStatusPill = document.getElementById("overallStatusPill");
-  const overallStatusIcon = document.getElementById("overallStatusIcon");
-  const overallStatusText = document.getElementById("overallStatusText");
-  const initialUrl = new URL(window.location.href);
-  const focusItemId = initialUrl.searchParams.get("focus_item_id");
-  let hasAppliedFocusHighlight = false;
+  (() => {
+    const modeSelect = document.getElementById("check_mode");
+    const supplySearchEl = document.getElementById("supplySearch");
+    const emptyFilteredEl = document.getElementById("suppliesFilteredEmpty");
+    const overallStatusPill = document.getElementById("overallStatusPill");
+    const overallStatusIcon = document.getElementById("overallStatusIcon");
+    const overallStatusText = document.getElementById("overallStatusText");
+    const initialUrl = new URL(window.location.href);
+    const focusItemId = initialUrl.searchParams.get("focus_item_id");
+    let hasAppliedFocusHighlight = false;
 
-  function compareRowsByName(a, b) {
-    const nameA = (a.dataset.itemName || "").toLowerCase();
-    const nameB = (b.dataset.itemName || "").toLowerCase();
-    return nameA.localeCompare(nameB);
-  }
-
-  function resolveOverallStatusFromCounts(total, counts) {
-    if (total <= 0) return { key: "not_checked", text: "Not Checked", iconClass: "bi-dash-circle" };
-    const checkedCount = total - counts.not_checked;
-    if (counts.out > 0) {
-      const outLabel = counts.out === 1 ? "Item" : "Items";
-      return { key: "out", text: `${counts.out} ${outLabel} out of stock`, iconClass: "bi-x-circle-fill" };
+    function getGroups() {
+      return Array.from(document.querySelectorAll(".quick-check-group"));
     }
-    if (counts.low > 0) {
-      const lowLabel = counts.low === 1 ? "Item" : "Items";
-      return { key: "low", text: `${counts.low} ${lowLabel} Low`, iconClass: "bi-exclamation-triangle-fill" };
+
+    function getEntryRows() {
+      return Array.from(document.querySelectorAll(".quick-check-entry-row"));
     }
-    if (checkedCount > 0 && counts.ok > 0 && (counts.ok * 2 >= checkedCount)) {
-      return { key: "ok", text: "OK", iconClass: "bi-check-circle-fill" };
+
+    function getStatusMeta(row, statusValue) {
+      const trackingMode = row.dataset.trackingMode || "quantity";
+      const normalized = (statusValue || "not_checked").toLowerCase();
+      const isAsset = trackingMode === "singleton_asset";
+      const labels = isAsset
+        ? { good: "Present", low: "Damaged", out: "Missing", not_checked: "Not checked" }
+        : { good: "Good", ok: "OK", low: "Low", out: "Out", not_checked: "Not checked" };
+      const severityMap = { out: 4, low: 3, not_checked: 2, ok: 1, good: 0 };
+      return {
+        key: labels[normalized] ? normalized : "not_checked",
+        label: labels[normalized] || "Not checked",
+        severity: severityMap[normalized] ?? 2,
+      };
     }
-    if (counts.good > 0) {
-      return { key: "good", text: "Good", iconClass: "bi-check-circle-fill" };
-    }
-    if (checkedCount > 0 && counts.ok > 0) return { key: "ok", text: "OK", iconClass: "bi-check-circle-fill" };
-    return { key: "not_checked", text: "Not Checked", iconClass: "bi-dash-circle" };
-  }
 
-  function refreshOverallStatus() {
-    if (!overallStatusPill || !overallStatusIcon || !overallStatusText) return;
-    const counts = { good: 0, ok: 0, low: 0, out: 0, not_checked: 0 };
-
-    rows.forEach((row) => {
-      const itemId = row.dataset.itemId;
-      const input = itemId ? document.getElementById(`status_${itemId}`) : null;
-      let value = (input?.value || "not_checked").toLowerCase();
-      if (!(value in counts)) value = "not_checked";
-      counts[value] += 1;
-    });
-
-    const meta = resolveOverallStatusFromCounts(rows.length, counts);
-    overallStatusPill.classList.remove("status-good", "status-ok", "status-low", "status-out", "status-na");
-    const statusClassByKey = {
-      good: "status-good",
-      ok: "status-ok",
-      low: "status-low",
-      out: "status-out",
-      not_checked: "status-na",
-    };
-    overallStatusPill.classList.add(statusClassByKey[meta.key] || "status-na");
-    overallStatusIcon.className = `bi ${meta.iconClass}`;
-    overallStatusText.textContent = meta.text;
-  }
-
-  function applyVisibleZebraRows() {
-    let visibleIndex = 0;
-    rows.forEach((row) => {
-      if (row.style.display === "none") {
-        row.classList.remove("supply-status-row-alt");
-        return;
+    function resolveOverallStatusFromCounts(total, counts) {
+      if (total <= 0) return { key: "not_checked", text: "Not Checked", iconClass: "bi-dash-circle" };
+      const checkedCount = total - counts.not_checked;
+      if (counts.out > 0) {
+        const outLabel = counts.out === 1 ? "Item" : "Items";
+        return { key: "out", text: `${counts.out} ${outLabel} out of stock`, iconClass: "bi-x-circle-fill" };
       }
-      row.classList.toggle("supply-status-row-alt", visibleIndex % 2 === 1);
-      visibleIndex += 1;
+      if (counts.low > 0) {
+        const lowLabel = counts.low === 1 ? "Item" : "Items";
+        return { key: "low", text: `${counts.low} ${lowLabel} Low`, iconClass: "bi-exclamation-triangle-fill" };
+      }
+      if (checkedCount > 0 && counts.ok > 0 && (counts.ok * 2 >= checkedCount)) {
+        return { key: "ok", text: "OK", iconClass: "bi-check-circle-fill" };
+      }
+      if (counts.good > 0) {
+        return { key: "good", text: "Good", iconClass: "bi-check-circle-fill" };
+      }
+      if (checkedCount > 0 && counts.ok > 0) return { key: "ok", text: "OK", iconClass: "bi-check-circle-fill" };
+      return { key: "not_checked", text: "Not Checked", iconClass: "bi-dash-circle" };
+    }
+
+    function refreshOverallStatus() {
+      if (!overallStatusPill || !overallStatusIcon || !overallStatusText) return;
+      const counts = { good: 0, ok: 0, low: 0, out: 0, not_checked: 0 };
+
+      getEntryRows().forEach((row) => {
+        const itemId = row.dataset.itemId;
+        const input = itemId ? document.getElementById(`status_${itemId}`) : null;
+        let value = (input?.value || "not_checked").toLowerCase();
+        if (!(value in counts)) value = "not_checked";
+        counts[value] += 1;
+      });
+
+      const meta = resolveOverallStatusFromCounts(getEntryRows().length, counts);
+      overallStatusPill.classList.remove("status-good", "status-ok", "status-low", "status-out", "status-na");
+      const statusClassByKey = {
+        good: "status-good",
+        ok: "status-ok",
+        low: "status-low",
+        out: "status-out",
+        not_checked: "status-na",
+      };
+      overallStatusPill.classList.add(statusClassByKey[meta.key] || "status-na");
+      overallStatusIcon.className = `bi ${meta.iconClass}`;
+      overallStatusText.textContent = meta.text;
+    }
+
+    function refreshCountBadges() {
+      document.querySelectorAll(".count-input").forEach((inputEl) => {
+        const badge = document.querySelector(`[data-not-counted-badge-for="${inputEl.id}"]`);
+        if (!badge) return;
+        const isMissing = (inputEl.value || "").trim() === "";
+        badge.classList.toggle("d-none", !isMissing);
+      });
+    }
+
+    function syncQuickCheckActionUrls() {
+      const currentNext = `${window.location.pathname}${window.location.search}`;
+      document.querySelectorAll("[data-quickcheck-next-link]").forEach((link) => {
+        const baseHref = link.getAttribute("data-base-href");
+        if (!baseHref) return;
+        const nextHref = new URL(baseHref, window.location.origin);
+        nextHref.searchParams.set("next", currentNext);
+        link.href = nextHref.toString();
+      });
+    }
+
+    function syncQuickCheckUrl() {
+      const nextUrl = new URL(window.location.href);
+      const mode = modeSelect.value || "status";
+      const query = (supplySearchEl.value || "").trim();
+
+      if (mode !== "status") nextUrl.searchParams.set("mode", mode);
+      else nextUrl.searchParams.delete("mode");
+
+      if (query) nextUrl.searchParams.set("supply_q", query);
+      else nextUrl.searchParams.delete("supply_q");
+      nextUrl.searchParams.delete("supply_sort");
+      nextUrl.searchParams.delete("focus_item_id");
+
+      window.history.replaceState({}, "", nextUrl);
+      syncQuickCheckActionUrls();
+    }
+
+    function setFamilyExpanded(groupEl, expanded) {
+      groupEl.dataset.manuallyExpanded = expanded ? "true" : "false";
+      const toggleButton = groupEl.querySelector("[data-family-toggle]");
+      const childrenWrap = groupEl.querySelector(".quick-check-family-children");
+      if (toggleButton) {
+        toggleButton.classList.toggle("is-open", expanded);
+        toggleButton.setAttribute("aria-expanded", expanded ? "true" : "false");
+      }
+      if (childrenWrap) {
+        childrenWrap.hidden = !expanded;
+      }
+    }
+
+      function updateFamilySummary(groupEl) {
+        if (groupEl.dataset.kind !== "family") return;
+
+      const childRows = Array.from(groupEl.querySelectorAll(".quick-check-entry-row"));
+      const childCount = childRows.length;
+      let checkedCount = 0;
+      let countedCount = 0;
+      let hasSingletonChildren = false;
+      let hasQuantityChildren = false;
+      const statusCounts = { good: 0, ok: 0, low: 0, out: 0, not_checked: 0 };
+
+      childRows.forEach((row) => {
+        const itemId = row.dataset.itemId;
+        const statusInput = itemId ? document.getElementById(`status_${itemId}`) : null;
+        const countInput = itemId ? document.getElementById(`count_${itemId}`) : null;
+        const meta = getStatusMeta(row, statusInput?.value || "not_checked");
+        const isSingleton = (row.dataset.trackingMode || "") === "singleton_asset";
+
+        if (meta.key in statusCounts) statusCounts[meta.key] += 1;
+        if (meta.key !== "not_checked") checkedCount += 1;
+        if (isSingleton) {
+          hasSingletonChildren = true;
+          if (meta.key !== "not_checked") countedCount += 1;
+        } else {
+          hasQuantityChildren = true;
+          if ((countInput?.value || "").trim() !== "") countedCount += 1;
+        }
+      });
+
+      const resolvedKey = resolveOverallStatusFromCounts(childCount, statusCounts).key;
+      const worstMeta = {
+        key: resolvedKey,
+        label: hasSingletonChildren && !hasQuantityChildren
+          ? ({ good: "Present", low: "Damaged", out: "Missing", not_checked: "Not checked" }[resolvedKey] || "Not checked")
+          : ({ good: "Good", ok: "OK", low: "Low", out: "Out", not_checked: "Not checked" }[resolvedKey] || "Not checked"),
+      };
+
+      const countSummaryEl = groupEl.querySelector("[data-family-summary-count]");
+      const statusSummaryEl = groupEl.querySelector("[data-family-summary-status]");
+      const familyButton = groupEl.querySelector("[data-family-toggle]");
+      if (countSummaryEl) {
+        if (modeSelect.value === "raw_counts") {
+          if (hasSingletonChildren && !hasQuantityChildren) {
+            countSummaryEl.textContent = `${countedCount} of ${childCount} variants checked`;
+          } else if (hasQuantityChildren && !hasSingletonChildren) {
+            countSummaryEl.textContent = `${countedCount} of ${childCount} variants counted`;
+          } else {
+            countSummaryEl.textContent = `${countedCount} of ${childCount} variants updated`;
+          }
+        } else {
+          countSummaryEl.textContent = `${checkedCount} of ${childCount} variants checked`;
+        }
+      }
+      if (statusSummaryEl) {
+        statusSummaryEl.textContent = worstMeta.label;
+        statusSummaryEl.className = `quick-check-family-status quick-check-family-status-${worstMeta.key}`;
+      }
+      if (familyButton) {
+        familyButton.classList.remove(
+          "quick-check-family-row-good",
+          "quick-check-family-row-ok",
+          "quick-check-family-row-low",
+          "quick-check-family-row-out",
+          "quick-check-family-row-not_checked"
+        );
+        familyButton.classList.add(`quick-check-family-row-${worstMeta.key}`);
+      }
+    }
+
+    function refreshAllFamilySummaries() {
+      getGroups().forEach((groupEl) => updateFamilySummary(groupEl));
+    }
+
+    function applyQuickCheckView() {
+      const query = (supplySearchEl.value || "").trim().toLowerCase();
+      let visibleCount = 0;
+
+      getGroups().forEach((groupEl) => {
+        const isFamily = groupEl.dataset.kind === "family";
+
+        if (!isFamily) {
+          const row = groupEl.querySelector(".quick-check-entry-row");
+          const isVisible = !query || (row?.dataset.name || "").includes(query);
+          groupEl.hidden = !isVisible;
+          if (row) row.hidden = !isVisible;
+          if (isVisible) visibleCount += 1;
+          return;
+        }
+
+        const childRows = Array.from(groupEl.querySelectorAll(".quick-check-entry-row"));
+        const parentMatches = query ? (groupEl.dataset.familyName || "").includes(query) : false;
+        let matchingChildren = 0;
+
+        childRows.forEach((row) => {
+          const rowMatches = !query || (row.dataset.name || "").includes(query);
+          const isFilterVisible = !query || parentMatches || rowMatches;
+          row.dataset.filterVisible = isFilterVisible ? "true" : "false";
+          if (isFilterVisible) matchingChildren += 1;
+        });
+
+        const groupVisible = !query || parentMatches || matchingChildren > 0;
+        groupEl.hidden = !groupVisible;
+        if (!groupVisible) {
+          setFamilyExpanded(groupEl, false);
+          childRows.forEach((row) => {
+            row.hidden = true;
+          });
+          return;
+        }
+
+        const shouldExpand = Boolean(query) || groupEl.dataset.manuallyExpanded === "true";
+        setFamilyExpanded(groupEl, shouldExpand);
+        childRows.forEach((row) => {
+          const isFilterVisible = row.dataset.filterVisible !== "false";
+          row.hidden = !(shouldExpand && isFilterVisible);
+        });
+        visibleCount += query ? matchingChildren : childRows.length;
+        updateFamilySummary(groupEl);
+      });
+
+      if (emptyFilteredEl) emptyFilteredEl.classList.toggle("d-none", visibleCount > 0);
+    }
+
+    const initialQuery = initialUrl.searchParams.get("supply_q");
+    if (initialQuery !== null) supplySearchEl.value = initialQuery;
+
+    function focusAndHighlightSelectedItem() {
+      if (hasAppliedFocusHighlight) return;
+      if (!focusItemId || !/^\d+$/.test(focusItemId)) return;
+
+      const targetRow = document.querySelector(`.quick-check-entry-row[data-item-id="${focusItemId}"]`);
+      if (!targetRow) return;
+
+      const familyGroup = targetRow.closest(".quick-check-group-family");
+      if (familyGroup) {
+        setFamilyExpanded(familyGroup, true);
+        applyQuickCheckView();
+      }
+      if (targetRow.hidden) return;
+
+      targetRow.classList.add("quick-check-row-focus");
+      targetRow.scrollIntoView({ behavior: "smooth", block: "center" });
+      hasAppliedFocusHighlight = true;
+
+      window.setTimeout(() => {
+        targetRow.classList.remove("quick-check-row-focus");
+      }, 3200);
+    }
+
+    function refreshButtons(itemId) {
+      const val = document.getElementById(`status_${itemId}`).value;
+      document.querySelectorAll(`.status-btn[data-item="${itemId}"]`).forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.value === val);
+      });
+
+      const row = document.querySelector(`.quick-check-entry-row[data-item-id="${itemId}"]`);
+      const familyGroup = row?.closest(".quick-check-group-family");
+      if (familyGroup) updateFamilySummary(familyGroup);
+      refreshOverallStatus();
+    }
+
+    document.querySelectorAll(".status-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const itemId = btn.dataset.item;
+        document.getElementById(`status_${itemId}`).value = btn.dataset.value;
+        refreshButtons(itemId);
+      });
     });
-  }
 
-  function syncQuickCheckActionUrls() {
-    const currentNext = `${window.location.pathname}${window.location.search}`;
-    document.querySelectorAll("[data-quickcheck-next-link]").forEach((link) => {
-      const baseHref = link.getAttribute("data-base-href");
-      if (!baseHref) return;
-      const nextHref = new URL(baseHref, window.location.origin);
-      nextHref.searchParams.set("next", currentNext);
-      link.href = nextHref.toString();
-    });
-  }
-
-  function syncQuickCheckUrl() {
-    const nextUrl = new URL(window.location.href);
-    const mode = modeSelect.value || "status";
-    const query = (supplySearchEl.value || "").trim();
-
-    if (mode !== "status") nextUrl.searchParams.set("mode", mode);
-    else nextUrl.searchParams.delete("mode");
-
-    if (query) nextUrl.searchParams.set("supply_q", query);
-    else nextUrl.searchParams.delete("supply_q");
-    nextUrl.searchParams.delete("supply_sort");
-    // focus_item_id is a one-time navigation hint; consume it after first load.
-    nextUrl.searchParams.delete("focus_item_id");
-
-    window.history.replaceState({}, "", nextUrl);
-    syncQuickCheckActionUrls();
-  }
-
-  function applyFiltersAndSort() {
-    const query = (supplySearchEl.value || "").trim().toLowerCase();
-    let visibleCount = 0;
-
-    rows.forEach((row) => {
-      const name = row.dataset.itemName || "";
-      const isVisible = !query || name.includes(query);
-      row.style.display = isVisible ? "" : "none";
-      if (isVisible) visibleCount += 1;
-    });
-
-    const visibleRows = rows.filter((row) => row.style.display !== "none");
-    visibleRows.sort(compareRowsByName);
-    visibleRows.forEach((row) => rowsContainer.appendChild(row));
-    rows.filter((row) => row.style.display === "none").forEach((row) => rowsContainer.appendChild(row));
-
-    if (emptyFilteredEl) emptyFilteredEl.classList.toggle("d-none", visibleCount > 0);
-    applyVisibleZebraRows();
-  }
-
-  const initialQuery = initialUrl.searchParams.get("supply_q");
-  if (initialQuery !== null) supplySearchEl.value = initialQuery;
-
-  function focusAndHighlightSelectedItem() {
-    if (hasAppliedFocusHighlight) return;
-    if (!focusItemId || !/^\d+$/.test(focusItemId)) return;
-
-    const targetRow = rows.find((row) => row.dataset.itemId === focusItemId);
-    if (!targetRow || targetRow.style.display === "none") return;
-
-    targetRow.classList.add("quick-check-row-focus");
-    targetRow.scrollIntoView({ behavior: "smooth", block: "center" });
-    hasAppliedFocusHighlight = true;
-
-    window.setTimeout(() => {
-      targetRow.classList.remove("quick-check-row-focus");
-    }, 3200);
-  }
-
-  function refreshButtons(itemId) {
-    const val = document.getElementById("status_" + itemId).value;
-    document.querySelectorAll('.status-btn[data-item="' + itemId + '"]').forEach(btn => {
-      const isSelected = btn.dataset.value === val;
-      btn.classList.toggle("active", isSelected);
-    });
-    applyFiltersAndSort();
-    refreshOverallStatus();
-  }
-
-  document.querySelectorAll(".status-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const itemId = btn.dataset.item;
-      const val = btn.dataset.value;
-      document.getElementById("status_" + itemId).value = val;
+    document.querySelectorAll('input[id^="status_"]').forEach((inp) => {
+      const itemId = inp.id.replace("status_", "");
       refreshButtons(itemId);
     });
-  });
 
-  // Initialize all rows
-  document.querySelectorAll('input[id^="status_"]').forEach(inp => {
-    const itemId = inp.id.replace("status_", "");
-    refreshButtons(itemId);
-  });
-
-  function refreshModeUI() {
-    const mode = modeSelect.value;
-    const isCountsMode = mode === "raw_counts";
-
-    document.querySelectorAll(".status-mode-only").forEach(el => {
-      el.classList.toggle("d-none", isCountsMode);
+    document.querySelectorAll("[data-family-toggle]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const groupEl = button.closest(".quick-check-group-family");
+        if (!groupEl) return;
+        const nextExpanded = groupEl.dataset.manuallyExpanded !== "true";
+        setFamilyExpanded(groupEl, nextExpanded);
+        applyQuickCheckView();
+      });
     });
 
-    document.querySelectorAll(".counts-mode-only").forEach(el => {
-      el.classList.toggle("d-none", !isCountsMode);
-    });
+    function refreshModeUI() {
+      const isCountsMode = modeSelect.value === "raw_counts";
 
-    const header = document.getElementById("mode_column_header");
-    if (header) {
-      header.textContent = isCountsMode ? "Raw Count" : "Status";
-      header.classList.toggle("raw-mode", isCountsMode);
+      document.querySelectorAll(".status-mode-only").forEach((el) => {
+        el.classList.toggle("d-none", isCountsMode);
+      });
+
+      document.querySelectorAll(".counts-mode-only").forEach((el) => {
+        el.classList.toggle("d-none", !isCountsMode);
+      });
+
+      const header = document.getElementById("mode_column_header");
+      if (header) {
+        header.textContent = isCountsMode ? "Entry" : "Status";
+        header.classList.toggle("raw-mode", isCountsMode);
+      }
+
+      refreshAllFamilySummaries();
+      syncQuickCheckUrl();
     }
 
-    applyFiltersAndSort();
-    syncQuickCheckUrl();
-  }
+    modeSelect.addEventListener("change", () => {
+      refreshModeUI();
+      applyQuickCheckView();
+    });
+    supplySearchEl.addEventListener("input", () => {
+      applyQuickCheckView();
+      syncQuickCheckUrl();
+    });
+    document.querySelectorAll(".count-input").forEach((inputEl) => {
+      inputEl.addEventListener("input", () => {
+        refreshCountBadges();
+        const row = inputEl.closest(".quick-check-entry-row");
+        const familyGroup = row?.closest(".quick-check-group-family");
+        if (familyGroup) updateFamilySummary(familyGroup);
+      });
+      inputEl.addEventListener("change", () => {
+        refreshCountBadges();
+        const row = inputEl.closest(".quick-check-entry-row");
+        const familyGroup = row?.closest(".quick-check-group-family");
+        if (familyGroup) updateFamilySummary(familyGroup);
+      });
+    });
 
-  modeSelect.addEventListener("change", refreshModeUI);
-  supplySearchEl.addEventListener("input", () => {
-    applyFiltersAndSort();
-    syncQuickCheckUrl();
-  });
-
-  syncQuickCheckActionUrls();
-  applyFiltersAndSort();
-  syncQuickCheckUrl();
-  refreshModeUI();
-  refreshOverallStatus();
-  focusAndHighlightSelectedItem();
+    syncQuickCheckActionUrls();
+    refreshModeUI();
+    refreshCountBadges();
+    refreshAllFamilySummaries();
+    applyQuickCheckView();
+    refreshOverallStatus();
+    focusAndHighlightSelectedItem();
+  })();
 </script>
 {% endif %}
 {% endblock %}

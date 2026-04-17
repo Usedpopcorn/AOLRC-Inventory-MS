@@ -5,6 +5,7 @@ from urllib.parse import urljoin, urlparse
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import current_user
 from sqlalchemy import func, and_, or_, select, union_all, literal, cast, Integer, String, case
+from sqlalchemy.orm import aliased
 from app import db
 from app.authz import roles_required
 from app.models import Venue, VenueItem, VenueNote, Item, Check, CheckLine, CountSession, CountLine, User
@@ -28,7 +29,7 @@ ACTIVITY_TYPE_META = {
         "badge_class": "activity-type-status",
     },
     "raw_count": {
-        "text": "Raw Count",
+        "text": "Count",
         "icon_class": "bi-123",
         "badge_class": "activity-type-count",
     },
@@ -80,6 +81,23 @@ def normalize_status(status):
     return value
 
 
+def restock_status_meta_for_item(status_key, tracking_mode):
+    base_meta = RESTOCK_STATUS_META[status_key]
+    if tracking_mode == "singleton_asset":
+        asset_labels = {
+            "good": "Present",
+            "ok": "Present",
+            "low": "Damaged",
+            "out": "Missing",
+            "not_checked": "Not Checked",
+        }
+        return {
+            "text": asset_labels.get(status_key, base_meta["text"]),
+            "icon_class": base_meta["icon_class"],
+        }
+    return base_meta
+
+
 def _word_boundary_match(text, query):
     return bool(re.search(rf"(^|\W){re.escape(query)}", text))
 
@@ -89,8 +107,10 @@ def restock_search_rank(row, search_query):
         return 0
 
     item_text = (row.get("item_name") or "").lower()
+    family_text = (row.get("parent_name") or "").lower()
     venue_text = (row.get("venue_name") or "").lower()
     status_text = (row.get("status", {}).get("text") or "").lower()
+    tracking_text = ("asset" if row.get("tracking_mode") == "singleton_asset" else "quantity")
 
     if item_text.startswith(search_query):
         return 0
@@ -98,16 +118,24 @@ def restock_search_rank(row, search_query):
         return 1
     if search_query in item_text:
         return 2
-    if venue_text.startswith(search_query):
+    if family_text.startswith(search_query):
         return 3
-    if _word_boundary_match(venue_text, search_query):
+    if _word_boundary_match(family_text, search_query):
         return 4
-    if search_query in venue_text:
+    if search_query in family_text:
         return 5
-    if status_text.startswith(search_query):
+    if venue_text.startswith(search_query):
         return 6
-    if search_query in status_text:
+    if _word_boundary_match(venue_text, search_query):
         return 7
+    if search_query in venue_text:
+        return 8
+    if tracking_text.startswith(search_query) or search_query in tracking_text:
+        return 9
+    if status_text.startswith(search_query):
+        return 10
+    if search_query in status_text:
+        return 11
     return None
 
 
@@ -216,15 +244,15 @@ def serialize_activity_row(row):
     new_raw_count = row["new_raw_count"]
     if previous_raw_count is None:
         old_value_text = "No prior count"
-        detail_text = f"Initial raw count recorded as {new_raw_count}"
+        detail_text = f"Initial count recorded as {new_raw_count}"
     else:
         old_value_text = str(previous_raw_count)
-        detail_text = f"Raw count changed from {previous_raw_count} to {new_raw_count}"
+        detail_text = f"Count changed from {previous_raw_count} to {new_raw_count}"
 
     new_value_text = str(new_raw_count)
     search_text = " ".join(
         [
-            "raw count",
+            "count",
             row["venue_name"] or "",
             row["item_name"] or "",
             actor_name,
@@ -717,6 +745,7 @@ def build_venue_rows(include_inactive=False):
                 VenueItem.venue_id.in_(venue_ids),
                 VenueItem.active == True,
                 Item.active == True,
+                Item.is_group_parent == False,
             )
             .group_by(VenueItem.venue_id)
             .all()
@@ -763,7 +792,7 @@ def build_venue_rows(include_inactive=False):
             ),
         )
         .join(Item, Item.id == VenueItem.item_id)
-        .filter(Item.active == True)
+        .filter(Item.active == True, Item.is_group_parent == False)
         .group_by(latest_check_sq.c.venue_id, CheckLine.status)
         .all()
     ):
@@ -898,6 +927,7 @@ def build_restock_rows(
         .group_by(Check.venue_id)
         .subquery()
     )
+    parent_item = aliased(Item)
 
     query = (
         db.session.query(
@@ -905,12 +935,16 @@ def build_restock_rows(
             Venue.name.label("venue_name"),
             Item.id.label("item_id"),
             Item.name.label("item_name"),
+            Item.tracking_mode.label("tracking_mode"),
+            Item.item_category.label("item_category"),
+            parent_item.name.label("parent_name"),
             Check.created_at.label("latest_check_at"),
             CheckLine.status.label("line_status"),
         )
         .select_from(VenueItem)
         .join(Venue, Venue.id == VenueItem.venue_id)
         .join(Item, Item.id == VenueItem.item_id)
+        .outerjoin(parent_item, parent_item.id == Item.parent_item_id)
         .outerjoin(latest_check_sq, latest_check_sq.c.venue_id == Venue.id)
         .outerjoin(Check, Check.id == latest_check_sq.c.latest_check_id)
         .outerjoin(
@@ -924,6 +958,7 @@ def build_restock_rows(
             VenueItem.active == True,
             Venue.active == True,
             Item.active == True,
+            Item.is_group_parent == False,
         )
     )
 
@@ -942,13 +977,17 @@ def build_restock_rows(
         if status_key not in selected_statuses_set:
             continue
 
-        meta = RESTOCK_STATUS_META[status_key]
+        tracking_mode = row.tracking_mode or "quantity"
+        meta = restock_status_meta_for_item(status_key, tracking_mode)
         rows.append(
             {
                 "venue_id": row.venue_id,
                 "venue_name": row.venue_name,
                 "item_id": row.item_id,
                 "item_name": row.item_name,
+                "parent_name": row.parent_name,
+                "tracking_mode": tracking_mode,
+                "item_category": row.item_category,
                 "latest_check_at": row.latest_check_at,
                 "status": {
                     "key": status_key,
@@ -960,22 +999,25 @@ def build_restock_rows(
 
     status_rank = {"out": 0, "low": 1, "ok": 2, "good": 3, "not_checked": 4}
     def base_sort_key(row):
+        family_name = (row.get("parent_name") or row["item_name"]).lower()
         if sort_mode == "venue":
-            return (row["venue_name"].lower(), row["item_name"].lower())
+            return (row["venue_name"].lower(), family_name, row["item_name"].lower())
         if sort_mode == "status_priority":
             return (
                 status_rank.get(row["status"]["key"], 99),
                 row["venue_name"].lower(),
+                family_name,
                 row["item_name"].lower(),
             )
         if sort_mode == "last_checked":
             return (
                 1 if row["latest_check_at"] is None else 0,
                 -(row["latest_check_at"].timestamp()) if row["latest_check_at"] else 0,
+                family_name,
                 row["item_name"].lower(),
                 row["venue_name"].lower(),
             )
-        return (row["item_name"].lower(), row["venue_name"].lower())
+        return (family_name, row["item_name"].lower(), row["venue_name"].lower())
 
     if search_query:
         ranked_rows = []
@@ -1007,6 +1049,9 @@ def serialize_restock_row(row, next_path):
         "venue_name": row["venue_name"],
         "item_id": row["item_id"],
         "item_name": row["item_name"],
+        "parent_name": row.get("parent_name"),
+        "tracking_mode": row.get("tracking_mode", "quantity"),
+        "item_category": row.get("item_category"),
         "latest_check_ts": latest_check_at.timestamp() if latest_check_at else None,
         "latest_check_text": (
             latest_check_at.strftime("%Y-%m-%d %I:%M %p") if latest_check_at else "No check yet"
@@ -1150,6 +1195,7 @@ def dashboard():
             Item.active == True,
             VenueItem.active == True,
             Venue.active == True,
+            Item.is_group_parent == False,
         )
         .group_by(Item.id, Item.name)
         .order_by(Item.name.asc())
@@ -1165,6 +1211,7 @@ def dashboard():
             Venue.active == True,
             VenueItem.active == True,
             Item.active == True,
+            Item.is_group_parent == False,
         )
         .group_by(Venue.id, Venue.name)
         .order_by(Venue.name.asc())
@@ -1499,6 +1546,7 @@ def venue_detail(venue_id):
             VenueItem.venue_id == venue.id,
             VenueItem.active == True,
             Item.active == True,
+            Item.is_group_parent == False,
         )
         .scalar()
     ) or 0

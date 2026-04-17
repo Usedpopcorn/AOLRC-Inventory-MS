@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_item_macros.html" as item_ui %}
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
@@ -688,14 +689,32 @@
           {% for row in restock_rows %}
             <article
               class="restock-mobile-card"
-              data-item="{{ row.item_name|lower }}"
+              data-item="{{ (row.item_name ~ ' ' ~ (row.parent_name or ''))|lower }}"
+              data-item-name="{{ row.item_name|lower }}"
+              data-family="{{ (row.parent_name or row.item_name)|lower }}"
               data-venue="{{ row.venue_name|lower }}"
               data-status-key="{{ row.status.key }}"
               data-status-text="{{ row.status.text|lower }}"
               data-latest-ts="{{ row.latest_check_at.timestamp() if row.latest_check_at else '' }}"
             >
               <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
-                <div class="restock-mobile-item fw-semibold">{{ row.item_name }}</div>
+                <div class="restock-mobile-item">
+                  {{ item_ui.item_heading(
+                    row.item_name,
+                    parent_name=row.parent_name,
+                    note="Presence-tracked asset" if row.tracking_mode == "singleton_asset" else none,
+                    compact=True
+                  ) }}
+                  <div class="mt-2">
+                    {{ item_ui.structure_badges(
+                      tracking_mode=row.tracking_mode,
+                      parent_name=row.parent_name,
+                      item_category=row.item_category,
+                      show_category=False,
+                      compact=True
+                    ) }}
+                  </div>
+                </div>
                 <span class="status-pill
                   {{ 'status-good' if row.status.key == 'good' else '' }}
                   {{ 'status-ok' if row.status.key == 'ok' else '' }}
@@ -759,13 +778,31 @@
               {% for row in restock_rows %}
                 <tr
                   class="restock-table-row"
-                  data-item="{{ row.item_name|lower }}"
+                  data-item="{{ (row.item_name ~ ' ' ~ (row.parent_name or ''))|lower }}"
+                  data-item-name="{{ row.item_name|lower }}"
+                  data-family="{{ (row.parent_name or row.item_name)|lower }}"
                   data-venue="{{ row.venue_name|lower }}"
                   data-status-key="{{ row.status.key }}"
                   data-status-text="{{ row.status.text|lower }}"
                   data-latest-ts="{{ row.latest_check_at.timestamp() if row.latest_check_at else '' }}"
                 >
-                  <td class="fw-semibold">{{ row.item_name }}</td>
+                  <td>
+                    {{ item_ui.item_heading(
+                      row.item_name,
+                      parent_name=row.parent_name,
+                      note="Presence-tracked asset" if row.tracking_mode == "singleton_asset" else none,
+                      compact=True
+                    ) }}
+                    <div class="mt-2">
+                      {{ item_ui.structure_badges(
+                        tracking_mode=row.tracking_mode,
+                        parent_name=row.parent_name,
+                        item_category=row.item_category,
+                        show_category=False,
+                        compact=True
+                      ) }}
+                    </div>
+                  </td>
                   <td>
                     <span class="status-pill
                       {{ 'status-good' if row.status.key == 'good' else '' }}
@@ -893,18 +930,24 @@
 
         function getRestockSearchRank(element, query) {
           if (!query) return 0;
-          const itemText = (element.getAttribute("data-item") || "").toLowerCase();
+          const itemText = (element.getAttribute("data-item-name") || "").toLowerCase();
+          const familyText = (element.getAttribute("data-family") || "").toLowerCase();
+          const searchText = (element.getAttribute("data-item") || "").toLowerCase();
           const venueText = (element.getAttribute("data-venue") || "").toLowerCase();
           const statusText = (element.getAttribute("data-status-text") || "").toLowerCase();
 
           if (itemText.startsWith(query)) return 0;
           if (hasWordBoundaryPrefix(itemText, query)) return 1;
           if (itemText.includes(query)) return 2;
-          if (venueText.startsWith(query)) return 3;
-          if (hasWordBoundaryPrefix(venueText, query)) return 4;
-          if (venueText.includes(query)) return 5;
-          if (statusText.startsWith(query)) return 6;
-          if (statusText.includes(query)) return 7;
+          if (familyText.startsWith(query)) return 3;
+          if (hasWordBoundaryPrefix(familyText, query)) return 4;
+          if (familyText.includes(query)) return 5;
+          if (searchText.includes(query)) return 6;
+          if (venueText.startsWith(query)) return 7;
+          if (hasWordBoundaryPrefix(venueText, query)) return 8;
+          if (venueText.includes(query)) return 9;
+          if (statusText.startsWith(query)) return 10;
+          if (statusText.includes(query)) return 11;
           return null;
         }
 
@@ -914,8 +957,10 @@
         }
 
         function compareRestockElements(a, b, sortMode, searchQuery = "") {
-          const itemA = (a.getAttribute("data-item") || "").toLowerCase();
-          const itemB = (b.getAttribute("data-item") || "").toLowerCase();
+          const itemA = (a.getAttribute("data-item-name") || "").toLowerCase();
+          const itemB = (b.getAttribute("data-item-name") || "").toLowerCase();
+          const familyA = (a.getAttribute("data-family") || itemA).toLowerCase();
+          const familyB = (b.getAttribute("data-family") || itemB).toLowerCase();
           const venueA = (a.getAttribute("data-venue") || "").toLowerCase();
           const venueB = (b.getAttribute("data-venue") || "").toLowerCase();
           const statusA = a.getAttribute("data-status-key") || "not_checked";
@@ -931,12 +976,13 @@
 
           if (sortMode === "venue") {
             if (venueA !== venueB) return venueA.localeCompare(venueB);
-            return itemA.localeCompare(itemB);
+            return familyA.localeCompare(familyB) || itemA.localeCompare(itemB);
           }
           if (sortMode === "last_checked") {
             const tsA = getRestockLatestTimestamp(a);
             const tsB = getRestockLatestTimestamp(b);
             if (tsA !== tsB) return tsB - tsA;
+            if (familyA !== familyB) return familyA.localeCompare(familyB);
             if (itemA !== itemB) return itemA.localeCompare(itemB);
             return venueA.localeCompare(venueB);
           }
@@ -945,8 +991,9 @@
             const rankB = restockStatusRank[statusB] ?? 99;
             if (rankA !== rankB) return rankA - rankB;
             if (venueA !== venueB) return venueA.localeCompare(venueB);
-            return itemA.localeCompare(itemB);
+            return familyA.localeCompare(familyB) || itemA.localeCompare(itemB);
           }
+          if (familyA !== familyB) return familyA.localeCompare(familyB);
           if (itemA !== itemB) return itemA.localeCompare(itemB);
           return venueA.localeCompare(venueB);
         }
@@ -1028,18 +1075,69 @@
           return "status-na";
         }
 
+        function createInventoryItemBlock(row) {
+          const wrap = document.createElement("div");
+          wrap.className = `inventory-item inventory-item-compact${row.parent_name ? " inventory-item-child" : ""}`;
+
+          const nameLine = document.createElement("div");
+          nameLine.className = "inventory-item-name-line";
+          const name = document.createElement("span");
+          name.className = "inventory-item-name";
+          name.textContent = row.item_name || "";
+          nameLine.appendChild(name);
+          wrap.appendChild(nameLine);
+
+          if (row.parent_name || row.tracking_mode === "singleton_asset") {
+            const context = document.createElement("div");
+            context.className = "inventory-item-context";
+            if (row.parent_name) {
+              const label = document.createElement("span");
+              label.className = "inventory-item-context-label";
+              label.textContent = "Family";
+              context.appendChild(label);
+              const family = document.createElement("span");
+              family.textContent = row.parent_name;
+              context.appendChild(family);
+            } else {
+              context.textContent = "Presence-tracked asset";
+            }
+            wrap.appendChild(context);
+          }
+
+          const badges = document.createElement("div");
+          badges.className = "inventory-item-badges inventory-item-badges-compact";
+
+          if (row.parent_name) {
+            const childBadge = document.createElement("span");
+            childBadge.className = "inventory-item-badge inventory-item-badge-child";
+            childBadge.innerHTML = '<i class="bi bi-arrow-return-right" aria-hidden="true"></i><span>Family member</span>';
+            badges.appendChild(childBadge);
+          }
+
+          const trackingBadge = document.createElement("span");
+          trackingBadge.className = `inventory-item-badge ${row.tracking_mode === "singleton_asset" ? "inventory-item-badge-asset" : "inventory-item-badge-quantity"}`;
+          trackingBadge.innerHTML = row.tracking_mode === "singleton_asset"
+            ? '<i class="bi bi-shield-check" aria-hidden="true"></i><span>Asset</span>'
+            : '<i class="bi bi-123" aria-hidden="true"></i><span>Quantity</span>';
+          badges.appendChild(trackingBadge);
+
+          wrap.appendChild(badges);
+          return wrap;
+        }
+
         function createRestockTableRow(row) {
           const tr = document.createElement("tr");
           tr.className = "restock-table-row";
-          tr.setAttribute("data-item", (row.item_name || "").toLowerCase());
+          tr.setAttribute("data-item", `${row.item_name || ""} ${row.parent_name || ""}`.trim().toLowerCase());
+          tr.setAttribute("data-item-name", (row.item_name || "").toLowerCase());
+          tr.setAttribute("data-family", (row.parent_name || row.item_name || "").toLowerCase());
           tr.setAttribute("data-venue", (row.venue_name || "").toLowerCase());
           tr.setAttribute("data-status-key", row.status?.key || "not_checked");
           tr.setAttribute("data-status-text", (row.status?.text || "").toLowerCase());
           tr.setAttribute("data-latest-ts", row.latest_check_missing ? "" : String(row.latest_check_ts || ""));
 
           const itemTd = document.createElement("td");
-          itemTd.className = "fw-semibold";
-          itemTd.textContent = row.item_name;
+          itemTd.appendChild(createInventoryItemBlock(row));
 
           const statusTd = document.createElement("td");
           const statusSpan = document.createElement("span");
@@ -1086,7 +1184,9 @@
         function createRestockMobileCard(row) {
           const article = document.createElement("article");
           article.className = "restock-mobile-card";
-          article.setAttribute("data-item", (row.item_name || "").toLowerCase());
+          article.setAttribute("data-item", `${row.item_name || ""} ${row.parent_name || ""}`.trim().toLowerCase());
+          article.setAttribute("data-item-name", (row.item_name || "").toLowerCase());
+          article.setAttribute("data-family", (row.parent_name || row.item_name || "").toLowerCase());
           article.setAttribute("data-venue", (row.venue_name || "").toLowerCase());
           article.setAttribute("data-status-key", row.status?.key || "not_checked");
           article.setAttribute("data-status-text", (row.status?.text || "").toLowerCase());
@@ -1096,8 +1196,8 @@
           topRow.className = "d-flex align-items-start justify-content-between gap-2 mb-2";
 
           const itemName = document.createElement("div");
-          itemName.className = "restock-mobile-item fw-semibold";
-          itemName.textContent = row.item_name;
+          itemName.className = "restock-mobile-item";
+          itemName.appendChild(createInventoryItemBlock(row));
           topRow.appendChild(itemName);
 
           const statusSpan = document.createElement("span");
@@ -1570,7 +1670,7 @@
               >
                 <option value="all" {{ 'selected' if activity_filters.type == 'all' else '' }}>All Types</option>
                 <option value="status" {{ 'selected' if activity_filters.type == 'status' else '' }}>Status Changes</option>
-                <option value="raw_count" {{ 'selected' if activity_filters.type == 'raw_count' else '' }}>Raw Count Changes</option>
+                <option value="raw_count" {{ 'selected' if activity_filters.type == 'raw_count' else '' }}>Count Changes</option>
               </select>
               <select
                 id="activitySort"

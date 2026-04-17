@@ -1,0 +1,950 @@
+{% extends "base.html" %}
+{% import "supplies/_audit_macros.html" as audit %}
+{% import "_item_macros.html" as item_ui %}
+{% block title %}Supplies Audit{% endblock %}
+
+{% block content %}
+{% set quick_filter_options = [
+  ("missing_counts", "Missing counts"),
+  ("below_par", "Below par"),
+  ("complete_coverage", "Complete coverage"),
+  ("singleton_asset", "Singleton assets"),
+  ("consumable", "Consumable"),
+  ("durable", "Durable"),
+] %}
+<section class="supplies-audit-hero card border-0 shadow-sm mb-2">
+  <div class="card-body supplies-audit-hero-body p-4">
+    <div class="supplies-audit-hero-copy">
+      <h1 class="h3 mb-1 fw-bold text-aolrc-purple page-heading">Supplies</h1>
+        <p class="text-muted mb-0">Cross-venue counts and presence checks for tracked supply items.</p>
+    </div>
+
+    <div class="supply-summary-grid supply-summary-grid-compact">
+      <article class="supply-summary-card supply-summary-card-primary">
+        <div class="supply-summary-label">Need Attention</div>
+        <div class="supply-summary-value">{{ summary.items_with_missing_counts }}</div>
+        <div class="supply-summary-note">{% if summary.family_variants %}Includes {{ summary.family_variants }} family variant{{ "" if summary.family_variants == 1 else "s" }}{% else %}Needs venue counts{% endif %}</div>
+      </article>
+      <article class="supply-summary-card">
+        <div class="supply-summary-label">Fully Counted</div>
+        <div class="supply-summary-value">{{ summary.items_with_complete_count_coverage }}</div>
+        <div class="supply-summary-note supply-summary-note-muted">Complete across all venues</div>
+      </article>
+      <article class="supply-summary-card">
+        <div class="supply-summary-label">Units on Hand</div>
+        <div class="supply-summary-value">{{ summary.quantity_units_on_hand }}</div>
+        <div class="supply-summary-note supply-summary-note-muted">Total quantity across recorded counts</div>
+      </article>
+    </div>
+
+    <div class="supply-summary-meta" aria-label="Supporting supply summary metrics">
+      <span class="supply-summary-meta-pill">
+        <span class="supply-summary-meta-label">Active items</span>
+        <span class="supply-summary-meta-value">{{ summary.total_active_supply_items }}</span>
+      </span>
+      <span class="supply-summary-meta-pill supply-summary-meta-pill-soft">
+        <span class="supply-summary-meta-label">Singletons present</span>
+        <span class="supply-summary-meta-value">{{ summary.singleton_present_total }}</span>
+        <span class="supply-summary-meta-support">of {{ summary.singleton_assets }} tracked</span>
+      </span>
+    </div>
+  </div>
+</section>
+
+<section class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <form method="get" action="{{ url_for('supplies.index') }}" class="supplies-filter-form" id="suppliesFilterForm">
+      <div class="supplies-filter-toolbar">
+        <div class="supplies-filter-search">
+          <label class="form-label" for="suppliesSearch">Search supplies</label>
+          <input
+            id="suppliesSearch"
+            name="q"
+            class="form-control"
+            type="search"
+            value="{{ filters.q }}"
+            placeholder="Search by item name"
+          >
+        </div>
+        <div class="supplies-filter-sort">
+          <label class="form-label" for="suppliesSort">Sort</label>
+          <select id="suppliesSort" name="sort" class="form-select">
+            <option value="par_ratio_asc" {% if filters.sort == "par_ratio_asc" %}selected{% endif %}>Lowest % of par</option>
+            <option value="missing_venues_desc" {% if filters.sort == "missing_venues_desc" %}selected{% endif %}>Most missing venues</option>
+            <option value="last_updated" {% if filters.sort == "last_updated" %}selected{% endif %}>Recently updated</option>
+            <option value="item_name" {% if filters.sort == "item_name" %}selected{% endif %}>Alphabetical</option>
+          </select>
+        </div>
+        <div class="supplies-filter-actions">
+          <button class="btn btn-aolrc-accent supplies-filter-submit" type="submit">Apply</button>
+          <a class="btn btn-outline-secondary" href="{{ url_for('supplies.index') }}">Clear</a>
+        </div>
+      </div>
+
+      <div class="supplies-quick-filter-bar">
+        <div class="supplies-quick-filter-label">Quick filters</div>
+        <div class="supplies-quick-filter-list" role="group" aria-label="Quick filters">
+          {% for value, label in quick_filter_options %}
+            <label class="supplies-filter-chip">
+              <input
+                class="supplies-filter-chip-input"
+                type="checkbox"
+                name="quick_filter"
+                value="{{ value }}"
+                {% if value in filters.quick_filters %}checked{% endif %}
+              >
+              <span class="supplies-filter-chip-label">{{ label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="supplies-active-filters d-none" id="suppliesActiveFilters" aria-live="polite">
+        <span class="supplies-active-filters-label">Active filters</span>
+        <div class="supplies-active-filter-list" id="suppliesActiveFilterList"></div>
+      </div>
+    </form>
+  </div>
+</section>
+
+<section class="card border-0 shadow-sm">
+  <div class="card-body">
+      <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
+        <div>
+          <h2 class="h5 mb-1">Inventory Audit Table</h2>
+          <div class="text-muted small" id="suppliesResultCount" data-total="{{ total_supply_items }}">
+            Showing {{ filtered_supply_items }} of {{ total_supply_items }} active items
+          </div>
+        </div>
+        <div class="text-muted small">
+          Expand a family to inspect its variants and venue-level counts or checks.
+        </div>
+      </div>
+
+    <div class="supply-audit-legend-wrap mb-3">
+      <p class="supply-audit-legend-explainer text-muted mb-2">
+        Missing counts remain visible as audit gaps, while recorded zero counts are preserved as valid inventory data.
+      </p>
+      <div class="supply-audit-legend" aria-label="Audit count legend">
+      <span class="supply-audit-legend-label">Count legend</span>
+      <span class="supply-audit-state-badge supply-audit-state-missing">
+        <i class="bi bi-dash-circle" aria-hidden="true"></i>
+        <span>Not Counted = venue skipped or not submitted</span>
+      </span>
+      <span class="supply-audit-zero-value supply-audit-zero-legend">
+        <i class="bi bi-x-circle-fill" aria-hidden="true"></i>
+        <span>0 = counted and confirmed empty</span>
+      </span>
+      </div>
+    </div>
+
+    {% if supply_rows %}
+      <div class="table-responsive d-none d-md-block supplies-audit-table-wrap">
+        <table class="table align-middle supplies-audit-table">
+          <colgroup>
+            <col class="supplies-col-item">
+            <col class="supplies-col-model">
+            <col class="supplies-col-count">
+            <col class="supplies-col-progress">
+            <col class="supplies-col-par">
+            <col class="supplies-col-coverage">
+            <col class="supplies-col-updated">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Model</th>
+              <th class="supply-count-header text-end">Count</th>
+              <th class="supply-progress-header">Coverage progress</th>
+              <th class="supply-par-header text-end">Par</th>
+              <th>Coverage</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          {% for group in supply_groups %}
+            {% set is_family = (group.kind == "family") %}
+            {% set base_row = group.row if not is_family else none %}
+            <tbody
+              class="supply-group{{ ' supply-group-family' if is_family else ' supply-group-single' }}"
+              data-group-id="{{ group.id }}"
+              data-kind="{{ group.kind }}"
+              data-name="{{ group.search_text }}"
+              data-item-name="{{ (group.family_name if is_family else base_row.name)|lower }}"
+              data-family="{{ group.family_name|lower }}"
+              data-item-type="{{ group.item_type if is_family else base_row.item_type }}"
+              data-tracking-mode="{% if is_family %}{% if group.has_singleton_children and not group.has_quantity_children %}singleton_asset{% elif group.has_quantity_children and not group.has_singleton_children %}quantity{% else %}mixed{% endif %}{% else %}{{ base_row.tracking_mode }}{% endif %}"
+              data-coverage-key="{{ group.coverage_key if is_family else base_row.coverage_key }}"
+              data-missing-venues="{{ group.missing_count_venue_count if is_family else base_row.missing_count_venue_count }}"
+              data-below-par="{{ 'true' if is_family and group.worst_attention_level in ['warning', 'critical'] else ('true' if not is_family and base_row.is_below_par else 'false') }}"
+              data-par-ratio="{% if is_family and group.par_ratio is not none %}{{ group.par_ratio }}{% elif not is_family and base_row.par_ratio is not none %}{{ base_row.par_ratio }}{% endif %}"
+              data-last-updated="{% if is_family and group.last_updated_timestamp is not none %}{{ group.last_updated_timestamp }}{% elif not is_family and base_row.last_updated_timestamp is not none %}{{ base_row.last_updated_timestamp }}{% endif %}"
+              data-attention-level="{{ group.worst_attention_level if is_family else base_row.attention_level }}"
+            >
+              {% if is_family %}
+                <tr
+                  class="supply-audit-row supply-audit-row-clickable supply-family-summary-row supply-audit-row-{{ group.worst_attention_level }}"
+                  data-row-toggle-family="true"
+                >
+                  <td>
+                    <button
+                      class="supply-item-toggle supply-item-toggle-family"
+                      type="button"
+                      data-family-toggle
+                      aria-expanded="false"
+                      aria-controls="{{ group.id }}-children"
+                    >
+                      <span class="supply-item-toggle-main">
+                        {{ item_ui.item_heading(
+                          group.family_name,
+                          is_group_parent=True,
+                          compact=True
+                        ) }}
+                        <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>
+                      </span>
+                      {% if group.issue_summary_short != "Variants look healthy" %}
+                        <span class="supply-item-meta supply-item-summary supply-item-summary-{{ group.worst_attention_level }}">
+                          {% if group.worst_attention_level == "critical" %}
+                            <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
+                          {% elif group.worst_attention_level == "warning" %}
+                            <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+                          {% else %}
+                            <i class="bi bi-info-circle" aria-hidden="true"></i>
+                          {% endif %}
+                          <span>{{ group.issue_summary_short }}</span>
+                        </span>
+                      {% endif %}
+                    </button>
+                  </td>
+                  <td class="supply-model-cell supply-family-model-cell">
+                    <span class="inventory-item-badge inventory-item-badge-{{ group.tracking_badge_kind }} supply-family-model-badge">
+                      {% if group.tracking_badge_kind == "asset" %}
+                        <i class="bi bi-shield-check" aria-hidden="true"></i>
+                      {% elif group.tracking_badge_kind == "quantity" %}
+                        <i class="bi bi-123" aria-hidden="true"></i>
+                      {% else %}
+                        <i class="bi bi-diagram-3" aria-hidden="true"></i>
+                      {% endif %}
+                      <span>{{ group.tracking_summary }}</span>
+                    </span>
+                  </td>
+                  <td class="supply-count-cell">
+                    <span class="supply-count-stack supply-count-stack-compact">
+                      <span class="supply-value-strong">{{ group.child_count }}</span>
+                      <span class="supply-count-note">variants</span>
+                    </span>
+                  </td>
+                  <td class="supply-progress-cell supply-progress-cell-{{ group.family_progress.tone }}">
+                    <div class="supply-family-progress">
+                      <div class="supply-par-meter supply-par-meter-{{ group.family_progress.tone }}" aria-label="{{ group.counted_summary }}">
+                        {% for is_filled in group.family_progress.segments %}
+                          <span class="supply-par-segment {{ 'is-filled' if is_filled else '' }}"></span>
+                        {% endfor %}
+                      </div>
+                      <div class="supply-family-progress-label">{{ group.family_progress_caption }}</div>
+                    </div>
+                  </td>
+                  <td class="supply-par-cell">
+                    <span class="text-muted">&mdash;</span>
+                  </td>
+                  <td class="supply-coverage-cell">
+                    <span class="supply-coverage-pill supply-coverage-{{ group.coverage_key }}">{{ group.coverage_label }}</span>
+                    <div class="supply-coverage-meta supply-family-coverage-meta">{{ group.counted_summary }}</div>
+                  </td>
+                  <td class="supply-updated-cell {{ 'is-stale' if group.last_count_updated_label.is_stale else '' }}">
+                    <div class="supply-updated-primary">{{ group.last_count_updated_label.text }}</div>
+                    <div class="supply-updated-secondary">
+                      {% if group.last_count_updated_label.is_missing %}
+                        No timestamp
+                      {% else %}
+                        {{ group.last_count_updated_at_text }}
+                      {% endif %}
+                    </div>
+                  </td>
+                </tr>
+                <tr class="supplies-detail-row supply-family-children-row">
+                  <td colspan="7" class="p-0 border-0">
+                    <div class="collapse supply-row-collapse supply-family-collapse" id="{{ group.id }}-children">
+                      <div class="supply-family-children-panel">
+                        <table class="table align-middle mb-0 supplies-audit-table supply-family-children-table">
+                          <colgroup>
+                            <col class="supplies-col-item">
+                            <col class="supplies-col-model">
+                            <col class="supplies-col-count">
+                            <col class="supplies-col-progress">
+                            <col class="supplies-col-par">
+                            <col class="supplies-col-coverage">
+                            <col class="supplies-col-updated">
+                          </colgroup>
+                          <tbody>
+                            {% for row in group.children %}
+                              {% set detail_id = "supply-detail-desktop-" ~ row.id %}
+                              {% set detail_row_id = "supply-detail-row-desktop-" ~ row.id %}
+                              {{ audit.desktop_item_row(row, detail_id, detail_row_id, request, nested=True) }}
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              {% else %}
+                {% set detail_id = "supply-detail-desktop-" ~ base_row.id %}
+                {% set detail_row_id = "supply-detail-row-desktop-" ~ base_row.id %}
+                {{ audit.desktop_item_row(base_row, detail_id, detail_row_id, request) }}
+              {% endif %}
+            </tbody>
+          {% endfor %}
+        </table>
+      </div>
+
+      <div class="d-md-none supply-mobile-list">
+        {% for group in supply_groups %}
+          {% set is_family = (group.kind == "family") %}
+          {% set base_row = group.row if not is_family else none %}
+          <section
+            class="supply-mobile-group{{ ' supply-mobile-group-family' if is_family else '' }}"
+            data-group-id="{{ group.id }}"
+            data-kind="{{ group.kind }}"
+            data-name="{{ group.search_text }}"
+            data-item-name="{{ (group.family_name if is_family else base_row.name)|lower }}"
+            data-family="{{ group.family_name|lower }}"
+            data-item-type="{{ group.item_type if is_family else base_row.item_type }}"
+            data-tracking-mode="{% if is_family %}{% if group.has_singleton_children and not group.has_quantity_children %}singleton_asset{% elif group.has_quantity_children and not group.has_singleton_children %}quantity{% else %}mixed{% endif %}{% else %}{{ base_row.tracking_mode }}{% endif %}"
+            data-coverage-key="{{ group.coverage_key if is_family else base_row.coverage_key }}"
+            data-missing-venues="{{ group.missing_count_venue_count if is_family else base_row.missing_count_venue_count }}"
+            data-below-par="{{ 'true' if is_family and group.worst_attention_level in ['warning', 'critical'] else ('true' if not is_family and base_row.is_below_par else 'false') }}"
+            data-par-ratio="{% if is_family and group.par_ratio is not none %}{{ group.par_ratio }}{% elif not is_family and base_row.par_ratio is not none %}{{ base_row.par_ratio }}{% endif %}"
+            data-last-updated="{% if is_family and group.last_updated_timestamp is not none %}{{ group.last_updated_timestamp }}{% elif not is_family and base_row.last_updated_timestamp is not none %}{{ base_row.last_updated_timestamp }}{% endif %}"
+            data-attention-level="{{ group.worst_attention_level if is_family else base_row.attention_level }}"
+          >
+            {% if is_family %}
+              <article class="supply-mobile-family-card supply-mobile-family-card-{{ group.worst_attention_level }}">
+                <button
+                  class="supply-mobile-family-button"
+                  type="button"
+                  data-family-toggle
+                  aria-expanded="false"
+                  aria-controls="{{ group.id }}-mobile-children"
+                >
+                  <div class="supply-mobile-family-head">
+                    <div class="supply-mobile-family-title">
+                      {{ item_ui.item_heading(
+                        group.family_name,
+                        is_group_parent=True,
+                        compact=True
+                      ) }}
+                    </div>
+                    <i class="bi bi-chevron-down supply-family-summary-icon" aria-hidden="true"></i>
+                  </div>
+                  <div class="supply-mobile-family-subtitle">
+                    <span class="inventory-item-badge inventory-item-badge-{{ group.tracking_badge_kind }} supply-family-model-badge">
+                      {% if group.tracking_badge_kind == "asset" %}
+                        <i class="bi bi-shield-check" aria-hidden="true"></i>
+                      {% elif group.tracking_badge_kind == "quantity" %}
+                        <i class="bi bi-123" aria-hidden="true"></i>
+                      {% else %}
+                        <i class="bi bi-diagram-3" aria-hidden="true"></i>
+                      {% endif %}
+                      <span>{{ group.tracking_summary }}</span>
+                    </span>
+                  </div>
+                  <div class="supply-mobile-family-metrics">
+                    <div class="supply-mobile-family-metric">
+                      <span class="supply-mobile-metric-label">Variants</span>
+                      <span class="supply-mobile-metric-value">{{ group.child_count }}</span>
+                    </div>
+                    <div class="supply-mobile-family-metric">
+                      <span class="supply-mobile-metric-label">Coverage</span>
+                      <span class="supply-coverage-pill supply-coverage-{{ group.coverage_key }}">{{ group.coverage_label }}</span>
+                    </div>
+                    <div class="supply-mobile-family-metric">
+                      <span class="supply-mobile-metric-label">Updated</span>
+                      <span class="supply-mobile-family-updated">{{ group.last_count_updated_label.text }}</span>
+                    </div>
+                  </div>
+                  <div class="supply-mobile-family-progress">
+                    <span class="supply-par-meter supply-par-meter-{{ group.family_progress.tone }}" aria-label="{{ group.counted_summary }}">
+                      {% for is_filled in group.family_progress.segments %}
+                        <span class="supply-par-segment {{ 'is-filled' if is_filled else '' }}"></span>
+                      {% endfor %}
+                    </span>
+                    <div class="supply-mobile-family-progress-copy">
+                      <div class="supply-mobile-family-counted">{{ group.counted_summary }}</div>
+                      <div class="supply-family-summary-support supply-family-summary-support-{{ group.worst_attention_level }}">{{ group.issue_summary_short }}</div>
+                    </div>
+                  </div>
+                </button>
+                <div class="collapse supply-row-collapse supply-mobile-family-collapse" id="{{ group.id }}-mobile-children">
+                  <div class="supply-mobile-family-children">
+                    {% for row in group.children %}
+                      {% set detail_id = "supply-detail-mobile-" ~ row.id %}
+                      {{ audit.mobile_item_card(row, detail_id, request, nested=True) }}
+                    {% endfor %}
+                  </div>
+                </div>
+              </article>
+            {% else %}
+              {% set detail_id = "supply-detail-mobile-" ~ base_row.id %}
+              {{ audit.mobile_item_card(base_row, detail_id, request) }}
+            {% endif %}
+          </section>
+        {% endfor %}
+      </div>
+
+      <div class="alert alert-info mt-3 d-none" id="suppliesClientEmptyState">
+        No supplies match the current filters.
+      </div>
+    {% else %}
+      <div class="alert alert-info mb-0">
+        No supplies match the current filters.
+      </div>
+    {% endif %}
+  </div>
+</section>
+
+<script>
+  (() => {
+    const suppliesFilterForm = document.getElementById("suppliesFilterForm");
+    const suppliesSearch = document.getElementById("suppliesSearch");
+    const suppliesSort = document.getElementById("suppliesSort");
+    const suppliesQuickFilterInputs = Array.from(document.querySelectorAll(".supplies-filter-chip-input"));
+    const suppliesActiveFilters = document.getElementById("suppliesActiveFilters");
+    const suppliesActiveFilterList = document.getElementById("suppliesActiveFilterList");
+    const suppliesResultCount = document.getElementById("suppliesResultCount");
+    const suppliesEmptyState = document.getElementById("suppliesClientEmptyState");
+    const suppliesTable = document.querySelector(".supplies-audit-table");
+    const suppliesMobileList = document.querySelector(".supply-mobile-list");
+    const supplySearchDebounceMs = 200;
+    const quickFilterLabels = {
+      missing_counts: "Missing counts",
+      below_par: "Below par",
+      complete_coverage: "Complete coverage",
+      singleton_asset: "Singleton assets",
+      consumable: "Consumable",
+      durable: "Durable",
+    };
+
+    let supplySearchDebounceHandle = null;
+
+    function getSelectedQuickFilters() {
+      return suppliesQuickFilterInputs
+        .filter((input) => input.checked)
+        .map((input) => input.value);
+    }
+
+    function getSupplyDesktopGroups() {
+      return Array.from(document.querySelectorAll(".supply-group"));
+    }
+
+    function getSupplyMobileGroups() {
+      return Array.from(document.querySelectorAll(".supply-mobile-group"));
+    }
+
+    function hasWordBoundaryPrefix(text, query) {
+      if (!query) return false;
+      const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(^|\\W)${safeQuery}`).test(text);
+    }
+
+    function getSupplySearchRank(element, query) {
+      if (!query) return 0;
+      const itemText = (element.dataset.itemName || "").toLowerCase();
+      const familyText = (element.dataset.family || "").toLowerCase();
+      const searchText = (element.dataset.name || "").toLowerCase();
+      if (itemText.startsWith(query)) return 0;
+      if (hasWordBoundaryPrefix(itemText, query)) return 1;
+      if (itemText.includes(query)) return 2;
+      if (familyText.startsWith(query)) return 3;
+      if (hasWordBoundaryPrefix(familyText, query)) return 4;
+      if (familyText.includes(query)) return 5;
+      if (searchText.includes(query)) return 6;
+      return null;
+    }
+
+    function parseNumericData(element, key, fallbackValue) {
+      const rawValue = element.dataset[key] || "";
+      const parsedValue = Number(rawValue);
+      return Number.isFinite(parsedValue) ? parsedValue : fallbackValue;
+    }
+
+    function compareSupplyElements(a, b, sortKey, searchQuery) {
+      if (searchQuery) {
+        const rankA = getSupplySearchRank(a, searchQuery);
+        const rankB = getSupplySearchRank(b, searchQuery);
+        const normalizedRankA = rankA == null ? Number.POSITIVE_INFINITY : rankA;
+        const normalizedRankB = rankB == null ? Number.POSITIVE_INFINITY : rankB;
+        if (normalizedRankA !== normalizedRankB) return normalizedRankA - normalizedRankB;
+      }
+
+      const nameA = (a.dataset.itemName || "").toLowerCase();
+      const nameB = (b.dataset.itemName || "").toLowerCase();
+      const familyA = (a.dataset.family || nameA).toLowerCase();
+      const familyB = (b.dataset.family || nameB).toLowerCase();
+
+      if (sortKey === "missing_venues_desc") {
+        const missingA = parseNumericData(a, "missingVenues", Number.NEGATIVE_INFINITY);
+        const missingB = parseNumericData(b, "missingVenues", Number.NEGATIVE_INFINITY);
+        if (missingA !== missingB) return missingB - missingA;
+        return familyA.localeCompare(familyB) || nameA.localeCompare(nameB);
+      }
+
+      if (sortKey === "last_updated") {
+        const updatedA = parseNumericData(a, "lastUpdated", Number.NEGATIVE_INFINITY);
+        const updatedB = parseNumericData(b, "lastUpdated", Number.NEGATIVE_INFINITY);
+        if (updatedA !== updatedB) return updatedB - updatedA;
+        return familyA.localeCompare(familyB) || nameA.localeCompare(nameB);
+      }
+
+      if (sortKey === "item_name") {
+        return familyA.localeCompare(familyB) || nameA.localeCompare(nameB);
+      }
+
+      const ratioA = parseNumericData(a, "parRatio", Number.POSITIVE_INFINITY);
+      const ratioB = parseNumericData(b, "parRatio", Number.POSITIVE_INFINITY);
+      if (ratioA !== ratioB) return ratioA - ratioB;
+
+      const missingA = parseNumericData(a, "missingVenues", Number.NEGATIVE_INFINITY);
+      const missingB = parseNumericData(b, "missingVenues", Number.NEGATIVE_INFINITY);
+      if (missingA !== missingB) return missingB - missingA;
+
+      return familyA.localeCompare(familyB) || nameA.localeCompare(nameB);
+    }
+
+    function hasActiveSupplyFilters(searchQuery, quickFilters) {
+      return Boolean(searchQuery || quickFilters.length);
+    }
+
+    function elementMatchesFilters(element, searchQuery, quickFilters) {
+      if (searchQuery && getSupplySearchRank(element, searchQuery) === null) {
+        return false;
+      }
+
+      const typeFilters = quickFilters.filter((value) => value === "consumable" || value === "durable");
+      if (typeFilters.length && !typeFilters.includes(element.dataset.itemType || "")) {
+        return false;
+      }
+      if (quickFilters.includes("singleton_asset") && element.dataset.trackingMode !== "singleton_asset") {
+        return false;
+      }
+
+      if (quickFilters.includes("missing_counts")) {
+        const missingVenues = parseNumericData(element, "missingVenues", 0);
+        if (missingVenues <= 0) return false;
+      }
+
+      if (quickFilters.includes("below_par") && element.dataset.belowPar !== "true") {
+        return false;
+      }
+
+      if (quickFilters.includes("complete_coverage") && element.dataset.coverageKey !== "complete") {
+        return false;
+      }
+
+      return true;
+    }
+
+    function collapseIfHidden(toggleButton) {
+      const targetSelector = toggleButton?.getAttribute("data-bs-target");
+      if (!targetSelector) return;
+      const detailEl = document.querySelector(targetSelector);
+      if (!detailEl || !detailEl.classList.contains("show")) return;
+      const collapseInstance = window.bootstrap?.Collapse?.getOrCreateInstance(detailEl, { toggle: false });
+      collapseInstance?.hide();
+    }
+
+    function syncFamilyExpandedState(groupId, expanded) {
+      document.querySelectorAll(`[data-group-id="${groupId}"][data-kind="family"]`).forEach((groupEl) => {
+        groupEl.dataset.manuallyExpanded = expanded ? "true" : "false";
+      });
+    }
+
+    function getFamilyCollapseElement(groupEl) {
+      const toggleButton = groupEl.querySelector("[data-family-toggle]");
+      const controlsId = toggleButton?.getAttribute("aria-controls");
+      if (!controlsId) return null;
+      return document.getElementById(controlsId);
+    }
+
+    function updateFamilyExpansion(groupEl, expanded) {
+      const toggleButton = groupEl.querySelector("[data-family-toggle]");
+      const collapseEl = getFamilyCollapseElement(groupEl);
+      if (toggleButton) {
+        toggleButton.classList.toggle("is-open", expanded);
+        toggleButton.setAttribute("aria-expanded", expanded ? "true" : "false");
+      }
+      if (!collapseEl || !window.bootstrap?.Collapse) return;
+      const collapseInstance = window.bootstrap.Collapse.getOrCreateInstance(collapseEl, { toggle: false });
+      if (expanded) collapseInstance.show();
+      else collapseInstance.hide();
+    }
+
+    function setDesktopChildRowVisibility(row, showRow) {
+      const detailRow = row.dataset.detailRowId ? document.getElementById(row.dataset.detailRowId) : null;
+      row.hidden = !showRow;
+      if (detailRow) detailRow.hidden = !showRow;
+    }
+
+    function getDesktopStandaloneRow(groupEl) {
+      return groupEl.querySelector(".supply-audit-row:not(.supply-audit-row-child)");
+    }
+
+    function getDesktopChildRows(groupEl) {
+      return Array.from(groupEl.querySelectorAll(".supply-audit-row-child"));
+    }
+
+    function getMobileChildCards(groupEl) {
+      return Array.from(groupEl.querySelectorAll(".supply-mobile-card"));
+    }
+
+    function applyDesktopGroupState(groupEl, searchQuery, quickFilters) {
+      const isFamily = groupEl.dataset.kind === "family";
+      const childRows = getDesktopChildRows(groupEl);
+      const hasActiveFilters = hasActiveSupplyFilters(searchQuery, quickFilters);
+
+      if (!isFamily) {
+        const row = getDesktopStandaloneRow(groupEl);
+        const isVisible = row ? elementMatchesFilters(row, searchQuery, quickFilters) : false;
+        if (row) {
+          row.hidden = !isVisible;
+          const detailRow = row.dataset.detailRowId ? document.getElementById(row.dataset.detailRowId) : null;
+          if (detailRow) detailRow.hidden = !isVisible;
+          if (!isVisible) collapseIfHidden(row.querySelector(".supply-item-toggle"));
+        }
+        groupEl.hidden = !isVisible;
+        return isVisible ? 1 : 0;
+      }
+
+      const parentMatchesSearch = searchQuery
+        ? (((groupEl.dataset.itemName || "").toLowerCase().includes(searchQuery))
+          || ((groupEl.dataset.family || "").toLowerCase().includes(searchQuery)))
+        : false;
+      let visibleChildCount = 0;
+
+      childRows.forEach((row) => {
+        const matchesDirectly = elementMatchesFilters(row, searchQuery, quickFilters);
+        const matchesQuickFiltersOnly = elementMatchesFilters(row, "", quickFilters);
+        const isVisibleByFilter = !hasActiveFilters
+          ? true
+          : (parentMatchesSearch ? matchesQuickFiltersOnly : matchesDirectly);
+        row.dataset.filterVisible = isVisibleByFilter ? "true" : "false";
+        if (isVisibleByFilter) visibleChildCount += 1;
+      });
+
+      const groupVisible = !hasActiveFilters || parentMatchesSearch || visibleChildCount > 0;
+      groupEl.hidden = !groupVisible;
+      if (!groupVisible) {
+        childRows.forEach((row) => {
+          collapseIfHidden(row.querySelector(".supply-item-toggle"));
+          setDesktopChildRowVisibility(row, false);
+        });
+        updateFamilyExpansion(groupEl, false);
+        return 0;
+      }
+
+      const expanded = hasActiveFilters || groupEl.dataset.manuallyExpanded === "true";
+      childRows.forEach((row) => {
+        const isVisibleByFilter = row.dataset.filterVisible !== "false";
+        setDesktopChildRowVisibility(row, isVisibleByFilter);
+        if (!expanded || !isVisibleByFilter) collapseIfHidden(row.querySelector(".supply-item-toggle"));
+      });
+      updateFamilyExpansion(groupEl, expanded);
+
+      return hasActiveFilters ? visibleChildCount : childRows.length;
+    }
+
+    function applyMobileGroupState(groupEl, searchQuery, quickFilters) {
+      const isFamily = groupEl.dataset.kind === "family";
+      const childCards = getMobileChildCards(groupEl);
+      const hasActiveFilters = hasActiveSupplyFilters(searchQuery, quickFilters);
+
+      if (!isFamily) {
+        const card = childCards[0];
+        const isVisible = card ? elementMatchesFilters(card, searchQuery, quickFilters) : false;
+        if (card) {
+          card.hidden = !isVisible;
+          if (!isVisible) collapseIfHidden(card.querySelector(".supply-mobile-card-toggle"));
+        }
+        groupEl.hidden = !isVisible;
+        return isVisible ? 1 : 0;
+      }
+
+      const parentMatchesSearch = searchQuery
+        ? (((groupEl.dataset.itemName || "").toLowerCase().includes(searchQuery))
+          || ((groupEl.dataset.family || "").toLowerCase().includes(searchQuery)))
+        : false;
+      let visibleChildCount = 0;
+
+      childCards.forEach((card) => {
+        const matchesDirectly = elementMatchesFilters(card, searchQuery, quickFilters);
+        const matchesQuickFiltersOnly = elementMatchesFilters(card, "", quickFilters);
+        const isVisibleByFilter = !hasActiveFilters
+          ? true
+          : (parentMatchesSearch ? matchesQuickFiltersOnly : matchesDirectly);
+        card.dataset.filterVisible = isVisibleByFilter ? "true" : "false";
+        if (isVisibleByFilter) visibleChildCount += 1;
+      });
+
+      const groupVisible = !hasActiveFilters || parentMatchesSearch || visibleChildCount > 0;
+      groupEl.hidden = !groupVisible;
+      if (!groupVisible) {
+        childCards.forEach((card) => {
+          card.hidden = true;
+          collapseIfHidden(card.querySelector(".supply-mobile-card-toggle"));
+        });
+        updateFamilyExpansion(groupEl, false);
+        return 0;
+      }
+
+      const expanded = hasActiveFilters || groupEl.dataset.manuallyExpanded === "true";
+      childCards.forEach((card) => {
+        const isVisibleByFilter = card.dataset.filterVisible !== "false";
+        card.hidden = !isVisibleByFilter;
+        if (!expanded || !isVisibleByFilter) collapseIfHidden(card.querySelector(".supply-mobile-card-toggle"));
+      });
+      updateFamilyExpansion(groupEl, expanded);
+
+      return hasActiveFilters ? visibleChildCount : childCards.length;
+    }
+
+    function applyDesktopZebra(groups) {
+      let visibleIndex = 0;
+      groups.forEach((groupEl) => {
+        const summaryRow = groupEl.querySelector(".supply-family-summary-row");
+        const standaloneRow = groupEl.dataset.kind === "item" ? getDesktopStandaloneRow(groupEl) : null;
+        const topRow = summaryRow || standaloneRow;
+        if (!topRow) return;
+        topRow.classList.remove("is-zebra-alt");
+        if (groupEl.hidden) return;
+        if (visibleIndex % 2 === 1) {
+          topRow.classList.add("is-zebra-alt");
+        }
+        visibleIndex += 1;
+      });
+    }
+
+    function updateSuppliesResultCount(visibleCount) {
+      if (!suppliesResultCount) return;
+      const totalCount = Number(suppliesResultCount.dataset.total || visibleCount || 0);
+      suppliesResultCount.textContent = `Showing ${visibleCount} of ${totalCount} active items`;
+    }
+
+    function syncSupplyActionUrls() {
+      const nextValue = `${window.location.pathname}${window.location.search}`;
+      document.querySelectorAll("[data-supplies-base-href]").forEach((link) => {
+        const baseHref = link.getAttribute("data-supplies-base-href");
+        if (!baseHref) return;
+        const nextUrl = new URL(baseHref, window.location.origin);
+        nextUrl.searchParams.set("next", nextValue);
+        link.href = `${nextUrl.pathname}${nextUrl.search}`;
+      });
+    }
+
+    function syncSupplyUrl() {
+      const nextUrl = new URL(window.location.href);
+      const nextSearch = (suppliesSearch?.value || "").trim();
+      const nextSort = suppliesSort?.value || "par_ratio_asc";
+      const nextQuickFilters = getSelectedQuickFilters();
+
+      if (nextSearch) nextUrl.searchParams.set("q", nextSearch);
+      else nextUrl.searchParams.delete("q");
+
+      if (nextSort && nextSort !== "par_ratio_asc") nextUrl.searchParams.set("sort", nextSort);
+      else nextUrl.searchParams.delete("sort");
+
+      nextUrl.searchParams.delete("quick_filter");
+      nextQuickFilters.forEach((value) => {
+        nextUrl.searchParams.append("quick_filter", value);
+      });
+
+      nextUrl.searchParams.delete("item_type");
+      nextUrl.searchParams.delete("coverage");
+
+      window.history.replaceState({}, "", nextUrl);
+      syncSupplyActionUrls();
+    }
+
+    function renderActiveFilters() {
+      if (!suppliesActiveFilters || !suppliesActiveFilterList) return;
+
+      const activeItems = [];
+      const searchValue = (suppliesSearch?.value || "").trim();
+      const quickFilters = getSelectedQuickFilters();
+
+      if (searchValue) {
+        activeItems.push({ type: "search", value: searchValue, label: `Search: ${searchValue}` });
+      }
+
+      quickFilters.forEach((value) => {
+        activeItems.push({ type: "quick_filter", value, label: quickFilterLabels[value] || value });
+      });
+
+      suppliesActiveFilterList.innerHTML = "";
+      suppliesActiveFilters.classList.toggle("d-none", activeItems.length === 0);
+
+      activeItems.forEach((item) => {
+        const button = document.createElement("button");
+        const labelSpan = document.createElement("span");
+        const icon = document.createElement("i");
+        button.type = "button";
+        button.className = "supplies-active-filter-pill";
+        button.setAttribute("data-filter-type", item.type);
+        button.setAttribute("data-filter-value", item.value);
+        button.setAttribute("aria-label", `Remove ${item.label} filter`);
+        labelSpan.textContent = item.label;
+        icon.className = "bi bi-x-lg";
+        icon.setAttribute("aria-hidden", "true");
+        button.appendChild(labelSpan);
+        button.appendChild(icon);
+        suppliesActiveFilterList.appendChild(button);
+      });
+    }
+
+    function applySupplyLiveView() {
+      const searchQuery = (suppliesSearch?.value || "").trim().toLowerCase();
+      const sortKey = suppliesSort?.value || "par_ratio_asc";
+      const quickFilters = getSelectedQuickFilters();
+      const desktopGroups = getSupplyDesktopGroups();
+      const mobileGroups = getSupplyMobileGroups();
+
+      desktopGroups.sort((a, b) => compareSupplyElements(a, b, sortKey, searchQuery));
+      mobileGroups.sort((a, b) => compareSupplyElements(a, b, sortKey, searchQuery));
+
+      if (suppliesTable) {
+        desktopGroups.forEach((groupEl) => {
+          suppliesTable.appendChild(groupEl);
+        });
+      }
+
+      if (suppliesMobileList) {
+        mobileGroups.forEach((groupEl) => {
+          suppliesMobileList.appendChild(groupEl);
+        });
+      }
+
+      let visibleDesktopCount = 0;
+      desktopGroups.forEach((groupEl) => {
+        visibleDesktopCount += applyDesktopGroupState(groupEl, searchQuery, quickFilters);
+      });
+      applyDesktopZebra(desktopGroups);
+
+      let visibleMobileCount = 0;
+      mobileGroups.forEach((groupEl) => {
+        visibleMobileCount += applyMobileGroupState(groupEl, searchQuery, quickFilters);
+      });
+
+      const visibleCount = window.matchMedia("(max-width: 767.98px)").matches ? visibleMobileCount : visibleDesktopCount;
+      if (suppliesEmptyState) {
+        suppliesEmptyState.classList.toggle("d-none", visibleCount > 0);
+      }
+
+      updateSuppliesResultCount(visibleCount);
+      renderActiveFilters();
+      syncSupplyUrl();
+    }
+
+    function queueSupplyLiveView(immediate = false) {
+      if (supplySearchDebounceHandle) {
+        window.clearTimeout(supplySearchDebounceHandle);
+        supplySearchDebounceHandle = null;
+      }
+      if (immediate) {
+        applySupplyLiveView();
+        return;
+      }
+      supplySearchDebounceHandle = window.setTimeout(() => {
+        applySupplyLiveView();
+      }, supplySearchDebounceMs);
+    }
+
+    if (suppliesFilterForm) {
+      suppliesFilterForm.classList.add("is-live");
+      suppliesFilterForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        queueSupplyLiveView(true);
+      });
+    }
+
+    if (suppliesSearch) {
+      suppliesSearch.addEventListener("input", () => {
+        queueSupplyLiveView(false);
+      });
+    }
+
+    if (suppliesSort) {
+      suppliesSort.addEventListener("change", () => {
+        queueSupplyLiveView(true);
+      });
+    }
+
+    suppliesQuickFilterInputs.forEach((input) => {
+      input.addEventListener("change", () => {
+        queueSupplyLiveView(true);
+      });
+    });
+
+    suppliesActiveFilterList?.addEventListener("click", (event) => {
+      const button = event.target.closest(".supplies-active-filter-pill");
+      if (!button) return;
+
+      const filterType = button.getAttribute("data-filter-type");
+      const filterValue = button.getAttribute("data-filter-value") || "";
+
+      if (filterType === "search" && suppliesSearch) {
+        suppliesSearch.value = "";
+      }
+
+      if (filterType === "quick_filter") {
+        const matchingInput = suppliesQuickFilterInputs.find((input) => input.value === filterValue);
+        if (matchingInput) matchingInput.checked = false;
+      }
+
+      queueSupplyLiveView(true);
+    });
+
+    document.querySelectorAll("[data-family-toggle]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const groupEl = button.closest("[data-group-id][data-kind='family']");
+        if (!groupEl) return;
+        const isExpanded = groupEl.dataset.manuallyExpanded === "true";
+        syncFamilyExpandedState(groupEl.dataset.groupId, !isExpanded);
+        applySupplyLiveView();
+      });
+    });
+
+    suppliesTable?.addEventListener("click", (event) => {
+      if (event.target.closest("button, a, input, select, textarea, label")) return;
+
+      const row = event.target.closest(".supply-audit-row-clickable");
+      if (!row || row.hidden) return;
+
+      if (row.dataset.rowToggleFamily === "true") {
+        row.querySelector("[data-family-toggle]")?.click();
+        return;
+      }
+
+      row.querySelector(".supply-item-toggle")?.click();
+    });
+
+    document.querySelectorAll(".supply-item-toggle, .supply-mobile-card-toggle").forEach((button) => {
+      const targetSelector = button.getAttribute("data-bs-target");
+      if (!targetSelector) return;
+      const detailEl = document.querySelector(targetSelector);
+      if (!detailEl) return;
+      const icon = button.querySelector(".supply-item-toggle-icon");
+
+      detailEl.addEventListener("shown.bs.collapse", () => {
+        button.classList.add("is-open");
+        if (icon) icon.classList.add("is-open");
+      });
+      detailEl.addEventListener("hidden.bs.collapse", () => {
+        button.classList.remove("is-open");
+        if (icon) icon.classList.remove("is-open");
+      });
+    });
+
+    syncSupplyActionUrls();
+    renderActiveFilters();
+    applySupplyLiveView();
+  })();
+</script>
+{% endblock %}

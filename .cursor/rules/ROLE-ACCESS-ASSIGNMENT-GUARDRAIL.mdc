@@ -9,7 +9,7 @@ For every new feature, route, action, or UI control, assign access by role befor
 
 ## Canonical roles
 - `viewer`: read-only access; cannot create/update/delete.
-- `staff`: operational updates (statuses, raw counts, routine supply updates).
+- `staff`: operational updates (statuses, counts, routine supply updates).
 - `admin`: full management (admin pages, add/edit/delete venues/items, user/account management).
 
 ## Required implementation pattern

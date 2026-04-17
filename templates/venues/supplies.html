@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_item_macros.html" as item_ui %}
 {% block title %}{{ venue.name }} Supplies{% endblock %}
 
 {% block content %}
@@ -12,11 +13,14 @@
 </div>
 <div class="mb-3">
   <h1 class="h3 mb-0 fw-bold text-aolrc-purple page-heading">{{ venue.name }}</h1>
-  <div class="text-muted">Select which supplies are tracked in this venue.</div>
+  <div class="text-muted">Select which tracked items belong in this venue. Family organizer rows stay out of this list so staff only assign the actual counted child items.</div>
 </div>
 
 <div class="card">
   <div class="card-body">
+    <div class="alert alert-light border item-assignment-note mb-3">
+      Quantity items stay count-first. Singleton assets are still assigned here, but staff will check them by presence and condition instead of low-stock counts.
+    </div>
     <form method="post" id="venue-supplies-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="next" value="{{ next_url }}">
@@ -26,7 +30,8 @@
             <tr>
               <th style="width:60px;">Track</th>
               <th>Item</th>
-              <th style="width:160px;">Type</th>
+              <th style="width:140px;">Mode</th>
+              <th style="width:140px;">Category</th>
             </tr>
           </thead>
           <tbody>
@@ -36,14 +41,24 @@
                 <input class="form-check-input" type="checkbox" name="item_ids" value="{{ it.id }}"
                   {% if it.id in active_item_ids %}checked{% endif %}>
               </td>
-              <td>{{ it.name }}</td>
               <td>
-                {% if it.item_type == "durable" %}
-                  <span class="badge bg-primary">Durable</span>
-                {% else %}
-                  <span class="badge bg-warning text-dark">Consumable</span>
-                {% endif %}
+                {{ item_ui.item_heading(
+                  it.name,
+                  parent_name=it.parent_item.name if it.parent_item else none,
+                  note="Presence-tracked asset" if it.tracking_mode == "singleton_asset" else none,
+                  compact=True
+                ) }}
+                <div class="mt-2">
+                  {{ item_ui.structure_badges(
+                    tracking_mode=it.tracking_mode,
+                    parent_name=it.parent_item.name if it.parent_item else none,
+                    show_category=False,
+                    compact=True
+                  ) }}
+                </div>
               </td>
+              <td>{{ item_ui.structure_badges(tracking_mode=it.tracking_mode, show_kind=False, show_category=False, compact=True) }}</td>
+              <td>{{ item_ui.structure_badges(item_category=(it.item_category or it.item_type), show_tracking=False, show_kind=False, compact=True) }}</td>
             </tr>
             {% endfor %}
           </tbody>

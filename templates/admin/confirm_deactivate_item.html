@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_item_macros.html" as item_ui %}
 {% block title %}Confirm Deactivate{% endblock %}
 
 {% block content %}
@@ -8,8 +9,21 @@
   <div class="card-body">
     <p class="mb-2">
       You are about to deactivate:
-      <strong>{{ item.name }}</strong>
     </p>
+    {{ item_ui.item_heading(
+      item.name,
+      parent_name=item.parent_item.name if item.parent_item else none,
+      is_group_parent=item.is_group_parent,
+      child_count=item.child_items|length if item.is_group_parent else none
+    ) }}
+    <div class="mt-2 mb-3">
+      {{ item_ui.structure_badges(
+        tracking_mode=item.tracking_mode,
+        item_category=(item.item_category or item.item_type),
+        parent_name=item.parent_item.name if item.parent_item else none,
+        is_group_parent=item.is_group_parent
+      ) }}
+    </div>
 
     {% if venues %}
       <div class="alert alert-warning">
