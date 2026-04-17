@@ -30,6 +30,7 @@
       <div class="navbar-nav">
         {% if current_user.is_authenticated %}
           <a class="nav-link" href="{{ url_for('main.dashboard') }}">Dashboard</a>
+          <a class="nav-link" href="{{ url_for('supplies.index') }}">Supplies</a>
           <a class="nav-link" href="{{ url_for('main.venues') }}">Venues</a>
           <a class="nav-link" href="{{ url_for('auth.account') }}">Account</a>
           {% if current_user.is_admin %}
@@ -42,7 +43,7 @@
       {% if current_user.is_authenticated %}
         <form method="post" action="{{ url_for('auth.logout') }}" class="m-0">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button class="btn btn-sm btn-outline-light">Sign Out</button>
+          <button class="btn btn-sm btn-outline-light ui-control-sm">Sign Out</button>
         </form>
       {% endif %}
     </div>
@@ -61,6 +62,9 @@
       {% if current_user.is_authenticated %}
         <a class="nav-link text-white px-0" href="{{ url_for('main.dashboard') }}">
           Dashboard
+        </a>
+        <a class="nav-link text-white px-0" href="{{ url_for('supplies.index') }}">
+          Supplies
         </a>
         <a class="nav-link text-white px-0" href="{{ url_for('main.venues') }}">
           Venues
@@ -92,7 +96,7 @@
     {% if current_user.is_authenticated %}
       <form method="post" action="{{ url_for('auth.logout') }}" class="mt-3">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-outline-light w-100" type="submit">Sign Out</button>
+        <button class="btn btn-outline-light ui-control w-100" type="submit">Sign Out</button>
       </form>
     {% endif %}
   </div>
@@ -142,9 +146,11 @@
     const COUNT_ORDER = ["good", "ok", "low", "out", "not_checked"];
     const hoverMq = window.matchMedia("(hover: hover) and (pointer: fine)");
     const instances = new WeakMap();
-    const hideTimers = new WeakMap();
     let documentClickBound = false;
     let documentKeyBound = false;
+    let activeButton = null;
+    let pinnedButton = null;
+    let hideTimerId = null;
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -209,30 +215,29 @@
       `;
     }
 
-    function hideTimer(button) {
-      const timer = hideTimers.get(button);
-      if (timer) {
-        window.clearTimeout(timer);
-        hideTimers.delete(button);
+    function clearHideTimer() {
+      if (hideTimerId) {
+        window.clearTimeout(hideTimerId);
+        hideTimerId = null;
       }
     }
 
     function scheduleHide(button) {
-      hideTimer(button);
-      hideTimers.set(button, window.setTimeout(() => {
-        if (shouldKeepOpenForHover(button)) return;
-        const instance = instances.get(button);
-        instance?.hide();
-      }, 120));
+      clearHideTimer();
+      if (!button || pinnedButton === button) return;
+      hideTimerId = window.setTimeout(() => {
+        if (shouldKeepOpen(button)) return;
+        closePopover(button);
+      }, 120);
     }
 
     function isPinned(button) {
-      return button.dataset.statusPopoverPinned === "true";
+      return pinnedButton === button;
     }
 
     function setPinned(button, value) {
+      if (!button) return;
       button.dataset.statusPopoverPinned = value ? "true" : "false";
-      button.setAttribute("aria-expanded", value ? "true" : "false");
     }
 
     function isHoverMode() {
@@ -255,8 +260,16 @@
       return button.dataset.statusPopoverTipHovering === "true";
     }
 
-    function shouldKeepOpenForHover(button) {
-      return isHoverMode() && !isPinned(button) && (
+    function setExpanded(button, value) {
+      if (!button) return;
+      button.setAttribute("aria-expanded", value ? "true" : "false");
+    }
+
+    function shouldKeepOpen(button) {
+      if (!button) return false;
+      if (pinnedButton === button) return true;
+      if (!isHoverMode()) return false;
+      return (
         isHovering(button) ||
         isTipHovering(button) ||
         button.matches(":hover") ||
@@ -264,26 +277,44 @@
       );
     }
 
-    function showPopover(button) {
-      hideTimer(button);
-      hideAllExcept(button);
-      instances.get(button)?.show();
+    function resetInteractionState(button) {
+      if (!button) return;
+      setHovering(button, false);
+      setTipHovering(button, false);
     }
 
-    function hidePopover(button) {
-      hideTimer(button);
+    function closePopover(button) {
+      if (!button) return;
+      clearHideTimer();
+      if (activeButton === button) activeButton = null;
+      if (pinnedButton === button) pinnedButton = null;
+      resetInteractionState(button);
       setPinned(button, false);
+      setExpanded(button, false);
       instances.get(button)?.hide();
     }
 
-    function hideAllExcept(exceptButton) {
+    function closeAllPopovers(exceptButton = null) {
       document.querySelectorAll("[data-status-popover]").forEach((button) => {
         if (button !== exceptButton) {
-          hideTimer(button);
-          setPinned(button, false);
-          instances.get(button)?.hide();
+          closePopover(button);
         }
       });
+    }
+
+    function openPopover(button, { pinned = false } = {}) {
+      if (!button) return;
+      clearHideTimer();
+      if (activeButton && activeButton !== button) {
+        closePopover(activeButton);
+      }
+      activeButton = button;
+      pinnedButton = pinned ? button : null;
+      document.querySelectorAll("[data-status-popover]").forEach((otherButton) => {
+        setPinned(otherButton, otherButton === pinnedButton);
+        setExpanded(otherButton, otherButton === button);
+      });
+      instances.get(button)?.show();
     }
 
     function ensureDocumentHandlers() {
@@ -291,14 +322,14 @@
         document.addEventListener("click", (event) => {
           if (event.target.closest("[data-status-popover]")) return;
           if (event.target.closest(".status-popover-shell")) return;
-          hideAllExcept(null);
+          closeAllPopovers();
         });
         documentClickBound = true;
       }
 
       if (!documentKeyBound) {
         document.addEventListener("keydown", (event) => {
-          if (event.key === "Escape") hideAllExcept(null);
+          if (event.key === "Escape") closeAllPopovers();
         });
         documentKeyBound = true;
       }
@@ -318,53 +349,40 @@
       });
       instances.set(button, instance);
       setPinned(button, false);
+      setExpanded(button, false);
       setHovering(button, false);
       setTipHovering(button, false);
 
       button.addEventListener("mouseenter", () => {
         setHovering(button, true);
-        if (!isHoverMode() || isPinned(button)) return;
-        showPopover(button);
+        if (!isHoverMode()) return;
+        if (pinnedButton && pinnedButton !== button) return;
+        openPopover(button, { pinned: pinnedButton === button });
       });
       button.addEventListener("mouseleave", () => {
         setHovering(button, false);
-        if (!isHoverMode() || isPinned(button)) return;
+        if (!isHoverMode() || pinnedButton === button) return;
         scheduleHide(button);
       });
       button.addEventListener("focus", () => {
-        if (!isHoverMode() || isPinned(button)) return;
-        showPopover(button);
+        if (!isHoverMode()) return;
+        if (pinnedButton && pinnedButton !== button) return;
+        openPopover(button, { pinned: pinnedButton === button });
       });
       button.addEventListener("blur", () => {
-        if (!isHoverMode() || isPinned(button)) return;
+        if (!isHoverMode() || pinnedButton === button) return;
         scheduleHide(button);
       });
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        const isShown = button.getAttribute("aria-describedby");
-        hideTimer(button);
-        if (isHoverMode()) {
-          if (isPinned(button)) {
-            hidePopover(button);
-            return;
-          }
-          if (isShown) {
-            setPinned(button, true);
-            return;
-          }
-          setPinned(button, true);
-          showPopover(button);
+        clearHideTimer();
+        const isShown = activeButton === button && Boolean(button.getAttribute("aria-describedby"));
+        if (isShown && pinnedButton === button) {
+          closePopover(button);
           return;
         }
-
-        if (isShown) {
-          hidePopover(button);
-          return;
-        }
-
-        setPinned(button, true);
-        showPopover(button);
+        openPopover(button, { pinned: true });
       });
       button.addEventListener("shown.bs.popover", () => {
         const tipId = button.getAttribute("aria-describedby");
@@ -373,20 +391,21 @@
         tip.dataset.statusPopoverBound = "true";
         tip.addEventListener("mouseenter", () => {
           setTipHovering(button, true);
-          hideTimer(button);
+          clearHideTimer();
         });
         tip.addEventListener("mouseleave", () => {
           setTipHovering(button, false);
-          if (!isHoverMode() || isPinned(button)) return;
+          if (!isHoverMode() || pinnedButton === button) return;
           scheduleHide(button);
         });
       });
       button.addEventListener("hidden.bs.popover", () => {
-        hideTimer(button);
+        clearHideTimer();
+        if (activeButton === button) activeButton = null;
+        if (pinnedButton === button) pinnedButton = null;
+        resetInteractionState(button);
         setPinned(button, false);
-        if (shouldKeepOpenForHover(button)) {
-          window.requestAnimationFrame(() => showPopover(button));
-        }
+        setExpanded(button, false);
       });
     }
 

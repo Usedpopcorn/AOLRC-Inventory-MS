@@ -5,9 +5,11 @@ from urllib.parse import urljoin, urlparse
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import current_user
 from sqlalchemy import func, and_, or_, select, union_all, literal, cast, Integer, String, case
+from sqlalchemy.orm import aliased
 from app import db
 from app.authz import roles_required
 from app.models import Venue, VenueItem, VenueNote, Item, Check, CheckLine, CountSession, CountLine, User
+from app.services.venue_profile import build_venue_profile_view_model
 
 main_bp = Blueprint("main", __name__)
 RESTOCK_PAGE_SIZE = 50
@@ -28,7 +30,7 @@ ACTIVITY_TYPE_META = {
         "badge_class": "activity-type-status",
     },
     "raw_count": {
-        "text": "Raw Count",
+        "text": "Count",
         "icon_class": "bi-123",
         "badge_class": "activity-type-count",
     },
@@ -80,6 +82,80 @@ def normalize_status(status):
     return value
 
 
+def restock_status_meta_for_item(status_key, tracking_mode):
+    base_meta = RESTOCK_STATUS_META[status_key]
+    if tracking_mode == "singleton_asset":
+        asset_labels = {
+            "good": "Present",
+            "ok": "Present",
+            "low": "Damaged",
+            "out": "Missing",
+            "not_checked": "Not Checked",
+        }
+        return {
+            "text": asset_labels.get(status_key, base_meta["text"]),
+            "icon_class": base_meta["icon_class"],
+        }
+    return base_meta
+
+
+def build_status_detail_counts():
+    return {
+        "low_quantity": 0,
+        "low_singleton": 0,
+        "out_quantity": 0,
+        "out_singleton": 0,
+    }
+
+
+def build_overall_status_badge(total_tracked, counts, detail_counts=None):
+    if total_tracked <= 0:
+        return {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
+
+    detail_counts = detail_counts or build_status_detail_counts()
+    checked_count = total_tracked - counts["not_checked"]
+
+    if counts["out"] > 0:
+        out_count = counts["out"]
+        if detail_counts["out_singleton"] > 0 and detail_counts["out_quantity"] == 0:
+            label = "item missing" if out_count == 1 else "items missing"
+            return {"key": "out", "text": f"{out_count} {label}", "icon_class": "bi-x-circle-fill"}
+        if detail_counts["out_singleton"] > 0 and detail_counts["out_quantity"] > 0:
+            label = "item needs attention" if out_count == 1 else "items need attention"
+            return {"key": "out", "text": f"{out_count} {label}", "icon_class": "bi-x-circle-fill"}
+        label = "item out of stock" if out_count == 1 else "items out of stock"
+        return {"key": "out", "text": f"{out_count} {label}", "icon_class": "bi-x-circle-fill"}
+
+    if counts["low"] > 0:
+        low_count = counts["low"]
+        if detail_counts["low_singleton"] > 0 and detail_counts["low_quantity"] == 0:
+            label = "item damaged" if low_count == 1 else "items damaged"
+            return {
+                "key": "low",
+                "text": f"{low_count} {label}",
+                "icon_class": "bi-exclamation-triangle-fill",
+            }
+        if detail_counts["low_singleton"] > 0 and detail_counts["low_quantity"] > 0:
+            label = "item needs attention" if low_count == 1 else "items need attention"
+            return {
+                "key": "low",
+                "text": f"{low_count} {label}",
+                "icon_class": "bi-exclamation-triangle-fill",
+            }
+        label = "item low" if low_count == 1 else "items low"
+        return {
+            "key": "low",
+            "text": f"{low_count} {label}",
+            "icon_class": "bi-exclamation-triangle-fill",
+        }
+
+    if checked_count > 0 and counts["ok"] > 0 and (counts["ok"] * 2 >= checked_count):
+        return {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
+    if counts["good"] > 0:
+        return {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
+    return {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
+
+
 def _word_boundary_match(text, query):
     return bool(re.search(rf"(^|\W){re.escape(query)}", text))
 
@@ -89,8 +165,10 @@ def restock_search_rank(row, search_query):
         return 0
 
     item_text = (row.get("item_name") or "").lower()
+    family_text = (row.get("parent_name") or "").lower()
     venue_text = (row.get("venue_name") or "").lower()
     status_text = (row.get("status", {}).get("text") or "").lower()
+    tracking_text = ("asset" if row.get("tracking_mode") == "singleton_asset" else "quantity")
 
     if item_text.startswith(search_query):
         return 0
@@ -98,16 +176,24 @@ def restock_search_rank(row, search_query):
         return 1
     if search_query in item_text:
         return 2
-    if venue_text.startswith(search_query):
+    if family_text.startswith(search_query):
         return 3
-    if _word_boundary_match(venue_text, search_query):
+    if _word_boundary_match(family_text, search_query):
         return 4
-    if search_query in venue_text:
+    if search_query in family_text:
         return 5
-    if status_text.startswith(search_query):
+    if venue_text.startswith(search_query):
         return 6
-    if search_query in status_text:
+    if _word_boundary_match(venue_text, search_query):
         return 7
+    if search_query in venue_text:
+        return 8
+    if tracking_text.startswith(search_query) or search_query in tracking_text:
+        return 9
+    if status_text.startswith(search_query):
+        return 10
+    if search_query in status_text:
+        return 11
     return None
 
 
@@ -216,15 +302,15 @@ def serialize_activity_row(row):
     new_raw_count = row["new_raw_count"]
     if previous_raw_count is None:
         old_value_text = "No prior count"
-        detail_text = f"Initial raw count recorded as {new_raw_count}"
+        detail_text = f"Initial count recorded as {new_raw_count}"
     else:
         old_value_text = str(previous_raw_count)
-        detail_text = f"Raw count changed from {previous_raw_count} to {new_raw_count}"
+        detail_text = f"Count changed from {previous_raw_count} to {new_raw_count}"
 
     new_value_text = str(new_raw_count)
     search_text = " ".join(
         [
-            "raw count",
+            "count",
             row["venue_name"] or "",
             row["item_name"] or "",
             actor_name,
@@ -717,6 +803,7 @@ def build_venue_rows(include_inactive=False):
                 VenueItem.venue_id.in_(venue_ids),
                 VenueItem.active == True,
                 Item.active == True,
+                Item.is_group_parent == False,
             )
             .group_by(VenueItem.venue_id)
             .all()
@@ -747,10 +834,12 @@ def build_venue_rows(include_inactive=False):
     )
 
     latest_status_counts = {}
+    latest_status_detail_counts = {}
     for row in (
         db.session.query(
             latest_check_sq.c.venue_id.label("venue_id"),
             CheckLine.status.label("status"),
+            Item.tracking_mode.label("tracking_mode"),
             func.count(CheckLine.id).label("status_count"),
         )
         .join(CheckLine, CheckLine.check_id == latest_check_sq.c.latest_check_id)
@@ -763,11 +852,17 @@ def build_venue_rows(include_inactive=False):
             ),
         )
         .join(Item, Item.id == VenueItem.item_id)
-        .filter(Item.active == True)
-        .group_by(latest_check_sq.c.venue_id, CheckLine.status)
+        .filter(Item.active == True, Item.is_group_parent == False)
+        .group_by(latest_check_sq.c.venue_id, CheckLine.status, Item.tracking_mode)
         .all()
     ):
-        latest_status_counts.setdefault(row.venue_id, {})[normalize_status(row.status)] = row.status_count
+        normalized_status = normalize_status(row.status)
+        latest_status_counts.setdefault(row.venue_id, {}).setdefault(normalized_status, 0)
+        latest_status_counts[row.venue_id][normalized_status] += row.status_count
+        if normalized_status in {"low", "out"}:
+            detail_counts = latest_status_detail_counts.setdefault(row.venue_id, build_status_detail_counts())
+            suffix = "singleton" if row.tracking_mode == "singleton_asset" else "quantity"
+            detail_counts[f"{normalized_status}_{suffix}"] += row.status_count
 
     last_updated_map = build_venue_last_updated_map(venue_ids)
     venue_rows = []
@@ -775,6 +870,7 @@ def build_venue_rows(include_inactive=False):
     for v in venues:
         total_tracked = tracked_totals.get(v.id, 0)
         counts = {"good": 0, "ok": 0, "low": 0, "out": 0, "not_checked": 0}
+        detail_counts = latest_status_detail_counts.get(v.id, build_status_detail_counts()).copy()
         notes_count = int(notes_count_map.get(v.id, 0) or 0)
         last_updated_at = last_updated_map.get(v.id)
         freshness = format_updated_label(last_updated_at)
@@ -815,26 +911,7 @@ def build_venue_rows(include_inactive=False):
             if counted < total_tracked:
                 counts["not_checked"] += (total_tracked - counted)
 
-        checked_count = total_tracked - counts["not_checked"]
-
-        if counts["out"] > 0:
-            out_count = counts["out"]
-            out_label = "Item" if out_count == 1 else "Items"
-            text = f"{out_count} {out_label} out of stock"
-            badge = {"key": "out", "text": text, "icon_class": "bi-x-circle-fill"}
-        elif counts["low"] > 0:
-            low_count = counts["low"]
-            low_label = "Item" if low_count == 1 else "Items"
-            text = f"{low_count} {low_label} Low"
-            badge = {"key": "low", "text": text, "icon_class": "bi-exclamation-triangle-fill"}
-        elif checked_count > 0 and counts["ok"] > 0 and (counts["ok"] * 2 >= checked_count):
-            badge = {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
-        elif counts["good"] > 0:
-            badge = {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
-
-        # only when all tracked items are not checked
-        else:
-            badge = {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
+        badge = build_overall_status_badge(total_tracked, counts, detail_counts)
 
         tooltip = (
             f"Total tracked: {total_tracked} | "
@@ -898,6 +975,7 @@ def build_restock_rows(
         .group_by(Check.venue_id)
         .subquery()
     )
+    parent_item = aliased(Item)
 
     query = (
         db.session.query(
@@ -905,12 +983,16 @@ def build_restock_rows(
             Venue.name.label("venue_name"),
             Item.id.label("item_id"),
             Item.name.label("item_name"),
+            Item.tracking_mode.label("tracking_mode"),
+            Item.item_category.label("item_category"),
+            parent_item.name.label("parent_name"),
             Check.created_at.label("latest_check_at"),
             CheckLine.status.label("line_status"),
         )
         .select_from(VenueItem)
         .join(Venue, Venue.id == VenueItem.venue_id)
         .join(Item, Item.id == VenueItem.item_id)
+        .outerjoin(parent_item, parent_item.id == Item.parent_item_id)
         .outerjoin(latest_check_sq, latest_check_sq.c.venue_id == Venue.id)
         .outerjoin(Check, Check.id == latest_check_sq.c.latest_check_id)
         .outerjoin(
@@ -924,6 +1006,7 @@ def build_restock_rows(
             VenueItem.active == True,
             Venue.active == True,
             Item.active == True,
+            Item.is_group_parent == False,
         )
     )
 
@@ -942,13 +1025,17 @@ def build_restock_rows(
         if status_key not in selected_statuses_set:
             continue
 
-        meta = RESTOCK_STATUS_META[status_key]
+        tracking_mode = row.tracking_mode or "quantity"
+        meta = restock_status_meta_for_item(status_key, tracking_mode)
         rows.append(
             {
                 "venue_id": row.venue_id,
                 "venue_name": row.venue_name,
                 "item_id": row.item_id,
                 "item_name": row.item_name,
+                "parent_name": row.parent_name,
+                "tracking_mode": tracking_mode,
+                "item_category": row.item_category,
                 "latest_check_at": row.latest_check_at,
                 "status": {
                     "key": status_key,
@@ -960,22 +1047,25 @@ def build_restock_rows(
 
     status_rank = {"out": 0, "low": 1, "ok": 2, "good": 3, "not_checked": 4}
     def base_sort_key(row):
+        family_name = (row.get("parent_name") or row["item_name"]).lower()
         if sort_mode == "venue":
-            return (row["venue_name"].lower(), row["item_name"].lower())
+            return (row["venue_name"].lower(), family_name, row["item_name"].lower())
         if sort_mode == "status_priority":
             return (
                 status_rank.get(row["status"]["key"], 99),
                 row["venue_name"].lower(),
+                family_name,
                 row["item_name"].lower(),
             )
         if sort_mode == "last_checked":
             return (
                 1 if row["latest_check_at"] is None else 0,
                 -(row["latest_check_at"].timestamp()) if row["latest_check_at"] else 0,
+                family_name,
                 row["item_name"].lower(),
                 row["venue_name"].lower(),
             )
-        return (row["item_name"].lower(), row["venue_name"].lower())
+        return (family_name, row["item_name"].lower(), row["venue_name"].lower())
 
     if search_query:
         ranked_rows = []
@@ -1007,6 +1097,9 @@ def serialize_restock_row(row, next_path):
         "venue_name": row["venue_name"],
         "item_id": row["item_id"],
         "item_name": row["item_name"],
+        "parent_name": row.get("parent_name"),
+        "tracking_mode": row.get("tracking_mode", "quantity"),
+        "item_category": row.get("item_category"),
         "latest_check_ts": latest_check_at.timestamp() if latest_check_at else None,
         "latest_check_text": (
             latest_check_at.strftime("%Y-%m-%d %I:%M %p") if latest_check_at else "No check yet"
@@ -1150,6 +1243,7 @@ def dashboard():
             Item.active == True,
             VenueItem.active == True,
             Venue.active == True,
+            Item.is_group_parent == False,
         )
         .group_by(Item.id, Item.name)
         .order_by(Item.name.asc())
@@ -1165,6 +1259,7 @@ def dashboard():
             Venue.active == True,
             VenueItem.active == True,
             Item.active == True,
+            Item.is_group_parent == False,
         )
         .group_by(Venue.id, Venue.name)
         .order_by(Venue.name.asc())
@@ -1347,16 +1442,20 @@ def venues():
 @roles_required("viewer", "staff", "admin")
 def venue_detail(venue_id):
     venue = Venue.query.get_or_404(venue_id)
-    active_profile_tab = (request.args.get("profile_tab") or request.form.get("profile_tab") or "details").strip().lower()
-    if active_profile_tab not in {"details", "notes", "activity"}:
-        active_profile_tab = "details"
+    active_profile_tab = (request.args.get("profile_tab") or request.form.get("profile_tab") or "overview").strip().lower()
+    if active_profile_tab == "details":
+        active_profile_tab = "overview"
+    if active_profile_tab not in {"overview", "notes", "activity", "files"}:
+        active_profile_tab = "overview"
     next_path = normalize_next_path(
         request.args.get("next") or request.form.get("next"),
         url_for("main.venues"),
     )
     submit_profile_tab = (request.form.get("profile_tab") or active_profile_tab).strip().lower()
-    if submit_profile_tab not in {"details", "notes", "activity"}:
-        submit_profile_tab = "details"
+    if submit_profile_tab == "details":
+        submit_profile_tab = "overview"
+    if submit_profile_tab not in {"overview", "notes", "activity", "files"}:
+        submit_profile_tab = "overview"
 
     if request.method == "POST":
         action = (request.form.get("action") or "").strip().lower()
@@ -1492,28 +1591,7 @@ def venue_detail(venue_id):
                 )
             )
 
-    total_tracked = (
-        db.session.query(func.count(VenueItem.id))
-        .join(Item, Item.id == VenueItem.item_id)
-        .filter(
-            VenueItem.venue_id == venue.id,
-            VenueItem.active == True,
-            Item.active == True,
-        )
-        .scalar()
-    ) or 0
-    latest_status_check_at = (
-        db.session.query(func.max(Check.created_at))
-        .filter(Check.venue_id == venue.id)
-        .scalar()
-    )
-    latest_raw_count_at = (
-        db.session.query(func.max(CountSession.created_at))
-        .filter(CountSession.venue_id == venue.id)
-        .scalar()
-    )
-    venue_last_updated_at = build_venue_last_updated_map([venue.id]).get(venue.id)
-    venue_freshness = format_updated_label(venue_last_updated_at)
+    venue_profile = build_venue_profile_view_model(venue.id)
     recent_activity_rows = build_recent_venue_activity_rows(venue.id, limit=20)
     note_rows = []
     note_query_rows = (
@@ -1556,16 +1634,9 @@ def venue_detail(venue_id):
     return render_template(
         "venues/detail.html",
         venue=venue,
+        venue_profile=venue_profile,
         back_url=next_path,
         back_label=describe_back_destination(next_path, venue.id),
-        total_tracked=total_tracked,
-        latest_status_check_at=latest_status_check_at,
-        latest_raw_count_at=latest_raw_count_at,
-        venue_last_updated_at=venue_last_updated_at,
-        venue_last_updated_text=(
-            format_activity_timestamp(venue_last_updated_at) if venue_last_updated_at else "No updates yet"
-        ),
-        venue_freshness=venue_freshness,
         recent_activity_rows=recent_activity_rows,
         note_rows=note_rows,
         active_profile_tab=active_profile_tab,

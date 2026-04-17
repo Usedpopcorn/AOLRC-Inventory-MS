@@ -1,0 +1,84 @@
+# UI Components
+
+Use this file as the practical map of the shared UI system.
+
+## Canonical Sources
+
+- `static/css/styles.css`: tokens, shared layout classes, state styles, focus/tap sizing, responsive behavior.
+- `templates/_ui_macros.html`: page headers, toolbars, chips, form sections, empty/loading/banner/validation states.
+- `templates/_inventory_macros.html`: inventory state helpers, family rows, child rows, singleton rows, detail panels.
+- `templates/_item_macros.html`: item identity block and structure badges.
+
+## Shared Primitives
+
+### Page Header
+
+- Use `ui.page_header(...)` for page-level title, subtitle, back link, primary action, and header meta.
+- Best for dashboard, venues, admin, settings, and audit pages.
+- Do not hand-build a new title/action shell unless the page clearly cannot fit the shared header.
+
+### Toolbar
+
+- Use `ui.toolbar(...)` with `ui-toolbar-main-*`, `ui-toolbar-split`, and `ui-toolbar-actions`.
+- Pair with `ui-control` / `ui-control-sm` for consistent heights.
+- Use for search + filter + sort + primary action surfaces.
+
+### Chips And Status
+
+- Use `ui.chip(...)` for neutral metadata chips.
+- Use `ui.status_pill(...)` for venue/item status language.
+- Use `inventory_ui.state_badge(...)` and `inventory_ui.coverage_pill(...)` for audit and inventory state.
+- Do not introduce new Bootstrap badge patterns when these exist.
+
+### Form Section
+
+- Use `ui.form_section(...)` for admin/settings forms and structured edit blocks.
+- Keep labels/help/action rhythm inside the shared section instead of building a new card layout every time.
+
+### State Patterns
+
+- Use `ui.state_banner(...)` for shared info, warning, success, muted, and error banners.
+- Use `ui.empty_state(...)` for empty and no-results states.
+- Use `ui.loading_state(...)` for async loading affordances when needed.
+- Use `ui.validation_summary(...)` for grouped form errors.
+- Use `ui.table_empty_row(...)` for empty rows inside tables.
+
+## Inventory Primitives
+
+### Inventory Row Shell
+
+- Use `inventory_ui.desktop_item_row(...)` and `inventory_ui.mobile_item_card(...)` for standalone tracked items.
+- These are the source of truth for row alignment, identity, coverage, count/par layout, and detail expansion.
+
+### Family Parent / Child Rows
+
+- Use `inventory_ui.desktop_family_group(...)` and `inventory_ui.mobile_family_card(...)` for grouped inventory.
+- Family parents summarize the group.
+- Child rows stay inside the family container; do not flatten them into a second custom hierarchy treatment.
+
+### Singleton Asset Rows
+
+- Singleton assets use the same shared row shell as quantity items.
+- Swap count/par language for presence/condition language.
+- Do not invent fake par/count presentation for singleton assets.
+
+### Detail / Expansion Panels
+
+- Use `inventory_ui.desktop_detail_panel(...)` and `inventory_ui.mobile_detail_panel(...)`.
+- These are the canonical venue-level drilldown surfaces for audit details and quick-check links.
+
+## When To Reuse What
+
+- New page shell: `ui.page_header`.
+- New filter bar: `ui.toolbar` + `ui-control`.
+- New settings/admin block: `ui.form_section`.
+- New metadata/status display: `ui.chip`, `ui.status_pill`, or inventory state helpers.
+- New operational inventory surface: `_inventory_macros.html` first, not page-local table/card markup.
+- New item label or structure badges: `_item_macros.html`.
+
+## Do Not Reinvent Locally
+
+- Do not create new page-local badge systems when the shared chip/state system already fits.
+- Do not create a second inventory hierarchy style for family rows or singleton assets.
+- Do not add one-off spacing or control-height hacks before checking shared tokens/classes in `styles.css`.
+- Do not rebuild empty/no-results/info banners with raw Bootstrap alerts unless the shared state primitives truly cannot fit.

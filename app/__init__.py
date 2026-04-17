@@ -59,7 +59,8 @@ def _save_user(email, password, role, display_name=None):
     if existing:
         existing.password_hash = generate_password_hash(password)
         existing.role = normalized_role
-        existing.display_name = normalized_display_name
+        if normalized_display_name is not None:
+            existing.display_name = normalized_display_name
         existing.active = True
         db.session.commit()
         return existing, False
@@ -117,6 +118,9 @@ def create_app():
 
     from .routes.venue_settings import venue_settings_bp
     app.register_blueprint(venue_settings_bp)
+
+    from .routes.supplies import supplies_bp
+    app.register_blueprint(supplies_bp)
     
     from . import models  # ensures models are registered for migrations
 
@@ -176,5 +180,4 @@ def create_app():
         )
         action = "Created" if created else "Updated existing"
         click.echo(f"{action} user: {user.email} ({user.role})")
-
     return app

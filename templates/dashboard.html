@@ -1,14 +1,13 @@
 {% extends "base.html" %}
+{% import "_item_macros.html" as item_ui %}
+{% import "_ui_macros.html" as ui %}
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div>
-    <h1 class="h3 mb-0 fw-bold text-aolrc-purple page-heading">Dashboard</h1>
-    <div class="text-muted">Quick visibility and updates across all venues</div>
-  </div>
-
-</div>
+{{ ui.page_header(
+  title="Dashboard",
+  subtitle="Quick visibility and updates across venues, restocking needs, and recent activity."
+) }}
 
 <ul class="nav nav-pills dash-tabs mb-3" id="dashTabs" role="tablist">
   <li class="nav-item" role="presentation">
@@ -96,13 +95,13 @@
           <div class="venue-toolbar-controls">
             <input
               id="venueSearch"
-              class="form-control w-100 restock-compact-control"
+              class="form-control ui-control w-100"
               placeholder="Search venues..."
               aria-label="Search venues"
             >
             <select
               id="venueSort"
-              class="form-select w-100 restock-compact-control"
+              class="form-select ui-control w-100"
               aria-label="Sort venues"
             >
               <option value="venue">Sort: Venue</option>
@@ -110,7 +109,7 @@
             </select>
             <select
               id="statusFilter"
-              class="form-select w-100 restock-compact-control"
+              class="form-select ui-control w-100"
               aria-label="Filter venues by status"
             >
               <option value="all">All Statuses</option>
@@ -152,34 +151,9 @@
                     <i class="bi bi-arrow-up-right venue-name-link-icon" aria-hidden="true"></i>
                   </span>
                 </a>
-                <button
-                  type="button"
-                  class="status-pill status-pill-trigger
-                    {{ 'status-good' if row.badge.key == 'good' else '' }}
-                    {{ 'status-ok' if row.badge.key == 'ok' else '' }}
-                    {{ 'status-low' if row.badge.key == 'low' else '' }}
-                    {{ 'status-out' if row.badge.key == 'out' else '' }}
-                    {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
-                  data-status-popover
-                  data-status-key="{{ row.badge.key }}"
-                  data-status-icon="{{ row.badge.icon_class }}"
-                  data-status-summary="{{ row.badge.text }}"
-                  data-status-venue="{{ v.name }}"
-                  data-total-tracked="{{ row.total_tracked }}"
-                  data-count-good="{{ row.counts.good }}"
-                  data-count-ok="{{ row.counts.ok }}"
-                  data-count-low="{{ row.counts.low }}"
-                  data-count-out="{{ row.counts.out }}"
-                  data-count-not-checked="{{ row.counts.not_checked }}"
-                  aria-label="Show status details for {{ v.name }}"
-                >
-                  <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
-                  <i class="bi bi-info-circle status-pill-trigger-cue" aria-hidden="true"></i>
-                </button>
-              </div>
-              <div class="venue-mobile-meta">
-                <div class="venue-mobile-meta-row venue-mobile-meta-row-solo">
-                  <span class="venue-mobile-value venue-mobile-value-solo">{{ row.tooltip }}</span>
+                <div class="venue-directory-status-main justify-content-end">
+                  {{ ui.status_pill(row.badge.key, row.badge.text, row.badge.icon_class) }}
+                  {{ ui.status_info_button(row.badge.key, row.badge.text, row.badge.icon_class, v.name, row.total_tracked, row.counts) }}
                 </div>
               </div>
               <a
@@ -193,8 +167,8 @@
               </a>
             </article>
           {% endfor %}
-          <div id="venuesMobileEmpty" class="text-muted venue-mobile-empty {{ 'd-none' if venue_rows else '' }}">
-            No venues match your current filters.
+          <div id="venuesMobileEmpty" class="venue-mobile-empty {{ 'd-none' if venue_rows else '' }}" aria-live="polite">
+            {{ ui.empty_state("No venues match your current filters.", body="Adjust the search or status filter to show more venues.", compact=True) }}
           </div>
         </div>
 
@@ -231,30 +205,10 @@
                   </td>
 
                   <td>
-                    <button
-                      type="button"
-                      class="status-pill status-pill-trigger
-                        {{ 'status-good' if row.badge.key == 'good' else '' }}
-                        {{ 'status-ok' if row.badge.key == 'ok' else '' }}
-                        {{ 'status-low' if row.badge.key == 'low' else '' }}
-                        {{ 'status-out' if row.badge.key == 'out' else '' }}
-                        {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
-                      data-status-popover
-                      data-status-key="{{ row.badge.key }}"
-                      data-status-icon="{{ row.badge.icon_class }}"
-                      data-status-summary="{{ row.badge.text }}"
-                      data-status-venue="{{ v.name }}"
-                      data-total-tracked="{{ row.total_tracked }}"
-                      data-count-good="{{ row.counts.good }}"
-                      data-count-ok="{{ row.counts.ok }}"
-                      data-count-low="{{ row.counts.low }}"
-                      data-count-out="{{ row.counts.out }}"
-                      data-count-not-checked="{{ row.counts.not_checked }}"
-                      aria-label="Show status details for {{ v.name }}"
-                    >
-                      <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
-                      <i class="bi bi-info-circle status-pill-trigger-cue" aria-hidden="true"></i>
-                    </button>
+                    <div class="venue-directory-status-main">
+                      {{ ui.status_pill(row.badge.key, row.badge.text, row.badge.icon_class) }}
+                      {{ ui.status_info_button(row.badge.key, row.badge.text, row.badge.icon_class, v.name, row.total_tracked, row.counts) }}
+                    </div>
                   </td>
 
                   <td>
@@ -268,7 +222,7 @@
                   </td>
                 </tr>
               {% else %}
-                <tr><td colspan="3">No venues yet.</td></tr>
+                {{ ui.table_empty_row(3, "No venues yet.", body="Add venues to start tracking status and quick checks.") }}
               {% endfor %}
             </tbody>
           </table>
@@ -427,7 +381,7 @@
               <input
                 id="restockSearch"
                 name="restock_search"
-                class="form-control w-100 restock-compact-control"
+              class="form-control ui-control w-100"
                 placeholder="Search..."
                 aria-label="Search restocking results"
                 value="{{ restock_filters.search }}"
@@ -435,7 +389,7 @@
               <select
                 id="restockSort"
                 name="restock_sort"
-                class="form-select w-100 restock-compact-control"
+              class="form-select ui-control w-100"
                 aria-label="Sort restocking results"
               >
                 <option value="item" {{ 'selected' if restock_filters.sort == 'item' else '' }}>Sort: Item</option>
@@ -463,7 +417,7 @@
                   <span id="restockFiltersToggleLabel">Edit Filters</span>
                   <span
                     id="restockActiveFilterBadge"
-                    class="badge rounded-pill text-bg-secondary ms-1 {{ 'd-none' if not restock_active_filter_count else '' }}"
+                    class="ui-chip ui-chip-secondary ui-chip-compact ms-1 {{ 'd-none' if not restock_active_filter_count else '' }}"
                   >
                     {{ restock_active_filter_count }}
                   </span>
@@ -501,7 +455,7 @@
                 <div class="fw-semibold">Filters</div>
                 <button
                   type="button"
-                  class="btn btn-outline-secondary btn-sm"
+                  class="btn btn-outline-secondary btn-sm ui-control-sm"
                   data-bs-toggle="collapse"
                   data-bs-target="#restockFilters"
                   aria-label="Close filters"
@@ -514,7 +468,7 @@
                   <div class="restock-filter-panel">
                     <button
                       type="button"
-                      class="btn btn-outline-secondary w-100 restock-section-toggle d-md-none"
+                      class="btn btn-outline-secondary ui-control w-100 restock-section-toggle d-md-none"
                       data-bs-toggle="collapse"
                       data-bs-target="#statusFilterPanel"
                       aria-expanded="false"
@@ -522,26 +476,26 @@
                     >
                       <span class="fw-semibold d-inline-flex align-items-center gap-1">
                         Statuses
-                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="statusOptions">{{ restock_filter_counts['statuses']['selected'] }}/{{ restock_filter_counts['statuses']['total'] }}</span>
+                        <span class="ui-chip ui-chip-secondary ui-chip-compact" data-filter-count-target="statusOptions">{{ restock_filter_counts['statuses']['selected'] }}/{{ restock_filter_counts['statuses']['total'] }}</span>
                       </span>
                       <i class="bi bi-chevron-down"></i>
                     </button>
                     <div class="d-none d-md-flex justify-content-between align-items-center gap-2 mb-2">
                       <div class="fw-semibold d-inline-flex align-items-center gap-1">
                         Statuses
-                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="statusOptions">{{ restock_filter_counts['statuses']['selected'] }}/{{ restock_filter_counts['statuses']['total'] }}</span>
+                        <span class="ui-chip ui-chip-secondary ui-chip-compact" data-filter-count-target="statusOptions">{{ restock_filter_counts['statuses']['selected'] }}/{{ restock_filter_counts['statuses']['total'] }}</span>
                       </div>
                       <div class="d-flex gap-2 restock-filter-actions">
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="all" data-target="statusOptions">Select all</button>
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="clear" data-target="statusOptions">Clear all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2" data-filter-action="all" data-target="statusOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2" data-filter-action="clear" data-target="statusOptions">Clear all</button>
                       </div>
                     </div>
                     <div class="collapse d-md-block mt-2 mt-md-0" id="statusFilterPanel">
                       <div class="d-flex gap-2 restock-filter-actions mb-2 d-md-none">
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="all" data-target="statusOptions">Select all</button>
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="clear" data-target="statusOptions">Clear all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2 flex-fill" data-filter-action="all" data-target="statusOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2 flex-fill" data-filter-action="clear" data-target="statusOptions">Clear all</button>
                       </div>
-                      <input type="text" class="form-control mb-2" data-filter-search="statusOptions" placeholder="Search statuses...">
+                      <input type="text" class="form-control ui-control mb-2" data-filter-search="statusOptions" placeholder="Search statuses...">
                       <div class="restock-filter-options" id="statusOptions">
                         {% for status_key, status_meta in restock_status_options.items() %}
                           <div class="form-check">
@@ -565,7 +519,7 @@
                   <div class="restock-filter-panel">
                     <button
                       type="button"
-                      class="btn btn-outline-secondary w-100 restock-section-toggle d-md-none"
+                      class="btn btn-outline-secondary ui-control w-100 restock-section-toggle d-md-none"
                       data-bs-toggle="collapse"
                       data-bs-target="#itemFilterPanel"
                       aria-expanded="false"
@@ -573,26 +527,26 @@
                     >
                       <span class="fw-semibold d-inline-flex align-items-center gap-1">
                         Items
-                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="itemOptions">{{ restock_filter_counts['items']['selected'] }}/{{ restock_filter_counts['items']['total'] }}</span>
+                        <span class="ui-chip ui-chip-secondary ui-chip-compact" data-filter-count-target="itemOptions">{{ restock_filter_counts['items']['selected'] }}/{{ restock_filter_counts['items']['total'] }}</span>
                       </span>
                       <i class="bi bi-chevron-down"></i>
                     </button>
                     <div class="d-none d-md-flex justify-content-between align-items-center gap-2 mb-2">
                       <div class="fw-semibold d-inline-flex align-items-center gap-1">
                         Items
-                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="itemOptions">{{ restock_filter_counts['items']['selected'] }}/{{ restock_filter_counts['items']['total'] }}</span>
+                        <span class="ui-chip ui-chip-secondary ui-chip-compact" data-filter-count-target="itemOptions">{{ restock_filter_counts['items']['selected'] }}/{{ restock_filter_counts['items']['total'] }}</span>
                       </div>
                       <div class="d-flex gap-2 restock-filter-actions">
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="all" data-target="itemOptions">Select all</button>
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="clear" data-target="itemOptions">Clear all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2" data-filter-action="all" data-target="itemOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2" data-filter-action="clear" data-target="itemOptions">Clear all</button>
                       </div>
                     </div>
                     <div class="collapse d-md-block mt-2 mt-md-0" id="itemFilterPanel">
                       <div class="d-flex gap-2 restock-filter-actions mb-2 d-md-none">
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="all" data-target="itemOptions">Select all</button>
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="clear" data-target="itemOptions">Clear all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2 flex-fill" data-filter-action="all" data-target="itemOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2 flex-fill" data-filter-action="clear" data-target="itemOptions">Clear all</button>
                       </div>
-                      <input type="text" class="form-control mb-2" data-filter-search="itemOptions" placeholder="Search items...">
+                      <input type="text" class="form-control ui-control mb-2" data-filter-search="itemOptions" placeholder="Search items...">
                       <div class="restock-filter-options" id="itemOptions">
                         {% for item in restock_items %}
                           <div class="form-check">
@@ -616,7 +570,7 @@
                   <div class="restock-filter-panel">
                     <button
                       type="button"
-                      class="btn btn-outline-secondary w-100 restock-section-toggle d-md-none"
+                      class="btn btn-outline-secondary ui-control w-100 restock-section-toggle d-md-none"
                       data-bs-toggle="collapse"
                       data-bs-target="#venueFilterPanel"
                       aria-expanded="false"
@@ -624,26 +578,26 @@
                     >
                       <span class="fw-semibold d-inline-flex align-items-center gap-1">
                         Venues
-                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="venueOptions">{{ restock_filter_counts['venues']['selected'] }}/{{ restock_filter_counts['venues']['total'] }}</span>
+                        <span class="ui-chip ui-chip-secondary ui-chip-compact" data-filter-count-target="venueOptions">{{ restock_filter_counts['venues']['selected'] }}/{{ restock_filter_counts['venues']['total'] }}</span>
                       </span>
                       <i class="bi bi-chevron-down"></i>
                     </button>
                     <div class="d-none d-md-flex justify-content-between align-items-center gap-2 mb-2">
                       <div class="fw-semibold d-inline-flex align-items-center gap-1">
                         Venues
-                        <span class="badge rounded-pill text-bg-secondary" data-filter-count-target="venueOptions">{{ restock_filter_counts['venues']['selected'] }}/{{ restock_filter_counts['venues']['total'] }}</span>
+                        <span class="ui-chip ui-chip-secondary ui-chip-compact" data-filter-count-target="venueOptions">{{ restock_filter_counts['venues']['selected'] }}/{{ restock_filter_counts['venues']['total'] }}</span>
                       </div>
                       <div class="d-flex gap-2 restock-filter-actions">
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="all" data-target="venueOptions">Select all</button>
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2" data-filter-action="clear" data-target="venueOptions">Clear all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2" data-filter-action="all" data-target="venueOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2" data-filter-action="clear" data-target="venueOptions">Clear all</button>
                       </div>
                     </div>
                     <div class="collapse d-md-block mt-2 mt-md-0" id="venueFilterPanel">
                       <div class="d-flex gap-2 restock-filter-actions mb-2 d-md-none">
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="all" data-target="venueOptions">Select all</button>
-                        <button type="button" class="btn btn-outline-secondary py-2 px-2 flex-fill" data-filter-action="clear" data-target="venueOptions">Clear all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2 flex-fill" data-filter-action="all" data-target="venueOptions">Select all</button>
+                        <button type="button" class="btn btn-outline-secondary ui-control-sm py-2 px-2 flex-fill" data-filter-action="clear" data-target="venueOptions">Clear all</button>
                       </div>
-                      <input type="text" class="form-control mb-2" data-filter-search="venueOptions" placeholder="Search venues...">
+                      <input type="text" class="form-control ui-control mb-2" data-filter-search="venueOptions" placeholder="Search venues...">
                       <div class="restock-filter-options" id="venueOptions">
                         {% for venue in restock_venues %}
                           <div class="form-check">
@@ -688,14 +642,32 @@
           {% for row in restock_rows %}
             <article
               class="restock-mobile-card"
-              data-item="{{ row.item_name|lower }}"
+              data-item="{{ (row.item_name ~ ' ' ~ (row.parent_name or ''))|lower }}"
+              data-item-name="{{ row.item_name|lower }}"
+              data-family="{{ (row.parent_name or row.item_name)|lower }}"
               data-venue="{{ row.venue_name|lower }}"
               data-status-key="{{ row.status.key }}"
               data-status-text="{{ row.status.text|lower }}"
               data-latest-ts="{{ row.latest_check_at.timestamp() if row.latest_check_at else '' }}"
             >
               <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
-                <div class="restock-mobile-item fw-semibold">{{ row.item_name }}</div>
+                <div class="restock-mobile-item">
+                  {{ item_ui.item_heading(
+                    row.item_name,
+                    parent_name=row.parent_name,
+                    note="Presence-tracked asset" if row.tracking_mode == "singleton_asset" else none,
+                    compact=True
+                  ) }}
+                  <div class="mt-2">
+                    {{ item_ui.structure_badges(
+                      tracking_mode=row.tracking_mode,
+                      parent_name=row.parent_name,
+                      item_category=row.item_category,
+                      show_category=False,
+                      compact=True
+                    ) }}
+                  </div>
+                </div>
                 <span class="status-pill
                   {{ 'status-good' if row.status.key == 'good' else '' }}
                   {{ 'status-ok' if row.status.key == 'ok' else '' }}
@@ -732,8 +704,8 @@
               </a>
             </article>
           {% endfor %}
-          <div id="restockMobileEmpty" class="text-muted restock-mobile-empty {{ 'd-none' if restock_rows else '' }}">
-            No restocking matches found for your current criteria.
+          <div id="restockMobileEmpty" class="restock-mobile-empty {{ 'd-none' if restock_rows else '' }}" aria-live="polite">
+            {{ ui.empty_state("No restocking matches found.", body="Try broadening the filters or clearing search to show more venues and items.", compact=True) }}
           </div>
         </div>
 
@@ -759,13 +731,31 @@
               {% for row in restock_rows %}
                 <tr
                   class="restock-table-row"
-                  data-item="{{ row.item_name|lower }}"
+                  data-item="{{ (row.item_name ~ ' ' ~ (row.parent_name or ''))|lower }}"
+                  data-item-name="{{ row.item_name|lower }}"
+                  data-family="{{ (row.parent_name or row.item_name)|lower }}"
                   data-venue="{{ row.venue_name|lower }}"
                   data-status-key="{{ row.status.key }}"
                   data-status-text="{{ row.status.text|lower }}"
                   data-latest-ts="{{ row.latest_check_at.timestamp() if row.latest_check_at else '' }}"
                 >
-                  <td class="fw-semibold">{{ row.item_name }}</td>
+                  <td>
+                    {{ item_ui.item_heading(
+                      row.item_name,
+                      parent_name=row.parent_name,
+                      note="Presence-tracked asset" if row.tracking_mode == "singleton_asset" else none,
+                      compact=True
+                    ) }}
+                    <div class="mt-2">
+                      {{ item_ui.structure_badges(
+                        tracking_mode=row.tracking_mode,
+                        parent_name=row.parent_name,
+                        item_category=row.item_category,
+                        show_category=False,
+                        compact=True
+                      ) }}
+                    </div>
+                  </td>
                   <td>
                     <span class="status-pill
                       {{ 'status-good' if row.status.key == 'good' else '' }}
@@ -797,19 +787,30 @@
                   </td>
                 </tr>
               {% endfor %}
-              <tr id="restockTableEmptyRow" class="{{ 'd-none' if restock_rows else '' }}">
-                <td colspan="5" class="text-muted">No restocking matches found for your current criteria.</td>
+              <tr id="restockTableEmptyRow" class="ui-table-empty-row {{ 'd-none' if restock_rows else '' }}">
+                <td colspan="5">
+                  {{ ui.empty_state("No restocking matches found.", body="Try broadening the filters or clearing search to show more venues and items.", compact=True) }}
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
         <div id="restockLoadMoreArea" class="pt-2 {{ 'd-none' if not restock_has_more else '' }}">
-          <div id="restockLoadMoreSpinner" class="text-muted small text-center d-none">
-            Loading more results...
+          <div id="restockLoadMoreSpinner" class="d-none">
+            {{ ui.loading_state("Loading more results...", extra_classes="ui-loading-state-compact") }}
           </div>
-          <div id="restockLoadMoreError" class="text-danger small text-center d-none">
-            Could not load more results.
-            <button id="restockLoadMoreRetry" type="button" class="btn btn-link btn-sm p-0 align-baseline">Retry</button>
+          <div id="restockLoadMoreError" class="d-none">
+            <div class="ui-state-banner ui-state-banner-danger ui-state-banner-compact" role="alert">
+              <div class="ui-state-banner-icon" aria-hidden="true">
+                <i class="bi bi-exclamation-octagon-fill"></i>
+              </div>
+              <div class="ui-state-banner-copy">
+                <div class="ui-state-banner-title">Could not load more results.</div>
+                <div class="ui-state-banner-body">
+                  <button id="restockLoadMoreRetry" type="button" class="btn btn-link btn-sm p-0 align-baseline">Retry</button>
+                </div>
+              </div>
+            </div>
           </div>
           <div id="restockLoadMoreSentinel" aria-hidden="true"></div>
         </div>
@@ -893,18 +894,24 @@
 
         function getRestockSearchRank(element, query) {
           if (!query) return 0;
-          const itemText = (element.getAttribute("data-item") || "").toLowerCase();
+          const itemText = (element.getAttribute("data-item-name") || "").toLowerCase();
+          const familyText = (element.getAttribute("data-family") || "").toLowerCase();
+          const searchText = (element.getAttribute("data-item") || "").toLowerCase();
           const venueText = (element.getAttribute("data-venue") || "").toLowerCase();
           const statusText = (element.getAttribute("data-status-text") || "").toLowerCase();
 
           if (itemText.startsWith(query)) return 0;
           if (hasWordBoundaryPrefix(itemText, query)) return 1;
           if (itemText.includes(query)) return 2;
-          if (venueText.startsWith(query)) return 3;
-          if (hasWordBoundaryPrefix(venueText, query)) return 4;
-          if (venueText.includes(query)) return 5;
-          if (statusText.startsWith(query)) return 6;
-          if (statusText.includes(query)) return 7;
+          if (familyText.startsWith(query)) return 3;
+          if (hasWordBoundaryPrefix(familyText, query)) return 4;
+          if (familyText.includes(query)) return 5;
+          if (searchText.includes(query)) return 6;
+          if (venueText.startsWith(query)) return 7;
+          if (hasWordBoundaryPrefix(venueText, query)) return 8;
+          if (venueText.includes(query)) return 9;
+          if (statusText.startsWith(query)) return 10;
+          if (statusText.includes(query)) return 11;
           return null;
         }
 
@@ -914,8 +921,10 @@
         }
 
         function compareRestockElements(a, b, sortMode, searchQuery = "") {
-          const itemA = (a.getAttribute("data-item") || "").toLowerCase();
-          const itemB = (b.getAttribute("data-item") || "").toLowerCase();
+          const itemA = (a.getAttribute("data-item-name") || "").toLowerCase();
+          const itemB = (b.getAttribute("data-item-name") || "").toLowerCase();
+          const familyA = (a.getAttribute("data-family") || itemA).toLowerCase();
+          const familyB = (b.getAttribute("data-family") || itemB).toLowerCase();
           const venueA = (a.getAttribute("data-venue") || "").toLowerCase();
           const venueB = (b.getAttribute("data-venue") || "").toLowerCase();
           const statusA = a.getAttribute("data-status-key") || "not_checked";
@@ -931,12 +940,13 @@
 
           if (sortMode === "venue") {
             if (venueA !== venueB) return venueA.localeCompare(venueB);
-            return itemA.localeCompare(itemB);
+            return familyA.localeCompare(familyB) || itemA.localeCompare(itemB);
           }
           if (sortMode === "last_checked") {
             const tsA = getRestockLatestTimestamp(a);
             const tsB = getRestockLatestTimestamp(b);
             if (tsA !== tsB) return tsB - tsA;
+            if (familyA !== familyB) return familyA.localeCompare(familyB);
             if (itemA !== itemB) return itemA.localeCompare(itemB);
             return venueA.localeCompare(venueB);
           }
@@ -945,8 +955,9 @@
             const rankB = restockStatusRank[statusB] ?? 99;
             if (rankA !== rankB) return rankA - rankB;
             if (venueA !== venueB) return venueA.localeCompare(venueB);
-            return itemA.localeCompare(itemB);
+            return familyA.localeCompare(familyB) || itemA.localeCompare(itemB);
           }
+          if (familyA !== familyB) return familyA.localeCompare(familyB);
           if (itemA !== itemB) return itemA.localeCompare(itemB);
           return venueA.localeCompare(venueB);
         }
@@ -1028,18 +1039,69 @@
           return "status-na";
         }
 
+        function createInventoryItemBlock(row) {
+          const wrap = document.createElement("div");
+          wrap.className = `inventory-item inventory-item-compact${row.parent_name ? " inventory-item-child" : ""}`;
+
+          const nameLine = document.createElement("div");
+          nameLine.className = "inventory-item-name-line";
+          const name = document.createElement("span");
+          name.className = "inventory-item-name";
+          name.textContent = row.item_name || "";
+          nameLine.appendChild(name);
+          wrap.appendChild(nameLine);
+
+          if (row.parent_name || row.tracking_mode === "singleton_asset") {
+            const context = document.createElement("div");
+            context.className = "inventory-item-context";
+            if (row.parent_name) {
+              const label = document.createElement("span");
+              label.className = "inventory-item-context-label";
+              label.textContent = "Family";
+              context.appendChild(label);
+              const family = document.createElement("span");
+              family.textContent = row.parent_name;
+              context.appendChild(family);
+            } else {
+              context.textContent = "Presence-tracked asset";
+            }
+            wrap.appendChild(context);
+          }
+
+          const badges = document.createElement("div");
+          badges.className = "inventory-item-badges inventory-item-badges-compact";
+
+          if (row.parent_name) {
+            const childBadge = document.createElement("span");
+            childBadge.className = "inventory-item-badge inventory-item-badge-child";
+            childBadge.innerHTML = '<i class="bi bi-arrow-return-right" aria-hidden="true"></i><span>Family member</span>';
+            badges.appendChild(childBadge);
+          }
+
+          const trackingBadge = document.createElement("span");
+          trackingBadge.className = `inventory-item-badge ${row.tracking_mode === "singleton_asset" ? "inventory-item-badge-asset" : "inventory-item-badge-quantity"}`;
+          trackingBadge.innerHTML = row.tracking_mode === "singleton_asset"
+            ? '<i class="bi bi-shield-check" aria-hidden="true"></i><span>Asset</span>'
+            : '<i class="bi bi-123" aria-hidden="true"></i><span>Quantity</span>';
+          badges.appendChild(trackingBadge);
+
+          wrap.appendChild(badges);
+          return wrap;
+        }
+
         function createRestockTableRow(row) {
           const tr = document.createElement("tr");
           tr.className = "restock-table-row";
-          tr.setAttribute("data-item", (row.item_name || "").toLowerCase());
+          tr.setAttribute("data-item", `${row.item_name || ""} ${row.parent_name || ""}`.trim().toLowerCase());
+          tr.setAttribute("data-item-name", (row.item_name || "").toLowerCase());
+          tr.setAttribute("data-family", (row.parent_name || row.item_name || "").toLowerCase());
           tr.setAttribute("data-venue", (row.venue_name || "").toLowerCase());
           tr.setAttribute("data-status-key", row.status?.key || "not_checked");
           tr.setAttribute("data-status-text", (row.status?.text || "").toLowerCase());
           tr.setAttribute("data-latest-ts", row.latest_check_missing ? "" : String(row.latest_check_ts || ""));
 
           const itemTd = document.createElement("td");
-          itemTd.className = "fw-semibold";
-          itemTd.textContent = row.item_name;
+          itemTd.appendChild(createInventoryItemBlock(row));
 
           const statusTd = document.createElement("td");
           const statusSpan = document.createElement("span");
@@ -1086,7 +1148,9 @@
         function createRestockMobileCard(row) {
           const article = document.createElement("article");
           article.className = "restock-mobile-card";
-          article.setAttribute("data-item", (row.item_name || "").toLowerCase());
+          article.setAttribute("data-item", `${row.item_name || ""} ${row.parent_name || ""}`.trim().toLowerCase());
+          article.setAttribute("data-item-name", (row.item_name || "").toLowerCase());
+          article.setAttribute("data-family", (row.parent_name || row.item_name || "").toLowerCase());
           article.setAttribute("data-venue", (row.venue_name || "").toLowerCase());
           article.setAttribute("data-status-key", row.status?.key || "not_checked");
           article.setAttribute("data-status-text", (row.status?.text || "").toLowerCase());
@@ -1096,8 +1160,8 @@
           topRow.className = "d-flex align-items-start justify-content-between gap-2 mb-2";
 
           const itemName = document.createElement("div");
-          itemName.className = "restock-mobile-item fw-semibold";
-          itemName.textContent = row.item_name;
+          itemName.className = "restock-mobile-item";
+          itemName.appendChild(createInventoryItemBlock(row));
           topRow.appendChild(itemName);
 
           const statusSpan = document.createElement("span");
@@ -1531,7 +1595,7 @@
               <input
                 id="activitySearch"
                 name="activity_q"
-                class="form-control w-100 restock-compact-control"
+              class="form-control ui-control w-100"
                 placeholder="Search activity..."
                 aria-label="Search activity log"
                 value="{{ activity_filters.search }}"
@@ -1543,7 +1607,7 @@
                     id="activityStartDate"
                     name="activity_start"
                     type="date"
-                    class="form-control restock-compact-control"
+              class="form-control ui-control"
                     aria-label="Filter activity from date"
                     value="{{ activity_filters.start_date }}"
                   >
@@ -1554,7 +1618,7 @@
                     id="activityEndDate"
                     name="activity_end"
                     type="date"
-                    class="form-control restock-compact-control"
+              class="form-control ui-control"
                     aria-label="Filter activity to date"
                     value="{{ activity_filters.end_date }}"
                   >
@@ -1565,17 +1629,17 @@
               <select
                 id="activityTypeFilter"
                 name="activity_type"
-                class="form-select w-100 restock-compact-control"
+              class="form-select ui-control w-100"
                 aria-label="Filter activity log by change type"
               >
                 <option value="all" {{ 'selected' if activity_filters.type == 'all' else '' }}>All Types</option>
                 <option value="status" {{ 'selected' if activity_filters.type == 'status' else '' }}>Status Changes</option>
-                <option value="raw_count" {{ 'selected' if activity_filters.type == 'raw_count' else '' }}>Raw Count Changes</option>
+                <option value="raw_count" {{ 'selected' if activity_filters.type == 'raw_count' else '' }}>Count Changes</option>
               </select>
               <select
                 id="activitySort"
                 name="activity_sort"
-                class="form-select w-100 restock-compact-control"
+              class="form-select ui-control w-100"
                 aria-label="Sort activity log"
               >
                 <option value="newest" {{ 'selected' if activity_filters.sort == 'newest' else '' }}>Sort: Newest</option>
@@ -1619,7 +1683,7 @@
             <input
               id="activityPageJumpInputTop"
               type="number"
-              class="form-control restock-compact-control activity-page-inline-input"
+              class="form-control ui-control activity-page-inline-input"
               min="1"
               max="{{ activity_pagination.total_pages }}"
               step="1"
@@ -1701,8 +1765,8 @@
               <div class="activity-detail-text mt-2">{{ row.detail_text }}</div>
             </article>
           {% endfor %}
-          <div id="activityMobileEmpty" class="text-muted activity-mobile-empty {{ 'd-none' if activity_rows else '' }}">
-            No activity matches your current filters.
+          <div id="activityMobileEmpty" class="activity-mobile-empty {{ 'd-none' if activity_rows else '' }}" aria-live="polite">
+            {{ ui.empty_state("No activity matches your current filters.", body="Adjust the date, type, or search filters to show more activity.", compact=True) }}
           </div>
         </div>
 
@@ -1764,8 +1828,10 @@
                   <td>{{ row.actor_name }}</td>
                 </tr>
               {% endfor %}
-              <tr id="activityTableEmpty" class="{{ 'd-none' if activity_rows else '' }}">
-                <td colspan="6" class="text-muted">No activity matches your current filters.</td>
+              <tr id="activityTableEmpty" class="ui-table-empty-row {{ 'd-none' if activity_rows else '' }}">
+                <td colspan="6">
+                  {{ ui.empty_state("No activity matches your current filters.", body="Adjust the date, type, or search filters to show more activity.", compact=True) }}
+                </td>
               </tr>
             </tbody>
           </table>
@@ -1786,7 +1852,7 @@
             <input
               id="activityPageJumpInput"
               type="number"
-              class="form-control restock-compact-control activity-page-inline-input"
+              class="form-control ui-control activity-page-inline-input"
               min="1"
               max="{{ activity_pagination.total_pages }}"
               step="1"

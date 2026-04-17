@@ -5,3 +5,4 @@ __pycache__/
 local.db
 instance/
 **/__pycache__/
+.tmp_ui_qa/

@@ -7,6 +7,16 @@ description: Prevents UI state drift between client and server by enforcing cons
 
 Use this skill whenever a feature introduces interactive UI state that can diverge from rendered data after refresh, navigation, or back/forward.
 
+Before changing UI behavior, also inspect:
+
+- `AGENTS.md`
+- `UI_COMPONENTS.md`
+- `RESPONSIVE_UI_RULES.md`
+- `UI_REGRESSION_CHECKLIST.md`
+- `templates/_ui_macros.html`
+- `templates/_inventory_macros.html`
+- `static/css/styles.css`
+
 ## Goal
 
 Keep user-visible state and data source aligned:
@@ -27,6 +37,8 @@ UI consistency checklist:
 - [ ] Ensure back/forward preserves expected state
 - [ ] Add unsaved-change indicator if edits are not auto-applied
 - [ ] Verify mobile + desktop behavior
+- [ ] Reuse shared UI primitives before adding local markup or CSS
+- [ ] Run the UI regression checklist if shared layout or operational UI changed
 ```
 
 ## 1) Identify stateful controls
@@ -100,6 +112,7 @@ If controls change selection but server data updates only on submit:
 - Mobile labels must fit small widths (avoid long toggling copy that overflows).
 - Do not rely on hover for key behavior.
 - Maintain touch-friendly controls (44px target minimum where practical).
+- Reuse shared empty/no-results/error patterns instead of ad hoc alerts when applicable.
 
 ## 5) Verification (must run)
 
@@ -110,6 +123,7 @@ For each changed page, test:
 3. Use back/forward and confirm state consistency.
 4. Repeat in narrow mobile width.
 5. If there is an unsaved mode, confirm unsaved hint appears/disappears correctly.
+6. If shared rows, headers, toolbars, chips, or non-happy-path states changed, run the checks in `UI_REGRESSION_CHECKLIST.md`.
 
 ## Common anti-patterns to reject
 

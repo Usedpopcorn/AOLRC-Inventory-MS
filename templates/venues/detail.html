@@ -1,76 +1,85 @@
 {% extends "base.html" %}
+{% import "_inventory_macros.html" as inventory_ui %}
+{% import "_ui_macros.html" as ui %}
 {% block title %}{{ venue.name }}{% endblock %}
 
 {% block content %}
-  <div class="mb-3">
-    <a class="btn btn-back-nav" href="{{ back_url }}">
-      <i class="bi bi-arrow-left" aria-hidden="true"></i> Back to {{ back_label }}
-    </a>
-  </div>
-
+  {% set inventory_filter_options = [
+    ("all", "All items"),
+    ("count_attention", "Count follow-up"),
+    ("status_attention", "Status follow-up"),
+    ("singleton_asset", "Singleton assets"),
+    ("quantity", "Quantity items"),
+    ("families", "Families")
+  ] %}
+  {% set inventory_sort_options = [
+    ("needs_action", "Needs action first"),
+    ("review_first", "Review issues first"),
+    ("stalest", "Stalest updates"),
+    ("alphabetical", "Alphabetical"),
+    ("lowest_count_coverage", "Lowest count coverage"),
+    ("recent", "Recently updated")
+  ] %}
   <div class="card mb-3 venue-profile-hero">
     <div class="card-body">
-      <div class="venue-profile-head">
-        <div class="venue-profile-title-block">
-          <h1 class="h3 mb-1 fw-bold text-aolrc-purple page-heading">{{ venue.name }}</h1>
-          <div class="d-flex flex-wrap gap-1">
-            {% if venue.is_core %}
-              <span class="badge badge-core">Primary venue</span>
-            {% else %}
-              <span class="badge bg-secondary">Other venue</span>
-            {% endif %}
-            {% if venue.active %}
-              <span class="badge bg-success">Visible</span>
-            {% else %}
-              <span class="badge bg-dark">Hidden</span>
-            {% endif %}
+      {% call ui.page_header(
+        title=venue.name,
+        subtitle="Status-first venue overview with inventory health, audit context, and room for venue files.",
+        back_url=back_url,
+        back_label=back_label,
+        action_text="Open Venue Check",
+        action_href=update_status_url,
+        action_class="btn btn-aolrc-primary ui-control venue-directory-action-btn venue-profile-update-btn",
+        section_classes="venue-profile-header"
+      ) %}
+        {% if venue.is_core %}
+          {{ ui.chip("Primary venue", tone="primary") }}
+        {% else %}
+          {{ ui.chip("Other venue", tone="secondary") }}
+        {% endif %}
+        {% if venue.active %}
+          {{ ui.chip("Visible", tone="success") }}
+        {% else %}
+          {{ ui.chip("Hidden", tone="muted") }}
+        {% endif %}
+        {{ ui.chip(venue_profile.summary.total_tracked_items ~ " tracked items", tone="neutral") }}
+        {% if venue_profile.summary.review_queue_count %}
+          {{ ui.chip(venue_profile.summary.review_queue_count ~ " follow-up", tone="warning") }}
+        {% endif %}
+        <div class="venue-freshness-wrap">
+          <div
+            class="venue-freshness-chip {{ 'venue-freshness-stale' if venue_profile.last_updated_freshness.is_stale else 'venue-freshness-fresh' }}"
+            title="{{ venue_profile.last_updated_text }}"
+          >
+            <i class="bi bi-clock-history"></i> {{ venue_profile.last_updated_freshness.text }}
           </div>
         </div>
-        <div class="venue-profile-utility">
-          <div class="venue-profile-utility-top">
-            <div class="venue-freshness-wrap">
-              <div
-                class="venue-freshness-chip {{ 'venue-freshness-stale' if venue_freshness.is_stale else 'venue-freshness-fresh' }}"
-                title="{{ venue_last_updated_text }}"
-              >
-                <i class="bi bi-clock-history"></i> {{ venue_freshness.text }}
-              </div>
-            </div>
-            {% if current_user.is_admin %}
-              <a
-                class="icon-btn-plain icon-btn-sm venue-directory-settings-btn venue-profile-settings-btn"
-                href="{{ url_for('venue_settings.settings', venue_id=venue.id, next=request.full_path) }}"
-                aria-label="Open settings for {{ venue.name }}"
-                title="Settings"
-              >
-                <i class="bi bi-gear"></i>
-              </a>
-            {% endif %}
-          </div>
-          <div class="venue-profile-last-update text-muted small">Last update: {{ venue_last_updated_text }}</div>
-        </div>
-      </div>
-
-      <div class="venue-profile-primary-actions mt-3">
-        <a class="btn btn-aolrc-primary venue-directory-action-btn venue-profile-update-btn" href="{{ update_status_url }}">
-          <span class="d-none d-sm-inline">Open Venue Check</span>
-          <span class="d-sm-none">Venue Check</span>
-        </a>
-      </div>
+        {% if current_user.is_admin %}
+          <a
+            class="icon-btn-plain icon-btn-sm venue-directory-settings-btn venue-profile-settings-btn"
+            href="{{ url_for('venue_settings.settings', venue_id=venue.id, next=request.full_path) }}"
+            aria-label="Open settings for {{ venue.name }}"
+            title="Settings"
+          >
+            <i class="bi bi-gear"></i>
+          </a>
+        {% endif %}
+      {% endcall %}
+      <div class="venue-profile-last-update text-muted small">Last overall update: {{ venue_profile.last_updated_text }}</div>
     </div>
   </div>
 
   <ul class="nav venue-profile-tabs mb-3" id="venueProfileTabs" role="tablist">
     <li class="nav-item" role="presentation">
       <button
-        class="nav-link venue-profile-tab {{ 'active' if active_profile_tab == 'details' else '' }}"
-        id="venue-profile-details-tab"
+        class="nav-link venue-profile-tab {{ 'active' if active_profile_tab == 'overview' else '' }}"
+        id="venue-profile-overview-tab"
         data-bs-toggle="tab"
-        data-bs-target="#venue-profile-details-pane"
+        data-bs-target="#venue-profile-overview-pane"
         type="button"
         role="tab"
       >
-        Venue Details
+        Overview
       </button>
     </li>
     <li class="nav-item" role="presentation">
@@ -97,41 +106,161 @@
         Activity
       </button>
     </li>
+    <li class="nav-item" role="presentation">
+      <button
+        class="nav-link venue-profile-tab {{ 'active' if active_profile_tab == 'files' else '' }}"
+        id="venue-profile-files-tab"
+        data-bs-toggle="tab"
+        data-bs-target="#venue-profile-files-pane"
+        type="button"
+        role="tab"
+      >
+        Files
+      </button>
+    </li>
   </ul>
 
   <div class="tab-content">
-    <div class="tab-pane fade {{ 'show active' if active_profile_tab == 'details' else '' }}" id="venue-profile-details-pane" role="tabpanel" aria-labelledby="venue-profile-details-tab">
-      <div class="card mb-3">
-        <div class="card-body">
-          <h2 class="h5 mb-3">Venue Details</h2>
-          <div class="venue-profile-detail-list">
-            <div class="venue-profile-detail-row">
-              <span class="venue-profile-detail-label">Tracked items</span>
-              <span class="venue-profile-detail-value">{{ total_tracked }}</span>
-            </div>
-            <div class="venue-profile-detail-row">
-              <span class="venue-profile-detail-label">Latest status check</span>
-              <span class="venue-profile-detail-value">
-                {% if latest_status_check_at %}
-                  {{ latest_status_check_at.strftime("%Y-%m-%d %I:%M %p") }}
-                {% else %}
-                  <span class="text-muted">No status checks yet</span>
-                {% endif %}
-              </span>
-            </div>
-            <div class="venue-profile-detail-row">
-              <span class="venue-profile-detail-label">Latest raw count</span>
-              <span class="venue-profile-detail-value">
-                {% if latest_raw_count_at %}
-                  {{ latest_raw_count_at.strftime("%Y-%m-%d %I:%M %p") }}
-                {% else %}
-                  <span class="text-muted">No raw counts yet</span>
-                {% endif %}
-              </span>
-            </div>
+    <div class="tab-pane fade {{ 'show active' if active_profile_tab == 'overview' else '' }}" id="venue-profile-overview-pane" role="tabpanel" aria-labelledby="venue-profile-overview-tab">
+      {% if venue_profile.summary.total_tracked_items == 0 %}
+        <div class="card mb-3">
+          <div class="card-body">
+            {{ ui.empty_state("No tracked inventory yet.", body="Assign venue supplies first, then this overview will show operational status, count context, and review signals.") }}
           </div>
         </div>
-      </div>
+      {% else %}
+        <div class="venue-profile-summary-grid mb-3">
+          {% for card in venue_profile.summary.cards %}
+            <article class="card venue-profile-summary-card venue-profile-summary-card-{{ card.tone }}">
+              <div class="card-body">
+                <div class="venue-profile-summary-label">{{ card.title }}</div>
+                <div class="venue-profile-summary-value">{{ card.value }}</div>
+                <div class="venue-profile-summary-support">{{ card.support }}</div>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+
+        {% if venue_profile.summary.callout %}
+          <div class="venue-profile-alert-stack mb-3">
+            {% if venue_profile.summary.callout.filter_preset %}
+              <a
+                href="#venueProfileInventoryToolbar"
+                class="venue-profile-callout-trigger"
+                data-summary-filter="{{ venue_profile.summary.callout.filter_preset }}"
+              >
+                {{ ui.state_banner(venue_profile.summary.callout.title, venue_profile.summary.callout.body, tone=venue_profile.summary.callout.tone, extra_classes="venue-profile-callout-banner") }}
+              </a>
+            {% else %}
+              <div class="venue-profile-callout-shell">
+                {{ ui.state_banner(venue_profile.summary.callout.title, venue_profile.summary.callout.body, tone=venue_profile.summary.callout.tone, extra_classes="venue-profile-callout-banner") }}
+              </div>
+            {% endif %}
+          </div>
+        {% endif %}
+
+        <section class="card mb-3">
+          <div class="card-body">
+            <div class="venue-profile-section-head">
+              <div>
+                <h2 class="h5 mb-1">Inventory Overview</h2>
+                <p class="text-muted mb-0">Find follow-up fast, then expand rows for count detail and audit context.</p>
+              </div>
+              <div class="text-muted small venue-profile-section-count" id="venueProfileResultCount" data-total="{{ venue_profile.summary.total_tracked_items }}">
+                Showing {{ venue_profile.summary.total_tracked_items }} of {{ venue_profile.summary.total_tracked_items }} tracked items
+              </div>
+            </div>
+
+            <form id="venueProfileInventoryToolbar" class="venue-profile-toolbar-form">
+              {% call ui.toolbar("ui-toolbar-split venue-profile-toolbar mb-3") %}
+                <div class="ui-toolbar-main ui-toolbar-main-3 venue-profile-toolbar-main">
+                  <div class="venue-profile-toolbar-field">
+                    <label class="form-label" for="venueProfileSearch">Search inventory</label>
+                    <input
+                      id="venueProfileSearch"
+                      class="form-control ui-control"
+                      type="search"
+                      placeholder="Search by item or family"
+                      aria-label="Search venue inventory"
+                    >
+                  </div>
+                  <div class="venue-profile-toolbar-field">
+                    <label class="form-label" for="venueProfileFilter">Filter</label>
+                    <select id="venueProfileFilter" class="form-select ui-control" aria-label="Filter venue inventory">
+                      {% for value, label in inventory_filter_options %}
+                        <option value="{{ value }}">{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="venue-profile-toolbar-field">
+                    <label class="form-label" for="venueProfileSort">Sort</label>
+                    <select id="venueProfileSort" class="form-select ui-control" aria-label="Sort venue inventory">
+                      {% for value, label in inventory_sort_options %}
+                        <option value="{{ value }}" {% if value == "needs_action" %}selected{% endif %}>{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="ui-toolbar-actions venue-profile-toolbar-actions">
+                  <button type="button" class="btn btn-outline-secondary ui-control" id="venueProfileExpandToggle">Expand all</button>
+                  <button type="button" class="btn btn-outline-secondary ui-control is-inactive" id="venueProfileClearFilters" disabled>Clear</button>
+                </div>
+              {% endcall %}
+
+              <div class="venue-profile-toolbar-secondary">
+                <div class="venue-profile-segmented-filter" role="group" aria-label="Quick inventory filters">
+                  <button type="button" class="venue-profile-segmented-filter-btn is-active" data-segment-value="all" aria-pressed="true">All</button>
+                  <button type="button" class="venue-profile-segmented-filter-btn" data-segment-value="needs_action" aria-pressed="false">Needs Action</button>
+                  <button type="button" class="venue-profile-segmented-filter-btn" data-segment-value="review" aria-pressed="false">Review</button>
+                  <button type="button" class="venue-profile-segmented-filter-btn" data-segment-value="assets" aria-pressed="false">Assets</button>
+                </div>
+              </div>
+              <div class="venue-profile-active-filters is-inactive" id="venueProfileActiveFilters" aria-live="polite">
+                <span class="venue-profile-active-filters-label">Active</span>
+                <div class="venue-profile-active-filter-list" id="venueProfileActiveFilterList"></div>
+              </div>
+            </form>
+
+            <div class="venue-profile-results-region">
+              <div class="venue-profile-inventory-shell d-none d-xl-block">
+                <div class="venue-profile-inventory-header">
+                  <div>Inventory</div>
+                  <div>Operational Status</div>
+                  <div>Count Context</div>
+                  <div>Review State</div>
+                  <div>Freshness</div>
+                  <div>Actions</div>
+                </div>
+                <div class="venue-profile-inventory-list" id="venueProfileDesktopList">
+                  {% for group in venue_profile.inventory_groups %}
+                    {% if group.kind == "family" %}
+                      {{ inventory_ui.venue_profile_inventory_desktop_family(group) }}
+                    {% else %}
+                      {% set detail_id = "venue-profile-detail-" ~ group.row.id %}
+                      {{ inventory_ui.venue_profile_inventory_desktop_item(group.row, detail_id) }}
+                    {% endif %}
+                  {% endfor %}
+                </div>
+              </div>
+
+              <div class="venue-profile-mobile-stack d-xl-none" id="venueProfileMobileList">
+                {% for group in venue_profile.inventory_groups %}
+                  {% if group.kind == "family" %}
+                    {{ inventory_ui.venue_profile_inventory_mobile_family(group) }}
+                  {% else %}
+                    {% set detail_id = "venue-profile-mobile-detail-" ~ group.row.id %}
+                    {{ inventory_ui.venue_profile_inventory_mobile_item(group.row, detail_id) }}
+                  {% endif %}
+                {% endfor %}
+              </div>
+
+              <div class="d-none mt-3" id="venueProfileClientEmptyState" aria-live="polite">
+                {{ ui.empty_state("No inventory matches the current filters.", body="Adjust search, quick filters, or the filter menu to show more tracked items.", compact=True) }}
+              </div>
+            </div>
+          </div>
+        </section>
+      {% endif %}
     </div>
 
     <div class="tab-pane fade {{ 'show active' if active_profile_tab == 'notes' else '' }}" id="venue-profile-notes-pane" role="tabpanel" aria-labelledby="venue-profile-notes-tab">
@@ -145,9 +274,9 @@
               <input type="hidden" name="next" value="{{ back_url }}">
               <input type="hidden" name="profile_tab" value="notes">
               <label for="newNoteTitle" class="form-label mb-0">Add note</label>
-              <input id="newNoteTitle" name="title" class="form-control" maxlength="160" placeholder="Note title">
-              <textarea id="newNoteBody" name="body" rows="4" class="form-control" placeholder="Write note details..."></textarea>
-              <button class="btn btn-primary align-self-start" type="submit">Add Note</button>
+              <input id="newNoteTitle" name="title" class="form-control ui-control" maxlength="160" placeholder="Note title">
+              <textarea id="newNoteBody" name="body" rows="4" class="form-control ui-control-area" placeholder="Write note details..."></textarea>
+              <button class="btn btn-primary ui-control align-self-start" type="submit">Add Note</button>
             </form>
           {% endif %}
 
@@ -188,7 +317,7 @@
                 {% endfor %}
               </ul>
             {% else %}
-              <div class="text-muted">No notes added yet.</div>
+              {{ ui.empty_state("No notes added yet.", body="Add a venue note to capture room-specific context or operational reminders.", compact=True) }}
             {% endif %}
           </div>
         </div>
@@ -198,7 +327,7 @@
     <div class="tab-pane fade {{ 'show active' if active_profile_tab == 'activity' else '' }}" id="venue-profile-activity-pane" role="tabpanel" aria-labelledby="venue-profile-activity-tab">
       <div class="card mb-3">
         <div class="card-body">
-          <h2 class="h5 mb-3">Recent Updates</h2>
+          <h2 class="h5 mb-3">Recent Activity</h2>
           <div class="d-flex flex-column gap-2">
             {% for row in recent_activity_rows %}
               <article class="venue-profile-activity-row">
@@ -211,26 +340,12 @@
                 <div class="activity-change mb-1">
                   {% if row.type_key == 'status' %}
                     {% if row.old_status_key %}
-                      <span class="status-pill
-                        {{ 'status-good' if row.old_status_key == 'good' else '' }}
-                        {{ 'status-ok' if row.old_status_key == 'ok' else '' }}
-                        {{ 'status-low' if row.old_status_key == 'low' else '' }}
-                        {{ 'status-out' if row.old_status_key == 'out' else '' }}
-                        {{ 'status-na' if row.old_status_key == 'not_checked' else '' }}">
-                        <i class="bi {{ restock_status_options[row.old_status_key].icon_class }}"></i> {{ row.old_value_text }}
-                      </span>
+                      {{ ui.status_pill(row.old_status_key, row.old_value_text, restock_status_options[row.old_status_key].icon_class) }}
                     {% else %}
                       <span class="activity-value-chip activity-value-empty">{{ row.old_value_text }}</span>
                     {% endif %}
                     <i class="bi bi-arrow-right activity-change-arrow"></i>
-                    <span class="status-pill
-                      {{ 'status-good' if row.new_status_key == 'good' else '' }}
-                      {{ 'status-ok' if row.new_status_key == 'ok' else '' }}
-                      {{ 'status-low' if row.new_status_key == 'low' else '' }}
-                      {{ 'status-out' if row.new_status_key == 'out' else '' }}
-                      {{ 'status-na' if row.new_status_key == 'not_checked' else '' }}">
-                      <i class="bi {{ restock_status_options[row.new_status_key].icon_class }}"></i> {{ row.new_value_text }}
-                    </span>
+                    {{ ui.status_pill(row.new_status_key, row.new_value_text, restock_status_options[row.new_status_key].icon_class) }}
                   {% else %}
                     <span class="activity-value-chip {{ 'activity-value-empty' if row.old_value_missing else '' }}">{{ row.old_value_text }}</span>
                     <i class="bi bi-arrow-right activity-change-arrow"></i>
@@ -242,9 +357,18 @@
                 </div>
               </article>
             {% else %}
-              <div class="venue-directory-empty">No activity yet for this venue.</div>
+              {{ ui.empty_state("No activity yet for this venue.", body="Recent status and count updates will appear here once this venue is used.", compact=True) }}
             {% endfor %}
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-pane fade {{ 'show active' if active_profile_tab == 'files' else '' }}" id="venue-profile-files-pane" role="tabpanel" aria-labelledby="venue-profile-files-tab">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h2 class="h5 mb-3">Venue Files</h2>
+          {{ ui.empty_state("No venue files yet.", body="This future-ready tab is reserved for setup diagrams, instructions, checklists, and other venue documents once file uploads are added.", compact=True) }}
         </div>
       </div>
     </div>
@@ -285,7 +409,7 @@
                 <label class="form-label mb-0" for="editNoteTitle{{ note.id }}">Title</label>
                 <input
                   id="editNoteTitle{{ note.id }}"
-                  class="form-control"
+                  class="form-control ui-control"
                   name="title"
                   maxlength="160"
                   value="{{ note.title }}"
@@ -293,14 +417,14 @@
                 <label class="form-label mb-0" for="editNoteBody{{ note.id }}">Body</label>
                 <textarea
                   id="editNoteBody{{ note.id }}"
-                  class="form-control"
+                  class="form-control ui-control-area"
                   name="body"
                   rows="5"
                 >{{ note.body }}</textarea>
               </div>
               <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="submit" class="btn btn-primary">Save Changes</button>
+                <button type="button" class="btn btn-outline-secondary ui-control" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary ui-control">Save Changes</button>
               </div>
             </form>
           </div>
@@ -315,24 +439,27 @@
       if (!tabButtons.length) return;
 
       function normalizeProfileTab(rawValue) {
-        if (rawValue === "notes" || rawValue === "activity" || rawValue === "details") return rawValue;
-        return "details";
+        if (rawValue === "details") return "overview";
+        if (rawValue === "notes" || rawValue === "activity" || rawValue === "files" || rawValue === "overview") return rawValue;
+        return "overview";
       }
 
       function tabFromButton(button) {
         const targetId = button?.getAttribute("data-bs-target");
         if (targetId === "#venue-profile-notes-pane") return "notes";
         if (targetId === "#venue-profile-activity-pane") return "activity";
-        return "details";
+        if (targetId === "#venue-profile-files-pane") return "files";
+        return "overview";
       }
 
       function setActiveTabFromUrl() {
         const currentUrl = new URL(window.location.href);
         const desiredTab = normalizeProfileTab(currentUrl.searchParams.get("profile_tab"));
         const buttonByTab = {
-          details: document.getElementById("venue-profile-details-tab"),
+          overview: document.getElementById("venue-profile-overview-tab"),
           notes: document.getElementById("venue-profile-notes-tab"),
           activity: document.getElementById("venue-profile-activity-tab"),
+          files: document.getElementById("venue-profile-files-tab"),
         };
         const desiredButton = buttonByTab[desiredTab];
         if (!desiredButton) return;
@@ -344,10 +471,9 @@
 
       tabButtons.forEach((button) => {
         button.addEventListener("shown.bs.tab", (event) => {
-          const selectedTab = tabFromButton(event.target);
+          const selectedTab = normalizeProfileTab(tabFromButton(event.target));
           const currentUrl = new URL(window.location.href);
-          if (selectedTab === "details") currentUrl.searchParams.delete("profile_tab");
-          else currentUrl.searchParams.set("profile_tab", selectedTab);
+          currentUrl.searchParams.set("profile_tab", selectedTab);
           window.history.replaceState({}, "", currentUrl);
         });
       });
@@ -356,4 +482,5 @@
       setActiveTabFromUrl();
     })();
   </script>
+  <script src="{{ url_for('static', filename='js/venue_profile_overview.js') }}"></script>
 {% endblock %}

@@ -1,0 +1,230 @@
+{% macro back_link(url, label) -%}
+  <a class="btn btn-back-nav ui-back-link" href="{{ url }}">
+    <i class="bi bi-arrow-left" aria-hidden="true"></i>
+    <span>Back to {{ label }}</span>
+  </a>
+{%- endmacro %}
+
+{% macro chip(label, tone="neutral", icon_class=None, extra_classes="") -%}
+  <span class="ui-chip ui-chip-{{ tone }}{{ ' ' ~ extra_classes if extra_classes else '' }}">
+    {% if icon_class %}
+      <i class="bi {{ icon_class }}" aria-hidden="true"></i>
+    {% endif %}
+    <span>{{ label }}</span>
+  </span>
+{%- endmacro %}
+
+{% macro status_pill(status_key, label, icon_class, extra_classes="") -%}
+  <span class="status-pill{{ ' ' ~ extra_classes if extra_classes else '' }}
+    {{ ' status-good' if status_key == 'good' else '' }}
+    {{ ' status-ok' if status_key == 'ok' else '' }}
+    {{ ' status-low' if status_key == 'low' else '' }}
+    {{ ' status-out' if status_key == 'out' else '' }}
+    {{ ' status-na' if status_key == 'not_checked' else '' }}">
+    <i class="bi {{ icon_class }}"></i> {{ label }}
+  </span>
+{%- endmacro %}
+
+{% macro status_info_button(status_key, label, icon_class, venue_name, total_tracked, counts, extra_classes="") -%}
+  <button
+    type="button"
+    class="status-info-btn{{ ' ' ~ extra_classes if extra_classes else '' }}"
+    data-status-popover
+    data-status-key="{{ status_key }}"
+    data-status-icon="{{ icon_class }}"
+    data-status-summary="{{ label }}"
+    data-status-venue="{{ venue_name }}"
+    data-total-tracked="{{ total_tracked }}"
+    data-count-good="{{ counts.good }}"
+    data-count-ok="{{ counts.ok }}"
+    data-count-low="{{ counts.low }}"
+    data-count-out="{{ counts.out }}"
+    data-count-not-checked="{{ counts.not_checked }}"
+    aria-label="Show status details for {{ venue_name }}"
+  >
+    <i class="bi bi-info-circle"></i>
+  </button>
+{%- endmacro %}
+
+{% macro page_header(
+  title,
+  subtitle=None,
+  back_url=None,
+  back_label=None,
+  title_href=None,
+  title_link_classes="",
+  action_text=None,
+  action_href=None,
+  action_form_id=None,
+  action_class="btn btn-aolrc-accent ui-control",
+  action_button_type=None,
+  action_toggle=None,
+  action_target=None,
+  action_controls=None,
+  action_expanded=None,
+  action_title=None,
+  section_classes=""
+) -%}
+  <section class="ui-page-header{{ ' ' ~ section_classes if section_classes else '' }}">
+    {% if back_url and back_label %}
+      <div class="ui-page-header-back">
+        {{ back_link(back_url, back_label) }}
+      </div>
+    {% endif %}
+    <div class="ui-page-header-main">
+      <div class="ui-page-header-top">
+        <div class="ui-page-header-copy">
+          <h1 class="h3 mb-0 fw-bold text-aolrc-purple page-heading ui-page-title">
+            {% if title_href %}
+              <a class="ui-page-title-link {{ title_link_classes }}" href="{{ title_href }}">
+                {{ title }}
+              </a>
+            {% else %}
+              <span>{{ title }}</span>
+            {% endif %}
+          </h1>
+          {% if subtitle %}
+            <div class="text-muted ui-page-subtitle">{{ subtitle }}</div>
+          {% endif %}
+        </div>
+        {% if action_text %}
+          <div class="ui-page-header-actions">
+            {% if action_href %}
+              <a class="{{ action_class }}" href="{{ action_href }}"{% if action_title %} title="{{ action_title }}"{% endif %}>
+                {{ action_text }}
+              </a>
+            {% else %}
+              <button
+                class="{{ action_class }}"
+                type="{{ action_button_type or ('submit' if action_form_id else 'button') }}"
+                {% if action_form_id %}form="{{ action_form_id }}"{% endif %}
+                {% if action_toggle %}data-bs-toggle="{{ action_toggle }}"{% endif %}
+                {% if action_target %}data-bs-target="{{ action_target }}"{% endif %}
+                {% if action_controls %}aria-controls="{{ action_controls }}"{% endif %}
+                {% if action_expanded is not none %}aria-expanded="{{ action_expanded }}"{% endif %}
+                {% if action_title %}title="{{ action_title }}"{% endif %}
+              >
+                {{ action_text }}
+              </button>
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+      {% if caller is defined %}
+        {% set meta_content = caller()|trim %}
+        {% if meta_content %}
+          <div class="ui-page-header-meta">{{ meta_content }}</div>
+        {% endif %}
+      {% endif %}
+    </div>
+  </section>
+{%- endmacro %}
+
+{% macro toolbar(extra_classes="") -%}
+  <div class="ui-toolbar{{ ' ' ~ extra_classes if extra_classes else '' }}">
+    {{ caller() }}
+  </div>
+{%- endmacro %}
+
+{% macro form_section(title, subtitle=None, section_classes="") -%}
+  <section class="ui-form-section{{ ' ' ~ section_classes if section_classes else '' }}">
+    <div class="ui-form-section-head">
+      <h2 class="h5 mb-1">{{ title }}</h2>
+      {% if subtitle %}
+        <p class="text-muted mb-0">{{ subtitle }}</p>
+      {% endif %}
+    </div>
+    <div class="ui-form-section-body">
+      {{ caller() }}
+    </div>
+  </section>
+{%- endmacro %}
+
+{% macro state_banner(title=None, body=None, tone="info", icon_class=None, extra_classes="", live_region=None) -%}
+  {% if not icon_class %}
+    {% if tone in ["warning"] %}
+      {% set icon_class = "bi-exclamation-triangle-fill" %}
+    {% elif tone in ["danger", "error"] %}
+      {% set icon_class = "bi-exclamation-octagon-fill" %}
+    {% elif tone in ["success"] %}
+      {% set icon_class = "bi-check-circle-fill" %}
+    {% elif tone in ["muted", "neutral"] %}
+      {% set icon_class = "bi-info-circle" %}
+    {% else %}
+      {% set icon_class = "bi-info-circle-fill" %}
+    {% endif %}
+  {% endif %}
+  <div
+    class="ui-state-banner ui-state-banner-{{ 'danger' if tone == 'error' else tone }}{{ ' ' ~ extra_classes if extra_classes else '' }}"
+    role="{{ 'alert' if tone in ['warning', 'danger', 'error'] else 'status' }}"
+    {% if live_region %}aria-live="{{ live_region }}"{% endif %}
+  >
+    <div class="ui-state-banner-icon" aria-hidden="true">
+      <i class="bi {{ icon_class }}"></i>
+    </div>
+    <div class="ui-state-banner-copy">
+      {% if title %}
+        <div class="ui-state-banner-title">{{ title }}</div>
+      {% endif %}
+      {% if body %}
+        <div class="ui-state-banner-body">{{ body }}</div>
+      {% endif %}
+    </div>
+  </div>
+{%- endmacro %}
+
+{% macro empty_state(title, body=None, icon_class="bi-inbox", extra_classes="", compact=False, live_region=None) -%}
+  <div
+    class="ui-empty-state{{ ' ui-empty-state-compact' if compact else '' }}{{ ' ' ~ extra_classes if extra_classes else '' }}"
+    role="status"
+    {% if live_region %}aria-live="{{ live_region }}"{% endif %}
+  >
+    <div class="ui-empty-state-icon" aria-hidden="true">
+      <i class="bi {{ icon_class }}"></i>
+    </div>
+    <div class="ui-empty-state-copy">
+      <div class="ui-empty-state-title">{{ title }}</div>
+      {% if body %}
+        <div class="ui-empty-state-body">{{ body }}</div>
+      {% endif %}
+    </div>
+  </div>
+{%- endmacro %}
+
+{% macro loading_state(label="Loading…", detail=None, extra_classes="") -%}
+  <div class="ui-loading-state{{ ' ' ~ extra_classes if extra_classes else '' }}" role="status" aria-live="polite">
+    <span class="ui-loading-spinner" aria-hidden="true"></span>
+    <div class="ui-loading-copy">
+      <div class="ui-loading-title">{{ label }}</div>
+      {% if detail %}
+        <div class="ui-loading-detail">{{ detail }}</div>
+      {% endif %}
+    </div>
+  </div>
+{%- endmacro %}
+
+{% macro validation_summary(messages, title="Please review the following", extra_classes="") -%}
+  {% if messages %}
+    <div class="ui-state-banner ui-state-banner-danger ui-validation-summary{{ ' ' ~ extra_classes if extra_classes else '' }}" role="alert">
+      <div class="ui-state-banner-icon" aria-hidden="true">
+        <i class="bi bi-exclamation-octagon-fill"></i>
+      </div>
+      <div class="ui-state-banner-copy">
+        <div class="ui-state-banner-title">{{ title }}</div>
+        <ul class="ui-validation-list">
+          {% for message in messages %}
+            <li>{{ message }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  {% endif %}
+{%- endmacro %}
+
+{% macro table_empty_row(colspan, title, body=None, icon_class="bi-inbox") -%}
+  <tr class="ui-table-empty-row">
+    <td colspan="{{ colspan }}">
+      {{ empty_state(title, body=body, icon_class=icon_class, compact=True) }}
+    </td>
+  </tr>
+{%- endmacro %}

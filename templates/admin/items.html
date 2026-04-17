@@ -1,27 +1,152 @@
 {% extends "base.html" %}
+{% import "_item_macros.html" as item_ui %}
+{% import "_ui_macros.html" as ui %}
 {% block title %}Manage Items{% endblock %}
 
 {% block content %}
-<h1 class="h3 mb-3 fw-bold text-aolrc-purple page-heading">Manage Items</h1>
+{{ ui.page_header(
+  title="Manage Items",
+  subtitle="Define shared item structure once so supplies, venue assignment, and venue checks use the same language."
+) }}
+
+<section class="item-structure-guide card border-0 shadow-sm mb-4">
+  <div class="card-body">
+    <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-3">
+      <div>
+        <h2 class="h5 mb-1">Item Structure Guide</h2>
+        <p class="text-muted mb-0">The catalog now separates tracked inventory lines from family organizers and presence-based assets.</p>
+      </div>
+      <div class="item-catalog-stats">
+        <span class="item-catalog-stat">{{ catalog_summary.total_items }} total items</span>
+        <span class="item-catalog-stat">{{ catalog_summary.group_parents }} families</span>
+        <span class="item-catalog-stat">{{ catalog_summary.child_items }} family members</span>
+        <span class="item-catalog-stat">{{ catalog_summary.singleton_assets }} singleton assets</span>
+      </div>
+    </div>
+    <div class="item-guide-grid">
+      <article class="item-guide-card">
+        {{ item_ui.structure_badges(tracking_mode="quantity", show_category=False, show_kind=False) }}
+        <h3 class="h6 mt-3 mb-1">Quantity item</h3>
+        <p class="text-muted small mb-0">Standard supply row with counts, par targets, and low-stock style attention.</p>
+      </article>
+      <article class="item-guide-card">
+        {{ item_ui.structure_badges(tracking_mode="singleton_asset", show_category=False, show_kind=False) }}
+        <h3 class="h6 mt-3 mb-1">Singleton asset</h3>
+        <p class="text-muted small mb-0">Presence and condition matter more than low-stock counts. Use for one-per-room assets.</p>
+      </article>
+      <article class="item-guide-card">
+        {{ item_ui.structure_badges(is_group_parent=True, show_tracking=False, show_category=False) }}
+        <h3 class="h6 mt-3 mb-1">Family organizer</h3>
+        <p class="text-muted small mb-0">Display-only parent that groups related variants like Tea, then lets staff track the child items beneath it.</p>
+      </article>
+      <article class="item-guide-card">
+        {{ item_ui.structure_badges(parent_name="Tea", show_tracking=False, show_category=False) }}
+        <h3 class="h6 mt-3 mb-1">Family member</h3>
+        <p class="text-muted small mb-0">Tracked child item that lives inside a parent family and should be shown with that family context.</p>
+      </article>
+    </div>
+  </div>
+</section>
 
 <div class="card mb-4">
   <div class="card-body">
-    <h2 class="h5">Add an item</h2>
-    <form method="post" class="row g-2">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="col-md-6">
-        <input class="form-control" name="name" placeholder="Item name (e.g., Yoga Mats)">
+    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3">
+      <div>
+        <h2 class="h5 mb-1">Add an Item</h2>
+        <p class="text-muted mb-0">Start new catalog entries on the same shared structure used throughout the app.</p>
       </div>
-      <div class="col-md-4">
-        <select class="form-select" name="item_type">
-          <option value="durable">Durable</option>
-          <option value="consumable">Consumable</option>
-        </select>
-      </div>
-      <div class="col-md-2">
-        <button class="btn w-100 btn-aolrc-accent">Add</button>
-      </div>
-    </form>
+      <button
+        class="btn btn-aolrc-accent ui-control"
+        type="button"
+        data-bs-toggle="collapse"
+        data-bs-target="#addItemCollapse"
+        aria-controls="addItemCollapse"
+        aria-expanded="{{ 'true' if show_add_item_form else 'false' }}"
+      >
+        Add Item
+      </button>
+    </div>
+
+    <div class="collapse{{ ' show' if show_add_item_form else '' }} mt-3" id="addItemCollapse">
+      {% call ui.form_section("New catalog item", "Use the shared inventory structure so assignment, checks, and audit screens stay aligned.") %}
+        <form method="post" class="row g-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="item-name">Item name</label>
+            <input
+              id="item-name"
+              class="form-control ui-control"
+              name="name"
+              placeholder="Item name (e.g., Yoga Mats)"
+              value="{{ form_values.name }}"
+            >
+          </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <label class="form-label" for="item-tracking-mode">Tracking mode</label>
+          <select id="item-tracking-mode" class="form-select ui-control" name="tracking_mode">
+            {% for value, label in tracking_mode_options %}
+              <option value="{{ value }}" {% if form_values.tracking_mode == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <label class="form-label" for="item-category">Category</label>
+          <select id="item-category" class="form-select ui-control" name="item_category">
+            {% for value, label in item_category_options %}
+              <option value="{{ value }}" {% if form_values.item_category == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-sm-6 col-md-4">
+          <label class="form-label" for="item-parent">Parent family (optional)</label>
+          <select id="item-parent" class="form-select ui-control" name="parent_item_id">
+            <option value="">No parent</option>
+            {% for parent in parent_options %}
+              <option value="{{ parent.id }}" {% if form_values.parent_item_id == parent.id|string %}selected{% endif %}>{{ parent.name }} (family)</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">Only family organizer items appear here.</div>
+        </div>
+        <div class="col-12 col-sm-6 col-md-2">
+          <label class="form-label" for="item-sort-order">Sort order</label>
+          <input id="item-sort-order" class="form-control ui-control" type="number" step="1" name="sort_order" value="{{ form_values.sort_order }}">
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <label class="form-label" for="item-unit">Unit (optional)</label>
+          <input id="item-unit" class="form-control ui-control" name="unit" value="{{ form_values.unit }}" placeholder="each, box, bottle...">
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <div class="form-check mt-md-4 pt-md-2">
+            <input class="form-check-input" type="checkbox" id="item-is-group-parent" name="is_group_parent" value="1" {% if form_values.is_group_parent %}checked{% endif %}>
+            <label class="form-check-label" for="item-is-group-parent">
+              Group parent (family)
+            </label>
+          </div>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <div class="form-check mt-md-4 pt-md-2">
+            <input class="form-check-input" type="checkbox" id="item-active" name="active" value="1" {% if form_values.active %}checked{% endif %}>
+            <label class="form-check-label" for="item-active">
+              Active
+            </label>
+          </div>
+        </div>
+        <div class="col-12 col-md-3 ms-md-auto">
+          <button class="btn w-100 btn-aolrc-accent ui-control">Create Item</button>
+        </div>
+        </form>
+      {% endcall %}
+      <section class="item-form-summary mt-3" id="itemFormSummary" aria-live="polite">
+        <div class="item-form-summary-eyebrow">How this item will behave</div>
+        <h3 class="item-form-summary-title h6 mb-1" id="itemFormSummaryTitle">Standalone quantity item</h3>
+        <p class="item-form-summary-text mb-0" id="itemFormSummaryText">This item will appear as a directly counted supply row.</p>
+        <div class="item-form-summary-points mt-3">
+          <div class="item-form-summary-point" id="itemFormSummaryTracking"></div>
+          <div class="item-form-summary-point" id="itemFormSummaryFamily"></div>
+          <div class="item-form-summary-point" id="itemFormSummaryCounted"></div>
+        </div>
+      </section>
+    </div>
   </div>
 </div>
 
@@ -33,27 +158,65 @@
         <thead>
           <tr>
             <th>Name</th>
-            <th style="width:140px;">Type</th>
+            <th style="width:190px;">Structure</th>
+            <th style="width:140px;">Mode</th>
+            <th style="width:130px;">Category</th>
+            <th style="width:150px;">Daily Use</th>
             <th style="width:120px;">Active</th>
-            <th style="width:200px;">Actions</th>
+            <th style="width:240px;">Actions</th>
           </tr>
         </thead>
         <tbody>
-          {% for it in items %}
+          {% for it, depth in item_rows %}
           <tr>
-            <td>{{ it.name }}</td>
-            <td>{{ it.item_type }}</td>
             <td>
-              {% if it.active %}
-                <span class="badge bg-success">Active</span>
+              {{ item_ui.item_heading(
+                it.name,
+                parent_name=it.parent_item.name if it.parent_item else none,
+                is_group_parent=it.is_group_parent,
+                child_count=it.child_items|length if it.is_group_parent else none
+              ) }}
+            </td>
+            <td>
+              {% if it.is_group_parent %}
+                <div class="fw-semibold">Family organizer</div>
+                <div class="small text-muted">Shown as a grouped header, not a count row</div>
+              {% elif it.parent_item %}
+                <div class="fw-semibold">Child item</div>
+                <div class="small text-muted">Tracked inside {{ it.parent_item.name }}</div>
               {% else %}
-                <span class="badge bg-secondary">Inactive</span>
+                <div class="fw-semibold">Direct item</div>
+                <div class="small text-muted">Standalone tracked item</div>
+              {% endif %}
+            </td>
+            <td>{{ item_ui.structure_badges(tracking_mode=it.tracking_mode, show_kind=False, show_category=False, compact=True) }}</td>
+            <td>{{ item_ui.structure_badges(item_category=(it.item_category or it.item_type), show_tracking=False, show_kind=False, compact=True) }}</td>
+            <td>
+              {% if it.is_group_parent %}
+                <div class="fw-semibold">Not counted directly</div>
+                <div class="small text-muted">Children carry the inventory</div>
+              {% elif it.tracking_mode == "singleton_asset" %}
+                <div class="fw-semibold">Presence tracked</div>
+                <div class="small text-muted">Present, damaged, or missing</div>
+              {% else %}
+                <div class="fw-semibold">Counts</div>
+                <div class="small text-muted">Count and par based</div>
               {% endif %}
             </td>
             <td>
               {% if it.active %}
+                {{ ui.chip("Active", tone="success") }}
+              {% else %}
+                {{ ui.chip("Inactive", tone="secondary") }}
+              {% endif %}
+            </td>
+            <td>
+              <a class="btn btn-sm btn-outline-primary me-1 ui-control-sm" href="{{ url_for('admin.edit_item', item_id=it.id) }}">
+                Edit
+              </a>
+              {% if it.active %}
                 <a
-                  class="btn btn-sm btn-outline-danger"
+                  class="btn btn-sm btn-outline-danger ui-control-sm"
                   href="{{ url_for('admin.deactivate_item', item_id=it.id) }}"
                 >
                   Deactivate
@@ -63,7 +226,7 @@
                       action="{{ url_for('admin.activate_item', item_id=it.id) }}"
                       class="d-inline">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button class="btn btn-sm btn-outline-success" type="submit">
+                  <button class="btn btn-sm btn-outline-success ui-control-sm" type="submit">
                     Activate
                   </button>
                 </form>
@@ -71,11 +234,73 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="4">No items yet.</td></tr>
+          {{ ui.table_empty_row(7, "No items yet.", body="Add a catalog item to start assigning shared inventory across venues.") }}
           {% endfor %}
         </tbody>
       </table>
     </div>
   </div>
 </div>
+<script>
+  (() => {
+    const trackingModeEl = document.getElementById("item-tracking-mode");
+    const parentSelectEl = document.getElementById("item-parent");
+    const groupParentEl = document.getElementById("item-is-group-parent");
+    const summaryTitleEl = document.getElementById("itemFormSummaryTitle");
+    const summaryTextEl = document.getElementById("itemFormSummaryText");
+    const trackingLineEl = document.getElementById("itemFormSummaryTracking");
+    const familyLineEl = document.getElementById("itemFormSummaryFamily");
+    const countedLineEl = document.getElementById("itemFormSummaryCounted");
+
+    function selectedParentLabel() {
+      const option = parentSelectEl?.selectedOptions?.[0];
+      return option && option.value ? option.textContent.replace(/\s+\(family\)\s*$/, "") : "";
+    }
+
+    function syncItemSummary() {
+      if (!trackingModeEl || !parentSelectEl || !groupParentEl) return;
+      if (groupParentEl.checked) {
+        parentSelectEl.value = "";
+        parentSelectEl.disabled = true;
+      } else {
+        parentSelectEl.disabled = false;
+      }
+
+      const trackingMode = trackingModeEl.value || "quantity";
+      const parentLabel = selectedParentLabel();
+
+      if (groupParentEl.checked) {
+        summaryTitleEl.textContent = "Family organizer";
+        summaryTextEl.textContent = "This item will organize related child items and stay out of normal counted inventory rows.";
+        trackingLineEl.textContent = "Tracking: Family organizers are display-first items, even if Quantity is selected here.";
+        familyLineEl.textContent = "Family: Child items can be attached beneath this parent.";
+        countedLineEl.textContent = "Daily use: Not counted directly at venues.";
+        return;
+      }
+
+      if (parentLabel) {
+        summaryTitleEl.textContent = `Child item in ${parentLabel}`;
+        summaryTextEl.textContent = "This item will appear as the tracked variant inside its parent family.";
+        familyLineEl.textContent = `Family: Belongs to ${parentLabel}.`;
+      } else {
+        summaryTitleEl.textContent = trackingMode === "singleton_asset" ? "Standalone singleton asset" : "Standalone quantity item";
+        summaryTextEl.textContent = "This item will appear as its own tracked row anywhere staff count or check inventory.";
+        familyLineEl.textContent = "Family: No parent family relationship.";
+      }
+
+      if (trackingMode === "singleton_asset") {
+        trackingLineEl.textContent = "Tracking: Presence and condition matter more than low-stock counts.";
+        countedLineEl.textContent = "Daily use: Staff check present, damaged, or missing instead of using par-style attention.";
+      } else {
+        trackingLineEl.textContent = "Tracking: Uses counts and standard par-style supply presentation.";
+        countedLineEl.textContent = "Daily use: Counted directly at venues and shown like standard supply inventory.";
+      }
+    }
+
+    [trackingModeEl, parentSelectEl, groupParentEl].forEach((el) => {
+      el?.addEventListener("change", syncItemSummary);
+    });
+    syncItemSummary();
+  })();
+</script>
 {% endblock %}

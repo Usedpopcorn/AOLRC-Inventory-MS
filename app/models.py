@@ -3,6 +3,8 @@ from flask_login import UserMixin
 from . import db
 
 VALID_ROLES = ("viewer", "staff", "admin")
+ITEM_TRACKING_MODES = ("quantity", "singleton_asset")
+ITEM_CATEGORY_OPTIONS = ("consumable", "durable", "beverage", "cleaning", "office", "other")
 
 
 def normalize_role(raw_role):
@@ -10,6 +12,22 @@ def normalize_role(raw_role):
     if role not in VALID_ROLES:
         return "viewer"
     return role
+
+
+def normalize_tracking_mode(raw_mode):
+    mode = (raw_mode or "").strip().lower()
+    if mode not in ITEM_TRACKING_MODES:
+        return "quantity"
+    return mode
+
+
+def normalize_item_category(raw_category):
+    category = (raw_category or "").strip().lower()
+    if category in ITEM_CATEGORY_OPTIONS:
+        return category
+    if category in {"durable", "consumable"}:
+        return category
+    return "other"
 
 
 class User(UserMixin, db.Model):
@@ -89,10 +107,44 @@ class Item(db.Model):
     # "durable" or "consumable" (we’ll keep it as a string for simplicity)
     item_type = db.Column(db.String(20), nullable=False)
 
+    # New structured fields for flexible item behavior.
+    tracking_mode = db.Column(db.String(40), nullable=False, default="quantity")
+    item_category = db.Column(db.String(40), nullable=False, default="consumable")
+    parent_item_id = db.Column(
+        db.Integer,
+        db.ForeignKey("items.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    is_group_parent = db.Column(db.Boolean, nullable=False, default=False)
+    unit = db.Column(db.String(40), nullable=True)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+
     # Allows “archiving” items instead of deleting
     active = db.Column(db.Boolean, default=True, nullable=False)
 
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    parent_item = db.relationship(
+        "Item",
+        remote_side=[id],
+        backref=db.backref("child_items", lazy="selectin"),
+        foreign_keys=[parent_item_id],
+    )
+
+    @property
+    def effective_item_category(self):
+        if self.item_category:
+            return self.item_category
+        return self.item_type or "other"
+
+    @property
+    def is_singleton_asset(self):
+        return normalize_tracking_mode(self.tracking_mode) == "singleton_asset"
+
+    @property
+    def can_be_tracked_directly(self):
+        return not bool(self.is_group_parent)
 
 class VenueItem(db.Model):
     __tablename__ = "venue_items"

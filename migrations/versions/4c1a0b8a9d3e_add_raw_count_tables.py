@@ -1,4 +1,4 @@
-"""add raw count tables
+"""add count tables
 
 Revision ID: 4c1a0b8a9d3e
 Revises: 2d9e571d8543

@@ -85,7 +85,7 @@ def parse_args():
         "--count-ratio",
         type=float,
         default=0.45,
-        help="Share of sessions that should be raw-count sessions (0.0 to 1.0).",
+        help="Share of sessions that should be count sessions (0.0 to 1.0).",
     )
     parser.add_argument(
         "--seed",
@@ -151,11 +151,19 @@ def ensure_fixture_data():
     for item_name, item_type in FALLBACK_ITEMS:
         item = Item.query.filter_by(name=item_name).first()
         if item is None:
-            item = Item(name=item_name, item_type=item_type, active=True)
+            item = Item(
+                name=item_name,
+                item_type=item_type,
+                item_category=item_type,
+                tracking_mode="quantity",
+                active=True,
+            )
             db.session.add(item)
         else:
             item.active = True
             item.item_type = item_type
+            item.item_category = item_type
+            item.tracking_mode = "quantity"
         items.append(item)
 
     db.session.flush()
