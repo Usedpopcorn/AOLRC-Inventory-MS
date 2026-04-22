@@ -23,14 +23,14 @@ repos:
     hooks:
       - id: repo-validate
         name: repo validate
-        entry: ./.venv/Scripts/python.exe scripts/validate_repo.py
-        language: system
+        entry: python scripts/repo_python.py scripts/validate_repo.py
+        language: python
         pass_filenames: false
         stages: [pre-push]
 
       - id: smoke-tests
         name: smoke tests
-        entry: ./.venv/Scripts/python.exe -m pytest
-        language: system
+        entry: python scripts/repo_python.py -m pytest
+        language: python
         pass_filenames: false
         stages: [pre-push]

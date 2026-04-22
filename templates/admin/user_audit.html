@@ -1,0 +1,306 @@
+{% extends "admin/layout.html" %}
+{% import "_ui_macros.html" as ui %}
+{% import "admin/_admin_macros.html" as admin_ui %}
+{% block title %}User Audit{% endblock %}
+
+{% block admin_page %}
+{{ ui.page_header(
+  title="User Audit",
+  subtitle="Activity and account attention."
+) }}
+
+{{ ui.state_banner(
+  "Operational activity is approximate.",
+  "Checks + count sessions + notes in the last " ~ user_audit.summary.window_days ~ " days. Not a full auth log.",
+  tone="info",
+  icon_class="bi-info-circle-fill"
+) }}
+
+{% call admin_ui.region("Role Mix") %}
+  <section class="admin-summary-grid admin-summary-grid-compact" aria-label="User audit summary">
+    {{ admin_ui.summary_card("Admins", user_audit.role_counts.admin, "bi-shield-lock") }}
+    {{ admin_ui.summary_card("Staff", user_audit.role_counts.staff, "bi-person-badge") }}
+    {{ admin_ui.summary_card("Viewers", user_audit.role_counts.viewer, "bi-eye") }}
+    {{ admin_ui.summary_card("Locked", user_audit.summary.locked, "bi-lock") }}
+    {{ admin_ui.summary_card("Inactive", user_audit.summary.inactive, "bi-person-dash") }}
+  </section>
+{% endcall %}
+
+{% call admin_ui.region("Activity Ranking") %}
+  <div class="admin-audit-ranking-grid">
+    {% call admin_ui.panel("Most Active") %}
+      {% if user_audit.most_active_users.preview %}
+        <div class="admin-preview-meta">
+          <span>{{ user_audit.most_active_users.loaded_count }} ranked user{{ "s" if user_audit.most_active_users.loaded_count != 1 else "" }} with recorded activity</span>
+        </div>
+        <div class="admin-score-list">
+          {% for row in user_audit.most_active_users.preview %}
+            <article class="admin-score-row">
+              <div class="admin-score-main">
+                <div class="admin-score-name">{{ row.display_name }}</div>
+                <div class="admin-score-support">{{ row.email }}</div>
+              </div>
+              <div class="admin-score-value">{{ row.score }}</div>
+              <div class="admin-score-breakdown">Checks {{ row.checks }} | Counts {{ row.raw_counts }} | Notes {{ row.notes }}</div>
+            </article>
+          {% endfor %}
+        </div>
+        {% if user_audit.most_active_users.has_more %}
+          {% call admin_ui.disclosure(
+            "Show " ~ user_audit.most_active_users.remaining_count ~ " more ranked user" ~ ("s" if user_audit.most_active_users.remaining_count != 1 else "")
+          ) %}
+            <div class="admin-score-list admin-scroll-region">
+              {% for row in user_audit.most_active_users.remaining %}
+                <article class="admin-score-row">
+                  <div class="admin-score-main">
+                    <div class="admin-score-name">{{ row.display_name }}</div>
+                    <div class="admin-score-support">{{ row.email }}</div>
+                  </div>
+                  <div class="admin-score-value">{{ row.score }}</div>
+                  <div class="admin-score-breakdown">Checks {{ row.checks }} | Counts {{ row.raw_counts }} | Notes {{ row.notes }}</div>
+                </article>
+              {% endfor %}
+            </div>
+          {% endcall %}
+        {% endif %}
+      {% else %}
+        {{ ui.empty_state("No recent activity yet.", compact=True) }}
+      {% endif %}
+    {% endcall %}
+
+    {% call admin_ui.panel("Least Active") %}
+      {% if user_audit.least_active_users.preview %}
+        <div class="admin-preview-meta">
+          <span>{{ user_audit.least_active_users.loaded_count }} low-touch account{{ "s" if user_audit.least_active_users.loaded_count != 1 else "" }} in view</span>
+        </div>
+        <div class="admin-score-list">
+          {% for row in user_audit.least_active_users.preview %}
+            <article class="admin-score-row">
+              <div class="admin-score-main">
+                <div class="admin-score-name">{{ row.display_name }}</div>
+                <div class="admin-score-support">{{ row.email }}</div>
+              </div>
+              <div class="admin-score-value">{{ row.score }}</div>
+              <div class="admin-score-breakdown">Checks {{ row.checks }} | Counts {{ row.raw_counts }} | Notes {{ row.notes }}</div>
+            </article>
+          {% endfor %}
+        </div>
+        {% if user_audit.least_active_users.has_more %}
+          {% call admin_ui.disclosure(
+            "Show " ~ user_audit.least_active_users.remaining_count ~ " more low-touch account" ~ ("s" if user_audit.least_active_users.remaining_count != 1 else "")
+          ) %}
+            <div class="admin-score-list admin-scroll-region">
+              {% for row in user_audit.least_active_users.remaining %}
+                <article class="admin-score-row">
+                  <div class="admin-score-main">
+                    <div class="admin-score-name">{{ row.display_name }}</div>
+                    <div class="admin-score-support">{{ row.email }}</div>
+                  </div>
+                  <div class="admin-score-value">{{ row.score }}</div>
+                  <div class="admin-score-breakdown">Checks {{ row.checks }} | Counts {{ row.raw_counts }} | Notes {{ row.notes }}</div>
+                </article>
+              {% endfor %}
+            </div>
+          {% endcall %}
+        {% endif %}
+      {% else %}
+        {{ ui.empty_state("No users to rank yet.", compact=True) }}
+      {% endif %}
+    {% endcall %}
+  </div>
+{% endcall %}
+
+{% call admin_ui.region("Recent Activity") %}
+  <div class="admin-support-grid">
+    {% call admin_ui.panel("Operational Activity") %}
+      {% if user_audit.recent_activity.preview %}
+        <div class="admin-preview-meta">
+          <span>Showing the latest {{ user_audit.recent_activity.preview_count }} linked record{{ "s" if user_audit.recent_activity.preview_count != 1 else "" }}</span>
+          {% if user_audit.recent_activity.latest %}
+            <span>Latest {{ user_audit.recent_activity.latest.changed_at_text }}</span>
+          {% endif %}
+        </div>
+        <div class="admin-feed-list admin-feed-list-dense">
+          {% for row in user_audit.recent_activity.preview %}
+            <article class="admin-feed-item">
+              <div class="admin-feed-item-top">
+                <div class="admin-feed-title">
+                  <i class="bi {{ row.icon_class }}" aria-hidden="true"></i>
+                  <span>{{ row.title }}</span>
+                </div>
+                <div class="admin-feed-time">{{ row.changed_at_text }}</div>
+              </div>
+              <div class="admin-feed-body">{{ row.actor_name }}</div>
+              <div class="admin-feed-meta">{{ row.detail }}</div>
+            </article>
+          {% endfor %}
+        </div>
+        {% if user_audit.recent_activity.has_more %}
+          {% call admin_ui.disclosure(
+            "Show " ~ user_audit.recent_activity.remaining_count ~ " more linked record" ~ ("s" if user_audit.recent_activity.remaining_count != 1 else "")
+          ) %}
+            <div class="admin-feed-list admin-feed-list-dense admin-scroll-region">
+              {% for row in user_audit.recent_activity.remaining %}
+                <article class="admin-feed-item">
+                  <div class="admin-feed-item-top">
+                    <div class="admin-feed-title">
+                      <i class="bi {{ row.icon_class }}" aria-hidden="true"></i>
+                      <span>{{ row.title }}</span>
+                    </div>
+                    <div class="admin-feed-time">{{ row.changed_at_text }}</div>
+                  </div>
+                  <div class="admin-feed-body">{{ row.actor_name }}</div>
+                  <div class="admin-feed-meta">{{ row.detail }}</div>
+                </article>
+              {% endfor %}
+            </div>
+          {% endcall %}
+        {% endif %}
+      {% else %}
+        {{ ui.empty_state("No user-linked activity yet.", compact=True) }}
+      {% endif %}
+    {% endcall %}
+
+    {% call admin_ui.panel("Account Actions", none, "admin-panel-support") %}
+      {% if user_audit.recent_account_activity.preview %}
+        <div class="admin-preview-meta">
+          <span>Showing the latest {{ user_audit.recent_account_activity.preview_count }} retained account event{{ "s" if user_audit.recent_account_activity.preview_count != 1 else "" }}</span>
+          {% if user_audit.recent_account_activity.latest %}
+            <span>Latest {{ user_audit.recent_account_activity.latest.changed_at_text }}</span>
+          {% endif %}
+        </div>
+        <div class="admin-feed-list admin-feed-list-dense">
+          {% for row in user_audit.recent_account_activity.preview %}
+            <article class="admin-feed-item">
+              <div class="admin-feed-item-top">
+                <div class="admin-feed-title">
+                  <i class="bi {{ row.icon_class }}" aria-hidden="true"></i>
+                  <span>{{ row.title }}</span>
+                </div>
+                <div class="admin-feed-time">{{ row.changed_at_text }}</div>
+              </div>
+              <div class="admin-feed-body">{{ row.actor_name }}</div>
+              <div class="admin-feed-meta">{{ row.detail }}</div>
+            </article>
+          {% endfor %}
+        </div>
+        {% if user_audit.recent_account_activity.has_more %}
+          {% call admin_ui.disclosure(
+            "Show " ~ user_audit.recent_account_activity.remaining_count ~ " more retained account event" ~ ("s" if user_audit.recent_account_activity.remaining_count != 1 else "")
+          ) %}
+            <div class="admin-feed-list admin-feed-list-dense admin-scroll-region">
+              {% for row in user_audit.recent_account_activity.remaining %}
+                <article class="admin-feed-item">
+                  <div class="admin-feed-item-top">
+                    <div class="admin-feed-title">
+                      <i class="bi {{ row.icon_class }}" aria-hidden="true"></i>
+                      <span>{{ row.title }}</span>
+                    </div>
+                    <div class="admin-feed-time">{{ row.changed_at_text }}</div>
+                  </div>
+                  <div class="admin-feed-body">{{ row.actor_name }}</div>
+                  <div class="admin-feed-meta">{{ row.detail }}</div>
+                </article>
+              {% endfor %}
+            </div>
+          {% endcall %}
+        {% endif %}
+      {% else %}
+        {{ ui.empty_state("No retained account events yet.", compact=True) }}
+      {% endif %}
+    {% endcall %}
+  </div>
+{% endcall %}
+
+{% call admin_ui.region("Account Attention") %}
+  <div class="admin-support-grid">
+    {% call admin_ui.panel("Locked Accounts", none, "admin-panel-support") %}
+      {% if user_audit.locked_users.preview %}
+        <div class="admin-preview-meta">
+          <span>{{ user_audit.locked_users.loaded_count }} locked account{{ "s" if user_audit.locked_users.loaded_count != 1 else "" }} in view</span>
+        </div>
+        <div class="admin-list">
+          {% for row in user_audit.locked_users.preview %}
+            <article class="admin-list-item">
+              <div class="admin-list-item-top">
+                <div class="admin-list-item-copy">
+                  <div class="admin-list-title">{{ row.display_name }}</div>
+                  <div class="admin-list-support">{{ row.email }}</div>
+                </div>
+                {{ ui.chip("Locked", tone="warning", icon_class="bi-lock") }}
+              </div>
+              <div class="admin-list-meta">Locked until {{ row.locked_until_text }}</div>
+            </article>
+          {% endfor %}
+        </div>
+        {% if user_audit.locked_users.has_more %}
+          {% call admin_ui.disclosure(
+            "Show " ~ user_audit.locked_users.remaining_count ~ " more locked account" ~ ("s" if user_audit.locked_users.remaining_count != 1 else "")
+          ) %}
+            <div class="admin-list admin-scroll-region">
+              {% for row in user_audit.locked_users.remaining %}
+                <article class="admin-list-item">
+                  <div class="admin-list-item-top">
+                    <div class="admin-list-item-copy">
+                      <div class="admin-list-title">{{ row.display_name }}</div>
+                      <div class="admin-list-support">{{ row.email }}</div>
+                    </div>
+                    {{ ui.chip("Locked", tone="warning", icon_class="bi-lock") }}
+                  </div>
+                  <div class="admin-list-meta">Locked until {{ row.locked_until_text }}</div>
+                </article>
+              {% endfor %}
+            </div>
+          {% endcall %}
+        {% endif %}
+      {% else %}
+        {{ ui.empty_state("No locked accounts right now.", compact=True) }}
+      {% endif %}
+    {% endcall %}
+
+    {% call admin_ui.panel("Inactive Accounts", none, "admin-panel-support") %}
+      {% if user_audit.inactive_users.preview %}
+        <div class="admin-preview-meta">
+          <span>{{ user_audit.inactive_users.loaded_count }} inactive account{{ "s" if user_audit.inactive_users.loaded_count != 1 else "" }} in view</span>
+        </div>
+        <div class="admin-list">
+          {% for row in user_audit.inactive_users.preview %}
+            <article class="admin-list-item">
+              <div class="admin-list-item-top">
+                <div class="admin-list-item-copy">
+                  <div class="admin-list-title">{{ row.display_name }}</div>
+                  <div class="admin-list-support">{{ row.email }}</div>
+                </div>
+                {{ ui.chip("Inactive", tone="secondary", icon_class="bi-person-dash") }}
+              </div>
+              <div class="admin-list-meta">Created {{ row.created_at_text }}</div>
+            </article>
+          {% endfor %}
+        </div>
+        {% if user_audit.inactive_users.has_more %}
+          {% call admin_ui.disclosure(
+            "Show " ~ user_audit.inactive_users.remaining_count ~ " more inactive account" ~ ("s" if user_audit.inactive_users.remaining_count != 1 else "")
+          ) %}
+            <div class="admin-list admin-scroll-region">
+              {% for row in user_audit.inactive_users.remaining %}
+                <article class="admin-list-item">
+                  <div class="admin-list-item-top">
+                    <div class="admin-list-item-copy">
+                      <div class="admin-list-title">{{ row.display_name }}</div>
+                      <div class="admin-list-support">{{ row.email }}</div>
+                    </div>
+                    {{ ui.chip("Inactive", tone="secondary", icon_class="bi-person-dash") }}
+                  </div>
+                  <div class="admin-list-meta">Created {{ row.created_at_text }}</div>
+                </article>
+              {% endfor %}
+            </div>
+          {% endcall %}
+        {% endif %}
+      {% else %}
+        {{ ui.empty_state("No inactive accounts right now.", compact=True) }}
+      {% endif %}
+    {% endcall %}
+  </div>
+{% endcall %}
+{% endblock %}

@@ -2,24 +2,18 @@ param()
 
 $ErrorActionPreference = "Stop"
 
-function Invoke-Checked {
-    param(
-        [Parameter(Mandatory = $true)]
-        [scriptblock]$Command
-    )
+$helpersPath = Join-Path $PSScriptRoot "dev_env.ps1"
+. $helpersPath
 
-    & $Command
-    if ($LASTEXITCODE -ne 0) {
-        throw "Command failed with exit code $LASTEXITCODE"
-    }
-}
-
-$repoRoot = Split-Path -Parent $PSScriptRoot
-$venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
+$repoRoot = Get-RepoRoot
+$venvPython = Get-VenvPythonPath
 
 if (-not (Test-Path $venvPython)) {
-    throw ".venv is missing. Run .\scripts\bootstrap_dev.ps1 first."
+    throw "No repo virtualenv was found (.venv or venv). Run .\scripts\bootstrap_dev.ps1 first."
 }
+
+Get-UsableRipgrepPath | Out-Null
+Enable-RepoDevPath
 
 Push-Location $repoRoot
 try {

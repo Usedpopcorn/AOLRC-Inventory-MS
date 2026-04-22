@@ -3,10 +3,20 @@
 {% block title %}Account{% endblock %}
 
 {% block content %}
-{{ ui.page_header(
+{% call ui.page_header(
   title="My Account",
   subtitle="Manage your profile and password."
-) }}
+) %}
+  {% if current_user.role == "admin" %}
+    {{ ui.chip("Admin", tone="danger", icon_class="bi-shield-lock") }}
+  {% elif current_user.role == "staff" %}
+    {{ ui.chip("Staff", tone="primary", icon_class="bi-person-badge") }}
+  {% else %}
+    {{ ui.chip("Viewer", tone="secondary", icon_class="bi-eye") }}
+  {% endif %}
+  {{ ui.chip("Last sign in: " ~ (current_user.last_login_at.strftime("%Y-%m-%d %I:%M %p") if current_user.last_login_at else "Never"), tone="neutral", icon_class="bi-clock-history") }}
+  {{ ui.chip("Password updated: " ~ (current_user.password_changed_at.strftime("%Y-%m-%d %I:%M %p") if current_user.password_changed_at else "Not recorded"), tone="neutral", icon_class="bi-key") }}
+{% endcall %}
 
 <div class="row g-3">
   <div class="col-12 col-lg-4">

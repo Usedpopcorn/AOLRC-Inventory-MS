@@ -1,0 +1,110 @@
+{% import "_item_macros.html" as item_ui %}
+{% import "_ui_macros.html" as ui %}
+{% import "admin/_item_catalog_macros.html" as catalog_ui %}
+
+{% if item_catalog.pagination.total_count %}
+  <div class="admin-directory-toolbar">
+    <div class="admin-preview-meta">
+      <span>Showing {{ item_catalog.pagination.showing_from }}-{{ item_catalog.pagination.showing_to }} of {{ item_catalog.pagination.total_count }} item{{ "s" if item_catalog.pagination.total_count != 1 else "" }}</span>
+      {% if item_catalog.pagination.total_pages > 1 %}
+        <span>Page {{ item_catalog.pagination.current_page }} of {{ item_catalog.pagination.total_pages }}</span>
+      {% endif %}
+    </div>
+    {% if item_catalog.pagination.total_pages > 1 %}
+      <nav class="admin-pager" aria-label="Item catalog pages">
+        <a
+          class="admin-pager-link{{ ' is-disabled' if not item_catalog.pagination.has_prev else '' }}"
+          href="{{ item_catalog.pagination.prev_url if item_catalog.pagination.has_prev else '#' }}"
+          data-item-catalog-page-link
+          aria-disabled="{{ 'false' if item_catalog.pagination.has_prev else 'true' }}"
+          {% if not item_catalog.pagination.has_prev %}tabindex="-1"{% endif %}
+        >
+          <i class="bi bi-arrow-left" aria-hidden="true"></i>
+          <span>Previous</span>
+        </a>
+        <div class="admin-pager-status">Page {{ item_catalog.pagination.current_page }} of {{ item_catalog.pagination.total_pages }}</div>
+        <a
+          class="admin-pager-link{{ ' is-disabled' if not item_catalog.pagination.has_next else '' }}"
+          href="{{ item_catalog.pagination.next_url if item_catalog.pagination.has_next else '#' }}"
+          data-item-catalog-page-link
+          aria-disabled="{{ 'false' if item_catalog.pagination.has_next else 'true' }}"
+          {% if not item_catalog.pagination.has_next %}tabindex="-1"{% endif %}
+        >
+          <span>Next</span>
+          <i class="bi bi-arrow-right" aria-hidden="true"></i>
+        </a>
+      </nav>
+    {% endif %}
+  </div>
+{% endif %}
+
+<div class="d-none d-xl-block table-responsive">
+  <table class="table align-middle admin-item-table mb-0">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Structure</th>
+        <th>Daily use</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for it, depth in item_rows %}
+        <tr>
+          <td>
+            <div class="admin-item-table-name">
+              {{ item_ui.item_heading(
+                it.name,
+                parent_name=it.parent_item.name if it.parent_item else none,
+                is_group_parent=it.is_group_parent,
+                child_count=it.child_items|length if it.is_group_parent else none,
+                compact=True,
+                count_label="member"
+              ) }}
+            </div>
+          </td>
+          <td>{{ catalog_ui.item_structure_block(it) }}</td>
+          <td>{{ catalog_ui.item_daily_use_block(it) }}</td>
+          <td>{{ catalog_ui.item_status_chip(it) }}</td>
+          <td>{{ catalog_ui.item_actions(it) }}</td>
+        </tr>
+      {% else %}
+        {{ ui.table_empty_row(5, "No matching items.", body="Adjust the search or filters, or add a new catalog item.") }}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="d-xl-none admin-item-card-list">
+  {% for it, depth in item_rows %}
+    <article class="admin-item-card">
+      <div class="admin-item-card-top">
+        <div class="admin-item-card-main">
+          {{ item_ui.item_heading(
+            it.name,
+            parent_name=it.parent_item.name if it.parent_item else none,
+            is_group_parent=it.is_group_parent,
+            child_count=it.child_items|length if it.is_group_parent else none,
+            compact=True,
+            count_label="member"
+          ) }}
+        </div>
+        {{ catalog_ui.item_status_chip(it) }}
+      </div>
+      <div class="admin-item-card-details">
+        <section class="admin-item-card-section">
+          <div class="admin-item-card-label">Structure</div>
+          {{ catalog_ui.item_structure_block(it) }}
+        </section>
+        <section class="admin-item-card-section">
+          <div class="admin-item-card-label">Daily use</div>
+          {{ catalog_ui.item_daily_use_block(it) }}
+        </section>
+      </div>
+      {{ catalog_ui.item_actions(it, mobile=True) }}
+    </article>
+  {% else %}
+    {{ ui.empty_state("No matching items.", body="Adjust the search or filters, or add a new catalog item.", compact=True) }}
+  {% endfor %}
+</div>

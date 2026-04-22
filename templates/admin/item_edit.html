@@ -1,6 +1,7 @@
-{% extends "base.html" %}
+{% extends "admin/layout.html" %}
 {% import "_item_macros.html" as item_ui %}
 {% import "_ui_macros.html" as ui %}
+{% import "admin/_admin_macros.html" as admin_ui %}
 {% block title %}Edit Item{% endblock %}
 {% macro help_tip(text, label='Field help') -%}
 <button
@@ -15,19 +16,17 @@
 </button>
 {%- endmacro %}
 
-{% block content %}
+{% block admin_page %}
 {{ ui.page_header(
   title="Edit Item",
-  subtitle="Update the structure once here so supplies, venue checks, and assignment screens stay aligned.",
+  subtitle="Adjust how this item appears and behaves.",
   back_url=url_for('admin.items'),
   back_label="Items"
 ) }}
 
-<div class="card">
-  <div class="card-body">
-    {% call ui.form_section("Current Item Structure", "This is the item identity shared by supplies, quick checks, and venue assignment flows.") %}
+{% call admin_ui.panel("Item Details") %}
+  {% call ui.form_section("Current Setup") %}
       <div>
-        <div class="small text-muted text-uppercase fw-semibold mb-2">Current item structure</div>
         {{ item_ui.item_heading(
           item.name,
           parent_name=item.parent_item.name if item.parent_item else none,
@@ -43,15 +42,12 @@
           ) }}
         </div>
       </div>
-    {% endcall %}
-    {% call ui.form_section("Edit Item Settings", "Keep structure, tracking mode, and family relationships consistent with how staff see this item day to day.") %}
+  {% endcall %}
+  {% call ui.form_section("Edit Fields") %}
       <form method="post" class="row g-3">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="col-12 col-md-6">
-          <label class="form-label d-flex align-items-center" for="item-name">
-            <span>Item name</span>
-            {{ help_tip("Use the name staff will recognize in daily use. Example: Yoga Mats or Whiteboard.") }}
-          </label>
+          <label class="form-label" for="item-name">Item name</label>
           <input
             id="item-name"
             class="form-control ui-control"
@@ -63,7 +59,7 @@
       <div class="col-12 col-sm-6 col-md-3">
         <label class="form-label d-flex align-items-center" for="item-tracking-mode">
           <span>Tracking mode</span>
-          {{ help_tip("Quantity is for countable stock. Singleton Asset is for one-per-room items where presence matters more than stock level.") }}
+          {{ help_tip("Use Quantity for counted stock. Use Singleton Asset when presence matters more than stock level.") }}
         </label>
         <select id="item-tracking-mode" class="form-select ui-control" name="tracking_mode">
           {% for value, label in tracking_mode_options %}
@@ -72,10 +68,7 @@
         </select>
       </div>
       <div class="col-12 col-sm-6 col-md-3">
-        <label class="form-label d-flex align-items-center" for="item-category">
-          <span>Category</span>
-          {{ help_tip("Category helps organize and filter items. Pick the closest business category; it does not change count math.") }}
-        </label>
+        <label class="form-label" for="item-category">Category</label>
         <select id="item-category" class="form-select ui-control" name="item_category">
           {% for value, label in item_category_options %}
             <option value="{{ value }}" {% if form_values.item_category == value %}selected{% endif %}>{{ label }}</option>
@@ -93,58 +86,49 @@
             <option value="{{ parent.id }}" {% if form_values.parent_item_id == parent.id|string %}selected{% endif %}>{{ parent.name }} (family)</option>
           {% endfor %}
         </select>
-        <div class="form-text">Only family organizer items appear here.</div>
       </div>
       <div class="col-12 col-sm-6 col-md-2">
-        <label class="form-label d-flex align-items-center" for="item-sort-order">
-          <span>Sort order</span>
-          {{ help_tip("Lower numbers appear first in lists. Use 0 for default and smaller numbers to pin important items higher.") }}
-        </label>
+        <label class="form-label" for="item-sort-order">Sort order</label>
         <input id="item-sort-order" class="form-control ui-control" type="number" step="1" name="sort_order" value="{{ form_values.sort_order }}">
       </div>
       <div class="col-12 col-sm-6 col-md-3">
-        <label class="form-label d-flex align-items-center" for="item-unit">
-          <span>Unit (optional)</span>
-          {{ help_tip("The label used for counts, like each, box, bottle, or pack.") }}
-        </label>
+        <label class="form-label" for="item-unit">Unit (optional)</label>
         <input id="item-unit" class="form-control ui-control" name="unit" value="{{ form_values.unit }}" placeholder="each, box, bottle...">
       </div>
-      <div class="col-12 col-sm-6 col-md-3">
-        <div class="form-check mt-md-4 pt-md-2">
-          <input class="form-check-input" type="checkbox" id="item-is-group-parent" name="is_group_parent" value="1" {% if form_values.is_group_parent %}checked{% endif %}>
-          <label class="form-check-label d-inline-flex align-items-center" for="item-is-group-parent">
-            <span>Group parent (family)</span>
-            {{ help_tip("Turn this on for container/family items like Tea. Family items organize children and are usually not counted directly.") }}
-          </label>
+      <div class="col-12">
+        <div class="admin-item-edit-footer">
+          <div class="admin-item-edit-toggles">
+            <div class="form-check admin-item-edit-toggle">
+              <input class="form-check-input" type="checkbox" id="item-is-group-parent" name="is_group_parent" value="1" {% if form_values.is_group_parent %}checked{% endif %}>
+              <label class="form-check-label d-inline-flex align-items-center" for="item-is-group-parent">
+                <span>Group parent (family)</span>
+                {{ help_tip("Turn this on for container or family items that organize children.") }}
+              </label>
+            </div>
+            <div class="form-check admin-item-edit-toggle">
+              <input class="form-check-input" type="checkbox" id="item-active" name="active" value="1" {% if form_values.active %}checked{% endif %}>
+              <label class="form-check-label" for="item-active">Active</label>
+            </div>
+          </div>
+          <div class="admin-item-edit-actions">
+            <a class="btn btn-outline-secondary ui-control" href="{{ url_for('admin.items') }}">Cancel</a>
+            <button class="btn btn-aolrc-accent ui-control" type="submit">Save Item</button>
+          </div>
         </div>
-      </div>
-      <div class="col-12 col-sm-6 col-md-3">
-        <div class="form-check mt-md-4 pt-md-2">
-          <input class="form-check-input" type="checkbox" id="item-active" name="active" value="1" {% if form_values.active %}checked{% endif %}>
-          <label class="form-check-label d-inline-flex align-items-center" for="item-active">
-            <span>Active</span>
-            {{ help_tip("Active items can be assigned and tracked. Turn off to retire an item without deleting history.") }}
-          </label>
-        </div>
-      </div>
-      <div class="col-12 d-flex gap-2 justify-content-end">
-        <a class="btn btn-outline-secondary ui-control" href="{{ url_for('admin.items') }}">Cancel</a>
-        <button class="btn btn-aolrc-accent ui-control" type="submit">Save Item</button>
       </div>
       </form>
-    {% endcall %}
-    <section class="item-form-summary mt-3" id="itemFormSummary" aria-live="polite">
-      <div class="item-form-summary-eyebrow">How this item will behave</div>
+  {% endcall %}
+  <section class="item-form-summary mt-3" id="itemFormSummary" aria-live="polite">
+      <div class="item-form-summary-eyebrow">Preview</div>
       <h3 class="item-form-summary-title h6 mb-1" id="itemFormSummaryTitle">Standalone quantity item</h3>
-      <p class="item-form-summary-text mb-0" id="itemFormSummaryText">This item will appear as a directly counted supply row.</p>
+      <p class="item-form-summary-text mb-0" id="itemFormSummaryText">This item appears as a counted supply row.</p>
       <div class="item-form-summary-points mt-3">
         <div class="item-form-summary-point" id="itemFormSummaryTracking"></div>
         <div class="item-form-summary-point" id="itemFormSummaryFamily"></div>
         <div class="item-form-summary-point" id="itemFormSummaryCounted"></div>
       </div>
-    </section>
-  </div>
-</div>
+  </section>
+{% endcall %}
 <script>
   (() => {
     function initHelperTooltips() {
@@ -188,29 +172,29 @@
 
       if (groupParentEl.checked) {
         summaryTitleEl.textContent = "Family organizer";
-        summaryTextEl.textContent = "This item will organize related child items and stay out of normal counted inventory rows.";
-        trackingLineEl.textContent = "Tracking: Family organizers are display-first items, even if Quantity is selected here.";
-        familyLineEl.textContent = "Family: Child items can be attached beneath this parent.";
-        countedLineEl.textContent = "Daily use: Not counted directly at venues.";
+        summaryTextEl.textContent = "Groups related child items and stays out of counted rows.";
+        trackingLineEl.textContent = "Tracking: Display-only organizer.";
+        familyLineEl.textContent = "Family: Child items can sit beneath this parent.";
+        countedLineEl.textContent = "Use: Not counted directly.";
         return;
       }
 
       if (parentLabel) {
         summaryTitleEl.textContent = `Child item in ${parentLabel}`;
-        summaryTextEl.textContent = "This item will appear as the tracked variant inside its parent family.";
-        familyLineEl.textContent = `Family: Belongs to ${parentLabel}.`;
+        summaryTextEl.textContent = "Tracked as a child item inside its family.";
+        familyLineEl.textContent = `Family: Inside ${parentLabel}.`;
       } else {
         summaryTitleEl.textContent = trackingMode === "singleton_asset" ? "Standalone singleton asset" : "Standalone quantity item";
-        summaryTextEl.textContent = "This item will appear as its own tracked row anywhere staff count or check inventory.";
-        familyLineEl.textContent = "Family: No parent family relationship.";
+        summaryTextEl.textContent = "Tracked on its own anywhere staff count or check inventory.";
+        familyLineEl.textContent = "Family: No parent.";
       }
 
       if (trackingMode === "singleton_asset") {
-        trackingLineEl.textContent = "Tracking: Presence and condition matter more than low-stock counts.";
-        countedLineEl.textContent = "Daily use: Staff check present, damaged, or missing instead of using par-style attention.";
+        trackingLineEl.textContent = "Tracking: Presence and condition.";
+        countedLineEl.textContent = "Use: Present, damaged, or missing.";
       } else {
-        trackingLineEl.textContent = "Tracking: Uses counts and standard par-style supply presentation.";
-        countedLineEl.textContent = "Daily use: Counted directly at venues and shown like standard supply inventory.";
+        trackingLineEl.textContent = "Tracking: Quantity counts.";
+        countedLineEl.textContent = "Use: Counted directly at venues.";
       }
     }
 

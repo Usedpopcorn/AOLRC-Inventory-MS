@@ -34,7 +34,7 @@
           <a class="nav-link" href="{{ url_for('main.venues') }}">Venues</a>
           <a class="nav-link" href="{{ url_for('auth.account') }}">Account</a>
           {% if current_user.is_admin %}
-            <a class="nav-link" href="{{ url_for('admin.items') }}">Admin</a>
+            <a class="nav-link" href="{{ url_for('admin.overview') }}">Admin</a>
           {% endif %}
         {% else %}
           <a class="nav-link" href="{{ url_for('auth.login') }}">Sign In</a>
@@ -73,7 +73,7 @@
           Account
         </a>
         {% if current_user.is_admin %}
-          <a class="nav-link text-white px-0" href="{{ url_for('admin.items') }}">
+          <a class="nav-link text-white px-0" href="{{ url_for('admin.overview') }}">
             Admin
           </a>
         {% endif %}

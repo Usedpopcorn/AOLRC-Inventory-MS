@@ -1,0 +1,76 @@
+{% import "_item_macros.html" as item_ui %}
+{% import "_ui_macros.html" as ui %}
+
+{% macro item_status_chip(item) -%}
+  {% if item.active %}
+    {{ ui.chip("Active", tone="success", icon_class="bi-check2-circle") }}
+  {% else %}
+    {{ ui.chip("Inactive", tone="secondary", icon_class="bi-pause-circle") }}
+  {% endif %}
+{%- endmacro %}
+
+{% macro item_structure_block(item) -%}
+  <div class="admin-item-cell">
+    {% if item.is_group_parent %}
+      <div class="admin-item-cell-title">Family organizer</div>
+      <div class="admin-item-cell-support">Groups related child items and stays out of counted rows.</div>
+    {% elif item.parent_item %}
+      <div class="admin-item-cell-title">Family member</div>
+      <div class="admin-item-cell-support">Tracked beneath {{ item.parent_item.name }}.</div>
+    {% else %}
+      <div class="admin-item-cell-title">Direct item</div>
+      <div class="admin-item-cell-support">Standalone tracked item.</div>
+    {% endif %}
+    <div class="admin-item-cell-badges">
+      {{ item_ui.structure_badges(
+        tracking_mode=item.tracking_mode,
+        item_category=(item.item_category or item.item_type),
+        parent_name=item.parent_item.name if item.parent_item else none,
+        is_group_parent=item.is_group_parent,
+        compact=True
+      ) }}
+    </div>
+  </div>
+{%- endmacro %}
+
+{% macro item_daily_use_block(item) -%}
+  <div class="admin-item-cell">
+    {% if item.is_group_parent %}
+      <div class="admin-item-cell-title">Not counted directly</div>
+      <div class="admin-item-cell-support">Children carry the venue inventory.</div>
+    {% elif item.tracking_mode == "singleton_asset" %}
+      <div class="admin-item-cell-title">Presence tracked</div>
+      <div class="admin-item-cell-support">Staff check present, damaged, or missing.</div>
+    {% else %}
+      <div class="admin-item-cell-title">Count and par based</div>
+      <div class="admin-item-cell-support">Handled as a standard quantity supply.</div>
+    {% endif %}
+  </div>
+{%- endmacro %}
+
+{% macro item_actions(item, mobile=False) -%}
+  <div class="admin-item-actions{{ ' admin-item-actions-mobile' if mobile else '' }}">
+    <a class="btn btn-sm btn-aolrc-accent ui-control-sm" href="{{ url_for('admin.edit_item', item_id=item.id) }}">
+      Edit
+    </a>
+    {% if item.active %}
+      <a
+        class="btn btn-sm btn-danger ui-control-sm"
+        href="{{ url_for('admin.deactivate_item', item_id=item.id) }}"
+      >
+        Deactivate
+      </a>
+    {% else %}
+      <form
+        method="post"
+        action="{{ url_for('admin.activate_item', item_id=item.id) }}"
+        class="admin-item-action-form"
+      >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-success ui-control-sm" type="submit">
+          Activate
+        </button>
+      </form>
+    {% endif %}
+  </div>
+{%- endmacro %}

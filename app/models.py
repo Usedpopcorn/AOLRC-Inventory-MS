@@ -5,6 +5,7 @@ from . import db
 VALID_ROLES = ("viewer", "staff", "admin")
 ITEM_TRACKING_MODES = ("quantity", "singleton_asset")
 ITEM_CATEGORY_OPTIONS = ("consumable", "durable", "beverage", "cleaning", "office", "other")
+PASSWORD_ACTION_PURPOSES = ("password_setup", "password_reset")
 
 
 def normalize_role(raw_role):
@@ -41,6 +42,13 @@ class User(UserMixin, db.Model):
     active = db.Column(db.Boolean, default=True, nullable=False)
     failed_login_attempts = db.Column(db.Integer, nullable=False, default=0)
     locked_until = db.Column(db.DateTime, nullable=True)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+    password_changed_at = db.Column(db.DateTime, nullable=True)
+    force_password_change = db.Column(db.Boolean, nullable=False, default=False)
+    session_version = db.Column(db.Integer, nullable=False, default=1)
+    deactivated_at = db.Column(db.DateTime, nullable=True)
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    deactivated_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = db.Column(
         db.DateTime,
@@ -66,6 +74,38 @@ class User(UserMixin, db.Model):
     @property
     def is_staff(self):
         return self.role in {"staff", "admin"}
+
+
+class PasswordActionToken(db.Model):
+    __tablename__ = "password_action_tokens"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    purpose = db.Column(db.String(32), nullable=False)
+    token_hash = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    consumed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    user = db.relationship("User", foreign_keys=[user_id])
+    created_by = db.relationship("User", foreign_keys=[created_by_user_id])
+
+
+class AccountAuditEvent(db.Model):
+    __tablename__ = "account_audit_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    event_type = db.Column(db.String(64), nullable=False, index=True)
+    actor_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    target_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    target_email = db.Column(db.String(255), nullable=True)
+    details_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+
+    actor = db.relationship("User", foreign_keys=[actor_user_id])
+    target = db.relationship("User", foreign_keys=[target_user_id])
+
 
 class Venue(db.Model):
     __tablename__ = "venues"
