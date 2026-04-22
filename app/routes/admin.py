@@ -1,8 +1,13 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from urllib.parse import urljoin, urlparse
+
+from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, jsonify
+from flask_login import current_user
 from app import db
 from app.authz import roles_required
 from app.models import (
     Item,
+    User,
+    VALID_ROLES,
     VenueItem,
     Venue,
     ITEM_TRACKING_MODES,
@@ -10,7 +15,17 @@ from app.models import (
     normalize_tracking_mode,
     normalize_item_category,
 )
+from app.services.account_security import (
+    AccountManagementError,
+    build_dev_password_link_message,
+    create_managed_user,
+    issue_admin_password_link,
+    set_user_active_state,
+    unlock_user_account,
+    update_managed_user,
+)
 from app.services.admin_hub import (
+    build_admin_user_detail_view_model,
     build_admin_history_view_model,
     build_admin_overview_view_model,
     build_admin_user_audit_view_model,
@@ -24,6 +39,7 @@ TRACKING_MODE_OPTIONS = [
     ("quantity", "Quantity"),
     ("singleton_asset", "Singleton Asset"),
 ]
+USER_ROLE_OPTIONS = [(role, role.title()) for role in VALID_ROLES]
 ITEM_STATUS_FILTER_OPTIONS = [
     ("all", "All statuses"),
     ("active", "Active"),
@@ -45,6 +61,37 @@ ITEM_CATEGORY_FORM_OPTIONS = [
     ("other", "Other"),
 ]
 ITEM_CATALOG_PER_PAGE = 50
+
+
+def _is_safe_local_redirect(target):
+    if not target:
+        return False
+    host_url = urlparse(request.host_url)
+    redirect_url = urlparse(urljoin(request.host_url, target))
+    return redirect_url.scheme in {"http", "https"} and host_url.netloc == redirect_url.netloc
+
+
+def _user_return_target(default_endpoint="admin.users", **default_values):
+    next_path = request.form.get("next") or request.args.get("next")
+    if _is_safe_local_redirect(next_path):
+        return next_path
+    return url_for(default_endpoint, **default_values)
+
+
+def _parse_user_page(value, default=1):
+    try:
+        return max(1, int(value or default))
+    except (TypeError, ValueError):
+        return default
+
+
+def build_user_form_values(source=None):
+    source = source or {}
+    return {
+        "email": (source.get("email") or "").strip().lower(),
+        "display_name": (source.get("display_name") or "").strip(),
+        "role": (source.get("role") or "viewer").strip().lower(),
+    }
 
 
 def to_bool_field(raw_value):
@@ -304,7 +351,7 @@ def parse_item_payload(existing_item=None):
     if parent_item_id == "invalid":
         errors.append("Parent item selection is invalid.")
     elif parent_item_id is not None:
-        parent_item = Item.query.get(parent_item_id)
+        parent_item = db.session.get(Item, parent_item_id)
         if parent_item is None:
             errors.append("Selected parent item no longer exists.")
         else:
@@ -351,15 +398,144 @@ def overview():
     )
 
 
-@admin_bp.get("/users")
+@admin_bp.route("/users", methods=["GET", "POST"])
 @roles_required("admin")
 def users():
-    page = request.args.get("page", default=1, type=int)
+    page = _parse_user_page(request.args.get("page"))
+    form_values = build_user_form_values()
+    show_add_user_form = False
+
+    if request.method == "POST":
+        page = _parse_user_page(request.form.get("page"), default=page)
+        form_values = build_user_form_values(request.form)
+        show_add_user_form = True
+        try:
+            user, issued_link = create_managed_user(
+                actor=current_user,
+                email=form_values["email"],
+                display_name=form_values["display_name"],
+                role=form_values["role"],
+            )
+        except AccountManagementError as exc:
+            flash(str(exc), "error")
+        else:
+            flash(f"Created account for {user.email}.", "success")
+            if current_app.config["AUTH_DEV_EXPOSE_PASSWORD_LINKS"]:
+                flash(build_dev_password_link_message(user, issued_link), "success")
+            return redirect(url_for("admin.users", page=page))
+
     return render_template(
         "admin/users.html",
         admin_page_key="users",
-        user_center=build_admin_user_list_view_model(page=page),
+        user_center=build_admin_user_list_view_model(page=page, actor=current_user),
+        role_options=USER_ROLE_OPTIONS,
+        form_values=form_values,
+        show_add_user_form=show_add_user_form,
     )
+
+
+@admin_bp.route("/users/<int:user_id>/edit", methods=["GET", "POST"])
+@roles_required("admin")
+def edit_user(user_id):
+    if request.method == "POST":
+        try:
+            _user, changed_fields = update_managed_user(
+                actor=current_user,
+                user_id=user_id,
+                display_name=request.form.get("display_name"),
+                role=request.form.get("role"),
+            )
+        except AccountManagementError as exc:
+            flash(str(exc), "error")
+        else:
+            if changed_fields:
+                flash("User details updated.", "success")
+            else:
+                flash("No account changes were needed.", "success")
+            return redirect(_user_return_target("admin.edit_user", user_id=user_id))
+
+    user = db.get_or_404(User, user_id)
+    return render_template(
+        "admin/user_edit.html",
+        admin_page_key="users",
+        user_detail=build_admin_user_detail_view_model(user.id, actor=current_user),
+        role_options=USER_ROLE_OPTIONS,
+        next_path=_user_return_target("admin.users"),
+    )
+
+
+@admin_bp.post("/users/<int:user_id>/activate")
+@roles_required("admin")
+def activate_user(user_id):
+    try:
+        user, changed = set_user_active_state(
+            actor=current_user,
+            user_id=user_id,
+            should_be_active=True,
+        )
+    except AccountManagementError as exc:
+        flash(str(exc), "error")
+    else:
+        flash(
+            "User activated." if changed else f"{user.email} is already active.",
+            "success",
+        )
+    return redirect(_user_return_target("admin.users"))
+
+
+@admin_bp.post("/users/<int:user_id>/deactivate")
+@roles_required("admin")
+def deactivate_user(user_id):
+    try:
+        user, changed = set_user_active_state(
+            actor=current_user,
+            user_id=user_id,
+            should_be_active=False,
+        )
+    except AccountManagementError as exc:
+        flash(str(exc), "error")
+    else:
+        flash(
+            "User deactivated." if changed else f"{user.email} is already inactive.",
+            "success",
+        )
+    return redirect(_user_return_target("admin.users"))
+
+
+@admin_bp.post("/users/<int:user_id>/unlock")
+@roles_required("admin")
+def unlock_user(user_id):
+    try:
+        user, changed = unlock_user_account(
+            actor=current_user,
+            user_id=user_id,
+        )
+    except AccountManagementError as exc:
+        flash(str(exc), "error")
+    else:
+        flash(
+            "User unlocked." if changed else f"{user.email} is not currently locked.",
+            "success",
+        )
+    return redirect(_user_return_target("admin.users"))
+
+
+@admin_bp.post("/users/<int:user_id>/password-link")
+@roles_required("admin")
+def issue_user_password_link(user_id):
+    try:
+        user, issued_link = issue_admin_password_link(
+            actor=current_user,
+            user_id=user_id,
+        )
+    except AccountManagementError as exc:
+        flash(str(exc), "error")
+    else:
+        purpose_label = "setup" if issued_link.purpose == "password_setup" else "reset"
+        flash(f"Password {purpose_label} link prepared for {user.email}.", "success")
+        if current_app.config["AUTH_DEV_EXPOSE_PASSWORD_LINKS"]:
+            flash(build_dev_password_link_message(user, issued_link), "success")
+    return redirect(_user_return_target("admin.users"))
 
 
 @admin_bp.get("/audit/users")
@@ -495,7 +671,7 @@ def edit_item(item_id):
 @admin_bp.route("/items/<int:item_id>/deactivate", methods=["GET", "POST"])
 @roles_required("admin")
 def deactivate_item(item_id):
-    it = Item.query.get_or_404(item_id)
+    it = db.get_or_404(Item, item_id)
 
     # Find venues where this item is currently tracked (active mapping)
     active_links = VenueItem.query.filter_by(item_id=item_id, active=True).all()
@@ -523,7 +699,7 @@ def deactivate_item(item_id):
 @admin_bp.post("/items/<int:item_id>/activate")
 @roles_required("admin")
 def activate_item(item_id):
-    it = Item.query.get_or_404(item_id)
+    it = db.get_or_404(Item, item_id)
     it.active = True
     db.session.commit()
     flash("Item activated.", "success")

@@ -28,15 +28,22 @@ def create_user(
     display_name=None,
     created_at=None,
     locked_until=None,
+    force_password_change=False,
+    password_changed_at=None,
+    last_login_at=None,
 ):
+    created_at = created_at or datetime.now(timezone.utc)
     user = User(
         email=email,
         display_name=display_name,
         password_hash=generate_password_hash("local-test-password"),
         role=role,
         active=active,
-        created_at=created_at or datetime.now(timezone.utc),
+        created_at=created_at,
         locked_until=locked_until,
+        force_password_change=force_password_change,
+        password_changed_at=password_changed_at or created_at,
+        last_login_at=last_login_at,
     )
     db.session.add(user)
     db.session.flush()

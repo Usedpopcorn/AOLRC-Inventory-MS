@@ -1,8 +1,9 @@
 import os
 import click
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
-from flask import Flask, flash, jsonify, redirect, request, url_for
+from flask import Flask, flash, jsonify, redirect, request, session, url_for
 from flask_wtf.csrf import CSRFError, CSRFProtect
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -19,6 +20,7 @@ login_manager = LoginManager()
 login_manager.login_view = "auth.login"
 login_manager.login_message = "Please sign in to continue."
 login_manager.login_message_category = "error"
+AUTH_SESSION_VERSION_SESSION_KEY = "_auth_sv"
 
 
 @login_manager.user_loader
@@ -31,7 +33,17 @@ def load_user(user_id):
         parsed_user_id = int(user_id)
     except (TypeError, ValueError):
         return None
-    return User.query.get(parsed_user_id)
+    user = db.session.get(User, parsed_user_id)
+    if user is None or not user.active:
+        return None
+    session_version = session.get(AUTH_SESSION_VERSION_SESSION_KEY)
+    try:
+        parsed_session_version = int(session_version)
+    except (TypeError, ValueError):
+        return None
+    if parsed_session_version != int(user.session_version or 1):
+        return None
+    return user
 
 
 @login_manager.unauthorized_handler
@@ -49,6 +61,7 @@ def _save_user(email, password, role, display_name=None):
     normalized_email = (email or "").strip().lower()
     normalized_role = normalize_role(role)
     normalized_display_name = (display_name or "").strip() or None
+    now = datetime.now(timezone.utc)
 
     if not normalized_email:
         raise click.ClickException("Email is required.")
@@ -59,9 +72,16 @@ def _save_user(email, password, role, display_name=None):
     if existing:
         existing.password_hash = generate_password_hash(password)
         existing.role = normalized_role
-        if normalized_display_name is not None:
-            existing.display_name = normalized_display_name
+        existing.display_name = normalized_display_name
         existing.active = True
+        existing.force_password_change = False
+        existing.session_version = int(existing.session_version or 0) + 1
+        existing.password_changed_at = now
+        existing.last_login_at = None
+        existing.failed_login_attempts = 0
+        existing.locked_until = None
+        existing.deactivated_at = None
+        existing.deactivated_by_user_id = None
         db.session.commit()
         return existing, False
 
@@ -71,6 +91,8 @@ def _save_user(email, password, role, display_name=None):
         password_hash=generate_password_hash(password),
         role=normalized_role,
         active=True,
+        force_password_change=False,
+        password_changed_at=now,
     )
     db.session.add(user)
     db.session.commit()
@@ -97,6 +119,16 @@ def create_app():
         raise RuntimeError(
             "SECRET_KEY is using the default development value. "
             "Set a unique SECRET_KEY before running outside development."
+        )
+    if app.config["AUTH_ALLOW_DEV_QUICK_LOGIN"] and not is_development_environment():
+        raise RuntimeError(
+            "AUTH_ALLOW_DEV_QUICK_LOGIN is enabled outside development. "
+            "Disable dev quick login before running outside development."
+        )
+    if app.config["AUTH_DEV_EXPOSE_PASSWORD_LINKS"] and not is_development_environment():
+        raise RuntimeError(
+            "AUTH_DEV_EXPOSE_PASSWORD_LINKS is enabled outside development. "
+            "Disable dev password-link exposure before running outside development."
         )
 
     db.init_app(app)
@@ -140,6 +172,37 @@ def create_app():
                 return redirect(referrer)
         return redirect(url_for("auth.login"))
 
+    @app.after_request
+    def apply_security_headers(response):
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "; ".join(
+                [
+                    "default-src 'self'",
+                    "base-uri 'self'",
+                    "frame-ancestors 'none'",
+                    "object-src 'none'",
+                    "img-src 'self' data:",
+                    "font-src 'self' data: https://cdn.jsdelivr.net",
+                    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+                    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+                ]
+            ),
+        )
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), geolocation=(), microphone=()",
+        )
+        if request.is_secure or app.config.get("SESSION_COOKIE_SECURE"):
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
+        return response
+
     @app.cli.command("create-admin")
     @click.option("--email", prompt=True, help="Admin email")
     @click.option("--display-name", default="", help="Optional display name")
@@ -180,4 +243,85 @@ def create_app():
         )
         action = "Created" if created else "Updated existing"
         click.echo(f"{action} user: {user.email} ({user.role})")
+
+    @app.cli.command("seed-dev-auth")
+    @click.option(
+        "--password",
+        default="local-test-password",
+        show_default=True,
+        help="Shared password for the seeded development users.",
+    )
+    @click.option(
+        "--lockout-minutes",
+        default=None,
+        type=int,
+        help="Override the locked test user's remaining lockout window.",
+    )
+    def seed_dev_auth(password, lockout_minutes):
+        from .models import User
+
+        now = datetime.now(timezone.utc)
+        effective_lockout_minutes = lockout_minutes or app.config["AUTH_LOCKOUT_MINUTES"]
+        locked_until = now + timedelta(minutes=effective_lockout_minutes)
+        fixtures = [
+            {
+                "email": "admin@example.com",
+                "display_name": "Admin User",
+                "role": "admin",
+                "active": True,
+                "locked_until": None,
+            },
+            {
+                "email": "staff@example.com",
+                "display_name": "Staff User",
+                "role": "staff",
+                "active": True,
+                "locked_until": None,
+            },
+            {
+                "email": "viewer@example.com",
+                "display_name": "Viewer User",
+                "role": "viewer",
+                "active": True,
+                "locked_until": None,
+            },
+            {
+                "email": "inactive@example.com",
+                "display_name": "Inactive User",
+                "role": "viewer",
+                "active": False,
+                "locked_until": None,
+            },
+            {
+                "email": "locked@example.com",
+                "display_name": "Locked User",
+                "role": "viewer",
+                "active": True,
+                "locked_until": locked_until,
+            },
+        ]
+
+        for fixture in fixtures:
+            user = User.query.filter_by(email=fixture["email"]).first()
+            if user is None:
+                user = User(email=fixture["email"])
+                db.session.add(user)
+                user.session_version = 1
+            else:
+                user.session_version = int(user.session_version or 0) + 1
+
+            user.display_name = fixture["display_name"]
+            user.password_hash = generate_password_hash(password)
+            user.role = fixture["role"]
+            user.active = fixture["active"]
+            user.force_password_change = False
+            user.password_changed_at = now
+            user.last_login_at = None
+            user.failed_login_attempts = 0
+            user.locked_until = fixture["locked_until"]
+            user.deactivated_at = None if fixture["active"] else now
+            user.deactivated_by_user_id = None
+
+        db.session.commit()
+        click.echo("Seeded dev auth users: admin, staff, viewer, inactive, and locked.")
     return app

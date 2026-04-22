@@ -3,9 +3,22 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import Integer, String, and_, cast, func, literal, or_, select, union_all
+from sqlalchemy.orm import aliased
 
 from app import db
-from app.models import Check, CheckLine, CountLine, CountSession, Item, User, Venue, VenueNote
+from app.models import (
+    AccountAuditEvent,
+    Check,
+    CheckLine,
+    CountLine,
+    CountSession,
+    Item,
+    PasswordActionToken,
+    User,
+    Venue,
+    VenueNote,
+)
+from app.services.account_security import describe_account_event
 from app.services.inventory_status import ensure_utc, normalize_status
 
 USER_ACTIVITY_WINDOW_DAYS = 30
@@ -103,7 +116,7 @@ def build_admin_overview_view_model():
     }
 
 
-def build_admin_user_list_view_model(page=1, per_page=12):
+def build_admin_user_list_view_model(page=1, per_page=12, actor=None):
     role_counts = _build_role_counts()
     summary = build_user_summary_counts()
     query = User.query.order_by(User.created_at.desc(), User.email.asc())
@@ -111,12 +124,21 @@ def build_admin_user_list_view_model(page=1, per_page=12):
     total_pages = max(1, (total_count + per_page - 1) // per_page)
     current_page = min(max(int(page or 1), 1), total_pages)
     users = query.offset((current_page - 1) * per_page).limit(per_page).all()
+    pending_tokens = _build_pending_password_token_map([user.id for user in users])
     showing_from = (current_page - 1) * per_page + 1 if total_count else 0
     showing_to = min(current_page * per_page, total_count)
     return {
         "summary": summary,
         "role_counts": role_counts,
-        "rows": [_serialize_user_row(user) for user in users],
+        "rows": [
+            _serialize_user_row(
+                user,
+                actor=actor,
+                pending_token=pending_tokens.get(user.id),
+                include_password_state=True,
+            )
+            for user in users
+        ],
         "pagination": {
             "current_page": current_page,
             "per_page": per_page,
@@ -132,6 +154,22 @@ def build_admin_user_list_view_model(page=1, per_page=12):
     }
 
 
+def build_admin_user_detail_view_model(user_id, actor=None):
+    user = db.get_or_404(User, user_id)
+    pending_token = _build_pending_password_token_map([user.id]).get(user.id)
+    user_row = _serialize_user_row(
+        user,
+        actor=actor,
+        pending_token=pending_token,
+        include_password_state=True,
+    )
+    recent_events = _build_recent_account_event_rows(limit=12, target_user_id=user.id)
+    return {
+        "row": user_row,
+        "recent_account_events": _build_preview_state(recent_events, preview_limit=FEED_PREVIEW_LIMIT),
+    }
+
+
 def build_admin_user_audit_view_model():
     role_counts = _build_role_counts()
     score_rows = _build_user_activity_score_rows(window_days=USER_ACTIVITY_WINDOW_DAYS)
@@ -143,6 +181,7 @@ def build_admin_user_audit_view_model():
     locked_rows = build_locked_user_rows(limit=6)
     inactive_rows = _build_inactive_user_rows(limit=6)
     recent_activity_rows = _build_recent_user_activity_rows(limit=RECENT_HISTORY_LIMIT)
+    recent_account_rows = _build_recent_account_event_rows(limit=RECENT_HISTORY_LIMIT)
     return {
         "role_counts": role_counts,
         "summary": {
@@ -155,12 +194,14 @@ def build_admin_user_audit_view_model():
         "locked_users": _build_preview_state(locked_rows, preview_limit=ATTENTION_PREVIEW_LIMIT),
         "inactive_users": _build_preview_state(inactive_rows, preview_limit=ATTENTION_PREVIEW_LIMIT),
         "recent_activity": _build_preview_state(recent_activity_rows, preview_limit=FEED_PREVIEW_LIMIT),
+        "recent_account_activity": _build_preview_state(recent_account_rows, preview_limit=FEED_PREVIEW_LIMIT),
     }
 
 
 def build_admin_history_view_model():
     inventory_rows = _build_inventory_change_rows(limit=RECENT_HISTORY_LIMIT)
     note_rows = _build_recent_note_update_rows(limit=8)
+    account_event_rows = _build_recent_account_event_rows(limit=RECENT_HISTORY_LIMIT)
     recent_creation_groups = _build_recent_creation_groups(limit=5)
     archive_groups = {
         "users": _build_inactive_user_rows(limit=8),
@@ -168,6 +209,7 @@ def build_admin_history_view_model():
         "items": _build_inactive_item_rows(limit=8),
     }
     return {
+        "account_events": _build_preview_state(account_event_rows, preview_limit=FEED_PREVIEW_LIMIT),
         "inventory_changes": _build_preview_state(inventory_rows, preview_limit=FEED_PREVIEW_LIMIT),
         "note_updates": _build_preview_state(note_rows, preview_limit=FEED_PREVIEW_LIMIT),
         "recent_creations": {
@@ -267,10 +309,62 @@ def _build_inactive_item_rows(limit=None):
     return rows
 
 
-def _serialize_user_row(user):
+def _build_pending_password_token_map(user_ids):
+    if not user_ids:
+        return {}
+
+    reference_time = ensure_utc(utcnow_naive())
+    tokens = (
+        PasswordActionToken.query.filter(
+            PasswordActionToken.user_id.in_(user_ids),
+            PasswordActionToken.consumed_at.is_(None),
+        )
+        .order_by(PasswordActionToken.created_at.desc(), PasswordActionToken.id.desc())
+        .all()
+    )
+
+    pending_tokens = {}
+    for token in tokens:
+        if token.user_id in pending_tokens:
+            continue
+        if ensure_utc(token.expires_at) <= reference_time:
+            continue
+        pending_tokens[token.user_id] = token
+    return pending_tokens
+
+
+def _build_user_password_status(user, pending_token=None):
+    if pending_token is not None:
+        is_setup = pending_token.purpose == "password_setup"
+        return {
+            "label": "Setup link ready" if is_setup else "Reset link ready",
+            "tone": "warning",
+            "detail": f"Expires {format_admin_timestamp(pending_token.expires_at)}",
+        }
+    if user.force_password_change:
+        return {
+            "label": "Setup required",
+            "tone": "warning",
+            "detail": "Password has not been set yet.",
+        }
+    if user.password_changed_at:
+        return {
+            "label": "Password set",
+            "tone": "success",
+            "detail": f"Changed {format_admin_timestamp(user.password_changed_at)}",
+        }
+    return {
+        "label": "Password available",
+        "tone": "neutral",
+        "detail": "Legacy password record.",
+    }
+
+
+def _serialize_user_row(user, *, actor=None, pending_token=None, include_password_state=False):
     role_meta = USER_ROLE_META.get(user.role, USER_ROLE_META["viewer"])
     locked = is_user_locked(user)
-    return {
+    is_self = bool(actor and getattr(actor, "id", None) == user.id)
+    row = {
         "id": user.id,
         "email": user.email,
         "display_name": build_user_display_name(user.display_name, user.email),
@@ -284,9 +378,25 @@ def _serialize_user_row(user):
         "is_locked": locked,
         "locked_label": "Locked" if locked else "Unlocked",
         "locked_tone": "warning" if locked else "neutral",
+        "failed_login_attempts": int(user.failed_login_attempts or 0),
         "locked_until_text": format_admin_timestamp(user.locked_until, missing_text="Not locked"),
         "created_at_text": format_admin_timestamp(user.created_at),
+        "last_login_at_text": format_admin_timestamp(user.last_login_at, missing_text="Never"),
+        "password_changed_at_text": format_admin_timestamp(user.password_changed_at, missing_text="Not recorded"),
+        "deactivated_at_text": format_admin_timestamp(user.deactivated_at, missing_text="Not deactivated"),
+        "is_self": is_self,
+        "manage_url": f"/admin/users/{user.id}/edit",
     }
+    if include_password_state:
+        password_status = _build_user_password_status(user, pending_token=pending_token)
+        row.update(
+            {
+                "password_status_label": password_status["label"],
+                "password_status_tone": password_status["tone"],
+                "password_status_detail": password_status["detail"],
+            }
+        )
+    return row
 
 
 def _build_role_counts():
@@ -374,9 +484,7 @@ def _build_recent_operational_activity_rows(limit=RECENT_ACTIVITY_LIMIT):
 
 def _build_recent_system_change_rows(limit=RECENT_ACTIVITY_LIMIT):
     note_rows = _build_recent_note_update_rows(limit=limit)
-    user_rows = (
-        User.query.order_by(User.created_at.desc(), User.id.desc()).limit(limit).all()
-    )
+    account_rows = _build_recent_account_event_rows(limit=limit)
     venue_rows = (
         Venue.query.order_by(Venue.created_at.desc(), Venue.id.desc()).limit(limit).all()
     )
@@ -396,14 +504,14 @@ def _build_recent_system_change_rows(limit=RECENT_ACTIVITY_LIMIT):
             }
         )
 
-    for user in user_rows:
+    for row in account_rows:
         merged_rows.append(
             {
-                "icon_class": "bi-person-plus",
-                "title": f"Created user {build_user_display_name(user.display_name, user.email)}",
-                "detail": user.email,
-                "changed_at": ensure_utc(user.created_at),
-                "changed_at_text": format_admin_timestamp(user.created_at),
+                "icon_class": row["icon_class"],
+                "title": row["title"],
+                "detail": f"{row['detail']} | {row['actor_name']}",
+                "changed_at": row["changed_at"],
+                "changed_at_text": row["changed_at_text"],
             }
         )
 
@@ -437,6 +545,40 @@ def _build_recent_system_change_rows(limit=RECENT_ACTIVITY_LIMIT):
         reverse=True,
     )
     return merged_rows[:limit]
+
+
+def _build_recent_account_event_rows(limit=RECENT_HISTORY_LIMIT, target_user_id=None):
+    actor_user = aliased(User)
+    target_user = aliased(User)
+    query = (
+        db.session.query(AccountAuditEvent, actor_user, target_user)
+        .outerjoin(actor_user, actor_user.id == AccountAuditEvent.actor_user_id)
+        .outerjoin(target_user, target_user.id == AccountAuditEvent.target_user_id)
+        .order_by(AccountAuditEvent.created_at.desc(), AccountAuditEvent.id.desc())
+    )
+    if target_user_id is not None:
+        query = query.filter(AccountAuditEvent.target_user_id == target_user_id)
+    if limit is not None:
+        query = query.limit(limit)
+
+    rows = []
+    for event, actor, target in query.all():
+        actor_name = build_user_display_name(
+            getattr(actor, "display_name", None),
+            getattr(actor, "email", None),
+        )
+        target_name = build_user_display_name(
+            getattr(target, "display_name", None),
+            getattr(target, "email", None) or event.target_email,
+        )
+        rows.append(
+            describe_account_event(
+                event,
+                actor_name=actor_name,
+                target_name=target_name,
+            )
+        )
+    return rows
 
 
 def _build_recent_note_update_rows(limit=8):

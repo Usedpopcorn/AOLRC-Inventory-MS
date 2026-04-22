@@ -2,59 +2,17 @@ param()
 
 $ErrorActionPreference = "Stop"
 
-function Invoke-Checked {
-    param(
-        [Parameter(Mandatory = $true)]
-        [scriptblock]$Command
-    )
+$helpersPath = Join-Path $PSScriptRoot "dev_env.ps1"
+. $helpersPath
 
-    & $Command
-    if ($LASTEXITCODE -ne 0) {
-        throw "Command failed with exit code $LASTEXITCODE"
-    }
-}
-
-function Test-PythonSelector {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string[]]$Selector
-    )
-
-    $selectorArgs = @()
-    if ($Selector.Length -gt 1) {
-        $selectorArgs = $Selector[1..($Selector.Length - 1)]
-    }
-
-    try {
-        & $Selector[0] $selectorArgs --version 1> $null 2> $null
-        return $LASTEXITCODE -eq 0
-    }
-    catch {
-        return $false
-    }
-}
-
-function Get-PythonSelector {
-    if (Get-Command py -ErrorAction SilentlyContinue) {
-        if (Test-PythonSelector @("py", "-3.12")) {
-            return @("py", "-3.12")
-        }
-        if (Test-PythonSelector @("py", "-3.13")) {
-            return @("py", "-3.13")
-        }
-    }
-
-    if (Get-Command python -ErrorAction SilentlyContinue) {
-        return @("python")
-    }
-
-    throw "Python launcher not found. Install Python 3.12 or 3.13 first."
-}
-
-$repoRoot = Split-Path -Parent $PSScriptRoot
-$venvPath = Join-Path $repoRoot ".venv"
-$venvPython = Join-Path $venvPath "Scripts\python.exe"
+$repoRoot = Get-RepoRoot
+$venvPath = Get-PreferredVenvPath
 $pythonSelector = Get-PythonSelector
+$ripgrepPath = Get-UsableRipgrepPath
+
+Enable-RepoDevPath
+
+$venvPython = Join-Path $venvPath (Get-VenvPythonRelativePath)
 
 if (-not (Test-Path $venvPython)) {
     $selectorArgs = @()
@@ -73,5 +31,12 @@ Invoke-Checked { & $venvPython -m pre_commit install --hook-type pre-push }
 Write-Host ""
 Write-Host "Bootstrap complete."
 Write-Host "Git hooks installed."
+if ($ripgrepPath) {
+    Write-Host "ripgrep: $(& $ripgrepPath --version | Select-Object -First 1)"
+}
+else {
+    Write-Host "ripgrep: not provisioned automatically; install ripgrep separately if you want rg in plain shells"
+}
 Write-Host "Interpreter: $(& $venvPython --version)"
-Write-Host "Use .\.venv\Scripts\python.exe scripts\validate_repo.py or .\scripts\check.ps1"
+Write-Host "Use .\scripts\dev_shell.ps1 to add repo tools to PATH in this shell."
+Write-Host "Then run python scripts\validate_repo.py or .\scripts\check.ps1"

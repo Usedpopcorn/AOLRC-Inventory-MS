@@ -12,6 +12,14 @@ Use this file as the entry point for UI and general repo navigation.
 - `templates/_ui_macros.html`: page headers, toolbars, chips, form sections, empty/loading/banner/validation states.
 - `templates/_inventory_macros.html`: shared inventory rows, family/group rows, singleton handling, detail panels.
 - `templates/_item_macros.html`: item identity and structure badges.
+- `scripts/dev_shell.ps1`: repo-local PowerShell bootstrap that puts the repo virtualenv on `PATH` and prefers a working local `rg` when one is available.
+- `scripts/bootstrap_dev.ps1`: creates the standard `.venv`, installs dev dependencies, and on Windows can provision a repo-local `rg.exe` if the discovered copy cannot execute in place.
+
+## Dev Environment Quick Start
+
+- Run `.\scripts\dev_shell.ps1` first in a Windows PowerShell session when `rg`, `python`, `pytest`, `ruff`, or `pre-commit` resolve incorrectly.
+- Run `.\scripts\bootstrap_dev.ps1` if `.venv` does not exist yet.
+- Keep repo-local tooling in `.tools/`; it is intentionally ignored by git.
 
 ## UI Source Of Truth
 
