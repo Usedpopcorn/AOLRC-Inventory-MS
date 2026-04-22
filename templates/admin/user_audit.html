@@ -6,17 +6,17 @@
 {% block admin_page %}
 {{ ui.page_header(
   title="User Audit",
-  subtitle="Role mix, live lockouts, and retained activity patterns."
+  subtitle="Activity and account attention."
 ) }}
 
 {{ ui.state_banner(
   "Operational activity is approximate.",
-  "Score = checks + raw-count sessions + venue notes in the last " ~ user_audit.summary.window_days ~ " days. It reflects retained operational records, not a full auth log.",
+  "Checks + count sessions + notes in the last " ~ user_audit.summary.window_days ~ " days. Not a full auth log.",
   tone="info",
   icon_class="bi-info-circle-fill"
 ) }}
 
-{% call admin_ui.region("Audit Snapshot", "Role mix and retained scoring in the current window.") %}
+{% call admin_ui.region("Role Mix") %}
   <section class="admin-summary-grid admin-summary-grid-compact" aria-label="User audit summary">
     {{ admin_ui.summary_card("Admins", user_audit.role_counts.admin, "bi-shield-lock") }}
     {{ admin_ui.summary_card("Staff", user_audit.role_counts.staff, "bi-person-badge") }}
@@ -26,9 +26,9 @@
   </section>
 {% endcall %}
 
-{% call admin_ui.region("Activity Ranking", "Highest and lowest operational activity in the retained window.") %}
+{% call admin_ui.region("Activity Ranking") %}
   <div class="admin-audit-ranking-grid">
-    {% call admin_ui.panel("Most Active Users", "Top operational scores within the current retained window.") %}
+    {% call admin_ui.panel("Most Active") %}
       {% if user_audit.most_active_users.preview %}
         <div class="admin-preview-meta">
           <span>{{ user_audit.most_active_users.loaded_count }} ranked user{{ "s" if user_audit.most_active_users.loaded_count != 1 else "" }} with recorded activity</span>
@@ -47,8 +47,7 @@
         </div>
         {% if user_audit.most_active_users.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ user_audit.most_active_users.remaining_count ~ " more ranked user" ~ ("s" if user_audit.most_active_users.remaining_count != 1 else ""),
-            "Open the rest of the ranking."
+            "Show " ~ user_audit.most_active_users.remaining_count ~ " more ranked user" ~ ("s" if user_audit.most_active_users.remaining_count != 1 else "")
           ) %}
             <div class="admin-score-list admin-scroll-region">
               {% for row in user_audit.most_active_users.remaining %}
@@ -65,11 +64,11 @@
           {% endcall %}
         {% endif %}
       {% else %}
-        {{ ui.empty_state("No recent operational activity yet.", body="Most-active ranking appears once users submit checks, raw counts, or venue notes.", compact=True) }}
+        {{ ui.empty_state("No recent activity yet.", compact=True) }}
       {% endif %}
     {% endcall %}
 
-    {% call admin_ui.panel("Least Active Users", "Users with the lowest operational scores in the current retained window.") %}
+    {% call admin_ui.panel("Least Active") %}
       {% if user_audit.least_active_users.preview %}
         <div class="admin-preview-meta">
           <span>{{ user_audit.least_active_users.loaded_count }} low-touch account{{ "s" if user_audit.least_active_users.loaded_count != 1 else "" }} in view</span>
@@ -88,8 +87,7 @@
         </div>
         {% if user_audit.least_active_users.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ user_audit.least_active_users.remaining_count ~ " more low-touch account" ~ ("s" if user_audit.least_active_users.remaining_count != 1 else ""),
-            "Open the rest of the ranking."
+            "Show " ~ user_audit.least_active_users.remaining_count ~ " more low-touch account" ~ ("s" if user_audit.least_active_users.remaining_count != 1 else "")
           ) %}
             <div class="admin-score-list admin-scroll-region">
               {% for row in user_audit.least_active_users.remaining %}
@@ -106,13 +104,13 @@
           {% endcall %}
         {% endif %}
       {% else %}
-        {{ ui.empty_state("No users to rank yet.", body="Least-active visibility appears once user accounts exist in the current database.", compact=True) }}
+        {{ ui.empty_state("No users to rank yet.", compact=True) }}
       {% endif %}
     {% endcall %}
   </div>
 {% endcall %}
 
-{% call admin_ui.region("Recent User-Linked Activity", "Newest retained user-linked records first.") %}
+{% call admin_ui.region("Recent Activity") %}
   {% if user_audit.recent_activity.preview %}
     <div class="admin-preview-meta">
       <span>Showing the latest {{ user_audit.recent_activity.preview_count }} linked record{{ "s" if user_audit.recent_activity.preview_count != 1 else "" }}</span>
@@ -137,8 +135,7 @@
     </div>
     {% if user_audit.recent_activity.has_more %}
       {% call admin_ui.disclosure(
-        "Show " ~ user_audit.recent_activity.remaining_count ~ " more linked record" ~ ("s" if user_audit.recent_activity.remaining_count != 1 else ""),
-        "Open the rest of the activity feed."
+        "Show " ~ user_audit.recent_activity.remaining_count ~ " more linked record" ~ ("s" if user_audit.recent_activity.remaining_count != 1 else "")
       ) %}
         <div class="admin-feed-list admin-feed-list-dense admin-scroll-region">
           {% for row in user_audit.recent_activity.remaining %}
@@ -158,13 +155,13 @@
       {% endcall %}
     {% endif %}
   {% else %}
-    {{ ui.empty_state("No user-linked activity yet.", body="Checks, raw-count sessions, and venue notes linked to users appear here when they exist in retained records.", compact=True) }}
+    {{ ui.empty_state("No user-linked activity yet.", compact=True) }}
   {% endif %}
 {% endcall %}
 
-{% call admin_ui.region("Account Attention", "Lockouts and inactive accounts that may need follow-up.") %}
+{% call admin_ui.region("Account Attention") %}
   <div class="admin-support-grid">
-    {% call admin_ui.panel("Locked Accounts", "Current lockouts from the live lockout window.", "admin-panel-support") %}
+    {% call admin_ui.panel("Locked Accounts", none, "admin-panel-support") %}
       {% if user_audit.locked_users.preview %}
         <div class="admin-preview-meta">
           <span>{{ user_audit.locked_users.loaded_count }} locked account{{ "s" if user_audit.locked_users.loaded_count != 1 else "" }} in view</span>
@@ -185,8 +182,7 @@
         </div>
         {% if user_audit.locked_users.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ user_audit.locked_users.remaining_count ~ " more locked account" ~ ("s" if user_audit.locked_users.remaining_count != 1 else ""),
-            "Open the full list."
+            "Show " ~ user_audit.locked_users.remaining_count ~ " more locked account" ~ ("s" if user_audit.locked_users.remaining_count != 1 else "")
           ) %}
             <div class="admin-list admin-scroll-region">
               {% for row in user_audit.locked_users.remaining %}
@@ -205,11 +201,11 @@
           {% endcall %}
         {% endif %}
       {% else %}
-        {{ ui.empty_state("No locked accounts right now.", body="Current account lockouts appear here when they exist.", compact=True) }}
+        {{ ui.empty_state("No locked accounts right now.", compact=True) }}
       {% endif %}
     {% endcall %}
 
-    {% call admin_ui.panel("Inactive Accounts", "Accounts currently marked inactive.", "admin-panel-support") %}
+    {% call admin_ui.panel("Inactive Accounts", none, "admin-panel-support") %}
       {% if user_audit.inactive_users.preview %}
         <div class="admin-preview-meta">
           <span>{{ user_audit.inactive_users.loaded_count }} inactive account{{ "s" if user_audit.inactive_users.loaded_count != 1 else "" }} in view</span>
@@ -230,8 +226,7 @@
         </div>
         {% if user_audit.inactive_users.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ user_audit.inactive_users.remaining_count ~ " more inactive account" ~ ("s" if user_audit.inactive_users.remaining_count != 1 else ""),
-            "Open the full list."
+            "Show " ~ user_audit.inactive_users.remaining_count ~ " more inactive account" ~ ("s" if user_audit.inactive_users.remaining_count != 1 else "")
           ) %}
             <div class="admin-list admin-scroll-region">
               {% for row in user_audit.inactive_users.remaining %}
@@ -250,7 +245,7 @@
           {% endcall %}
         {% endif %}
       {% else %}
-        {{ ui.empty_state("No inactive accounts right now.", body="If an account is turned off, it surfaces here for review.", compact=True) }}
+        {{ ui.empty_state("No inactive accounts right now.", compact=True) }}
       {% endif %}
     {% endcall %}
   </div>

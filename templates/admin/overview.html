@@ -6,21 +6,21 @@
 {% block admin_page %}
 {{ ui.page_header(
   title="Admin Hub",
-  subtitle="Account health, module status, and recent retained activity."
+  subtitle="Health, modules, and recent activity."
 ) }}
 
-{% call admin_ui.region("Control Snapshot", "Start with account health, then move into the module that needs attention.") %}
+{% call admin_ui.region("Account Health") %}
   <section class="admin-summary-grid" aria-label="Admin user summary">
     {{ admin_ui.summary_card("Total users", overview.summary.total_users, "bi-people") }}
-    {{ admin_ui.summary_card("Active users", overview.summary.active_users, "bi-person-check", "Currently able to sign in.") }}
-    {{ admin_ui.summary_card("Inactive users", overview.summary.inactive_users, "bi-person-dash", "Visible here for cleanup and follow-up.") }}
-    {{ admin_ui.summary_card("Locked users", overview.summary.locked_users, "bi-lock", "Current lockouts only, not historical failures.") }}
+    {{ admin_ui.summary_card("Active users", overview.summary.active_users, "bi-person-check") }}
+    {{ admin_ui.summary_card("Inactive users", overview.summary.inactive_users, "bi-person-dash") }}
+    {{ admin_ui.summary_card("Locked users", overview.summary.locked_users, "bi-lock") }}
   </section>
   <div class="admin-region-divider" aria-hidden="true"></div>
   <section class="admin-module-summary-grid" aria-label="Admin module summaries">
     {{ admin_ui.module_summary_card(
       "Users",
-      "Account state and access review.",
+      none,
       url_for("admin.users"),
       "bi-people",
       overview.module_summary.users.primary_label,
@@ -31,7 +31,7 @@
     ) }}
     {{ admin_ui.module_summary_card(
       "Items",
-      "Catalog status and upkeep.",
+      none,
       url_for("admin.items"),
       "bi-box-seam",
       overview.module_summary["items"].primary_label,
@@ -42,7 +42,7 @@
     ) }}
     {{ admin_ui.module_summary_card(
       "User Audit",
-      "Live attention and recent activity.",
+      none,
       url_for("admin.user_audit"),
       "bi-activity",
       overview.module_summary.audit.primary_label,
@@ -53,7 +53,7 @@
     ) }}
     {{ admin_ui.module_summary_card(
       "History & Archive",
-      "Retained changes and archive review.",
+      none,
       url_for("admin.history"),
       "bi-clock-history",
       overview.module_summary.history.primary_label,
@@ -65,9 +65,9 @@
   </section>
 {% endcall %}
 
-{% call admin_ui.region("Operational Monitoring", "Live lockouts and the newest retained activity.") %}
+{% call admin_ui.region("Operational Monitoring") %}
   <div class="admin-overview-monitor-grid">
-    {% call admin_ui.panel("Locked Accounts", "Current lockouts from the live lockout window.", "admin-panel-support") %}
+    {% call admin_ui.panel("Locked Accounts", none, "admin-panel-support") %}
       {% if overview.locked_users.preview %}
         <div class="admin-preview-meta">
           <span>{{ overview.locked_users.loaded_count }} locked right now</span>
@@ -91,8 +91,7 @@
         </div>
         {% if overview.locked_users.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ overview.locked_users.remaining_count ~ " more locked account" ~ ("s" if overview.locked_users.remaining_count != 1 else ""),
-            "Keep the overview short until you need the fuller list."
+            "Show " ~ overview.locked_users.remaining_count ~ " more locked account" ~ ("s" if overview.locked_users.remaining_count != 1 else "")
           ) %}
             <div class="admin-list admin-scroll-region">
               {% for row in overview.locked_users.remaining %}
@@ -111,11 +110,11 @@
           {% endcall %}
         {% endif %}
       {% else %}
-        {{ ui.empty_state("No locked accounts right now.", body="Current account lockouts surface here when someone is temporarily locked out.", compact=True) }}
+        {{ ui.empty_state("No locked accounts right now.", compact=True) }}
       {% endif %}
     {% endcall %}
 
-    {% call admin_ui.panel("Recent Operational Activity", "Latest retained check and raw-count sessions.") %}
+    {% call admin_ui.panel("Recent Operational Activity") %}
       {% if overview.recent_operational_activity.preview %}
         <div class="admin-preview-meta">
           <span>Showing the latest {{ overview.recent_operational_activity.preview_count }} session{{ "s" if overview.recent_operational_activity.preview_count != 1 else "" }}</span>
@@ -140,8 +139,7 @@
         </div>
         {% if overview.recent_operational_activity.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ overview.recent_operational_activity.remaining_count ~ " more recent session" ~ ("s" if overview.recent_operational_activity.remaining_count != 1 else ""),
-            "Open the full retained feed."
+            "Show " ~ overview.recent_operational_activity.remaining_count ~ " more recent session" ~ ("s" if overview.recent_operational_activity.remaining_count != 1 else "")
           ) %}
             <div class="admin-feed-list admin-feed-list-dense admin-scroll-region">
               {% for row in overview.recent_operational_activity.remaining %}
@@ -161,13 +159,13 @@
           {% endcall %}
         {% endif %}
       {% else %}
-        {{ ui.empty_state("No retained operational activity yet.", body="Recent status checks and raw-count sessions appear here once the app is in use.", compact=True) }}
+        {{ ui.empty_state("No recent operational activity yet.", compact=True) }}
       {% endif %}
     {% endcall %}
   </div>
 {% endcall %}
 
-{% call admin_ui.region("Recent System Changes", "New retained note and record updates.") %}
+{% call admin_ui.region("System Changes") %}
   {% if overview.recent_system_changes.preview %}
     <div class="admin-preview-meta">
       <span>Showing the latest {{ overview.recent_system_changes.preview_count }} system update{{ "s" if overview.recent_system_changes.preview_count != 1 else "" }}</span>
@@ -191,8 +189,7 @@
     </div>
     {% if overview.recent_system_changes.has_more %}
       {% call admin_ui.disclosure(
-        "Show " ~ overview.recent_system_changes.remaining_count ~ " more system change" ~ ("s" if overview.recent_system_changes.remaining_count != 1 else ""),
-        "Open the full retained list."
+        "Show " ~ overview.recent_system_changes.remaining_count ~ " more system change" ~ ("s" if overview.recent_system_changes.remaining_count != 1 else "")
       ) %}
         <div class="admin-feed-list admin-feed-list-dense admin-scroll-region">
           {% for row in overview.recent_system_changes.remaining %}
@@ -211,7 +208,7 @@
       {% endcall %}
     {% endif %}
   {% else %}
-    {{ ui.empty_state("No retained system changes yet.", body="New notes and created records appear here when they exist in the current dataset.", compact=True) }}
+    {{ ui.empty_state("No recent system changes yet.", compact=True) }}
   {% endif %}
 {% endcall %}
 {% endblock %}

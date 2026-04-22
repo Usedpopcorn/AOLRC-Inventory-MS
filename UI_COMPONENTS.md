@@ -6,6 +6,7 @@ Use this file as the practical map of the shared UI system.
 
 - `static/css/styles.css`: tokens, shared layout classes, state styles, focus/tap sizing, responsive behavior.
 - `templates/_ui_macros.html`: page headers, toolbars, chips, form sections, empty/loading/banner/validation states.
+- `templates/admin/_admin_macros.html`: admin nav rail, regions, panels, disclosures, summary cards, and feed/list shells.
 - `templates/_inventory_macros.html`: inventory state helpers, family rows, child rows, singleton rows, detail panels.
 - `templates/_item_macros.html`: item identity block and structure badges.
 
@@ -22,6 +23,20 @@ Use this file as the practical map of the shared UI system.
 - Use `ui.toolbar(...)` with `ui-toolbar-main-*`, `ui-toolbar-split`, and `ui-toolbar-actions`.
 - Pair with `ui-control` / `ui-control-sm` for consistent heights.
 - Use for search + filter + sort + primary action surfaces.
+- Prefer live/debounced filtering for in-page directories when that matches existing app behavior.
+- Avoid adding a separate Apply button unless the workflow truly needs an explicit submit.
+
+### Admin Shell
+
+- Use `templates/admin/layout.html` as the admin page shell.
+- Use `admin_ui.nav(...)` / `admin_ui.mobile_nav(...)` for admin navigation instead of building page-local subnavs.
+- Use `admin_ui.region(...)` and `admin_ui.panel(...)` for admin sections before introducing a new admin card/container pattern.
+
+### Disclosure / Preview-First Sections
+
+- Use `admin_ui.disclosure(...)` for secondary admin data that should stay preview-first.
+- Best for retained activity, recent changes, archive lists, rankings, and other long supporting sections.
+- Default to showing a concise preview plus counts/meta, then reveal the rest on demand.
 
 ### Chips And Status
 
@@ -71,6 +86,7 @@ Use this file as the practical map of the shared UI system.
 
 - New page shell: `ui.page_header`.
 - New filter bar: `ui.toolbar` + `ui-control`.
+- New admin page shell or section stack: `admin/layout.html` + `admin/_admin_macros.html`.
 - New settings/admin block: `ui.form_section`.
 - New metadata/status display: `ui.chip`, `ui.status_pill`, or inventory state helpers.
 - New operational inventory surface: `_inventory_macros.html` first, not page-local table/card markup.
@@ -79,6 +95,8 @@ Use this file as the practical map of the shared UI system.
 ## Do Not Reinvent Locally
 
 - Do not create new page-local badge systems when the shared chip/state system already fits.
+- Do not create a second admin navigation pattern when the rail/mobile admin shell already fits.
+- Do not dump long admin lists fully expanded by default when a disclosure or capped preview will keep the page readable.
 - Do not create a second inventory hierarchy style for family rows or singleton assets.
 - Do not add one-off spacing or control-height hacks before checking shared tokens/classes in `styles.css`.
 - Do not rebuild empty/no-results/info banners with raw Bootstrap alerts unless the shared state primitives truly cannot fit.

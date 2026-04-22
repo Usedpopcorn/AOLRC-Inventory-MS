@@ -6,10 +6,10 @@
 {% block admin_page %}
 {{ ui.page_header(
   title="User Control Center",
-  subtitle="Account state, roles, and current lockouts."
+  subtitle="Roles, access, and lockouts."
 ) }}
 
-{% call admin_ui.region("Account Snapshot", "Account counts and access state.") %}
+{% call admin_ui.region("Account Health") %}
   <section class="admin-summary-grid admin-summary-grid-compact" aria-label="User summary">
     {{ admin_ui.summary_card("Total users", user_center.summary.total_users, "bi-people") }}
     {{ admin_ui.summary_card("Active", user_center.summary.active_users, "bi-person-check") }}
@@ -23,7 +23,6 @@
     <div class="admin-directory-toolbar">
       <div class="admin-preview-meta">
         <span>Showing {{ user_center.pagination.showing_from }}-{{ user_center.pagination.showing_to }} of {{ user_center.pagination.total_count }} user{{ "s" if user_center.pagination.total_count != 1 else "" }}</span>
-        <span>Sorted by newest account first</span>
       </div>
       {% if user_center.pagination.total_pages > 1 %}
         <nav class="admin-pager" aria-label="User directory pages">
@@ -79,7 +78,7 @@
             <td>{{ row.created_at_text }}</td>
           </tr>
         {% else %}
-          {{ ui.table_empty_row(6, "No users yet.", body="User accounts appear here once they exist in the current database.") }}
+          {{ ui.table_empty_row(6, "No users yet.") }}
         {% endfor %}
       </tbody>
     </table>
@@ -117,7 +116,7 @@
         </div>
       </article>
     {% else %}
-      {{ ui.empty_state("No users yet.", body="User accounts appear here once they exist in the current database.", compact=True) }}
+      {{ ui.empty_state("No users yet.", compact=True) }}
     {% endfor %}
   </div>
 {% endcall %}

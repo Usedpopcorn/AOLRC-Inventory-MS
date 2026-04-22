@@ -7,14 +7,14 @@
 {% block admin_page %}
 {{ ui.page_header(
   title="Deactivate Item",
-  subtitle="Review the impact before removing this shared catalog item from active venue flows.",
+  subtitle="Review before deactivating.",
   back_url=url_for('admin.items'),
   back_label="Items"
 ) }}
 
-{% call admin_ui.region("Deactivate Review", "Confirm the impact before retiring this catalog record from active use.") %}
-  {% call admin_ui.panel("Impact Summary", "This item will be removed from active venue tracking if you continue.", "admin-panel-support") %}
-    {% call ui.form_section("Impact Summary", "You are about to deactivate this item from the shared catalog.") %}
+{% call admin_ui.region("Deactivate Review") %}
+  {% call admin_ui.panel("Impact Summary", none, "admin-panel-support") %}
+    {% call ui.form_section("Impact Summary") %}
       <div>
         {{ item_ui.item_heading(
           item.name,
@@ -35,7 +35,7 @@
       {% if venues %}
         {{ ui.state_banner(
           "Tracked in active venues",
-          "This item is currently tracked in " ~ venues|length ~ " venue(s). Deactivating it will remove it from those venues and hide it from venue supply lists.",
+          venues|length ~ " venue(s) will lose this item.",
           tone="warning"
         ) }}
 
@@ -50,7 +50,7 @@
       {% else %}
         {{ ui.state_banner(
           "Not currently assigned",
-          "This item is not currently tracked in any venues. Deactivation will hide it from future venue supply lists.",
+          "This will remove it from future venue lists.",
           tone="warning"
         ) }}
       {% endif %}

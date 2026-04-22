@@ -6,12 +6,12 @@
 {% block admin_page %}
 {{ ui.page_header(
   title="History & Archive",
-  subtitle="Retained changes, note activity, and inactive records."
+  subtitle="Retained changes and inactive records."
 ) }}
 
 {{ ui.state_banner(
-  "This page reflects current retention.",
-  "It shows retained changes, note updates, new records, and inactive records. It does not include deleted records or password and invite events.",
+  "Current retention only.",
+  "No deleted records, invites, or password events.",
   tone="warning",
   icon_class="bi-exclamation-triangle-fill"
 ) }}
@@ -23,9 +23,9 @@
 {% set inactive_venues = history_view.archive["venues"] %}
 {% set inactive_items = history_view.archive["items"] %}
 
-{% call admin_ui.region("Recent Retained Changes", "Newest retained changes first.") %}
+{% call admin_ui.region("Recent Changes") %}
   <div class="admin-support-grid">
-    {% call admin_ui.panel("Inventory Changes", "Status and raw-count changes from retained check records.") %}
+    {% call admin_ui.panel("Inventory Changes") %}
       {% if history_view.inventory_changes.preview %}
         <div class="admin-preview-meta">
           <span>Showing the latest {{ history_view.inventory_changes.preview_count }} retained change{{ "s" if history_view.inventory_changes.preview_count != 1 else "" }}</span>
@@ -50,8 +50,7 @@
         </div>
         {% if history_view.inventory_changes.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ history_view.inventory_changes.remaining_count ~ " more retained change" ~ ("s" if history_view.inventory_changes.remaining_count != 1 else ""),
-            "Open the full retained list."
+            "Show " ~ history_view.inventory_changes.remaining_count ~ " more retained change" ~ ("s" if history_view.inventory_changes.remaining_count != 1 else "")
           ) %}
             <div class="admin-feed-list admin-feed-list-dense admin-scroll-region">
               {% for row in history_view.inventory_changes.remaining %}
@@ -71,11 +70,11 @@
           {% endcall %}
         {% endif %}
       {% else %}
-        {{ ui.empty_state("No retained inventory changes yet.", body="Status and raw-count changes appear here once checks or count sessions exist in the current database.", compact=True) }}
+        {{ ui.empty_state("No inventory changes yet.", compact=True) }}
       {% endif %}
     {% endcall %}
 
-    {% call admin_ui.panel("Venue Note History", "Most recent retained venue-note updates.", "admin-panel-support") %}
+    {% call admin_ui.panel("Venue Notes", none, "admin-panel-support") %}
       {% if history_view.note_updates.preview %}
         <div class="admin-preview-meta">
           <span>Showing the latest {{ history_view.note_updates.preview_count }} note update{{ "s" if history_view.note_updates.preview_count != 1 else "" }}</span>
@@ -99,8 +98,7 @@
         </div>
         {% if history_view.note_updates.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ history_view.note_updates.remaining_count ~ " more note update" ~ ("s" if history_view.note_updates.remaining_count != 1 else ""),
-            "Open the full retained note list."
+            "Show " ~ history_view.note_updates.remaining_count ~ " more note update" ~ ("s" if history_view.note_updates.remaining_count != 1 else "")
           ) %}
             <div class="admin-feed-list admin-feed-list-dense admin-scroll-region">
               {% for row in history_view.note_updates.remaining %}
@@ -119,13 +117,13 @@
           {% endcall %}
         {% endif %}
       {% else %}
-        {{ ui.empty_state("No venue-note history yet.", body="Retained venue-note updates appear here once notes exist.", compact=True) }}
+        {{ ui.empty_state("No venue notes yet.", compact=True) }}
       {% endif %}
     {% endcall %}
   </div>
 {% endcall %}
 
-{% call admin_ui.region("Recently Created Records", "Newest retained users, venues, and items.") %}
+{% call admin_ui.region("Recently Created") %}
   <div class="admin-group-stack">
     <section class="admin-group-panel">
       <div class="admin-group-title">Users</div>
@@ -144,8 +142,7 @@
         </div>
         {% if user_creations.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ user_creations.remaining_count ~ " more recent user" ~ ("s" if user_creations.remaining_count != 1 else ""),
-            "Open the full loaded list."
+            "Show " ~ user_creations.remaining_count ~ " more recent user" ~ ("s" if user_creations.remaining_count != 1 else "")
           ) %}
             <div class="admin-compact-list admin-scroll-region">
               {% for row in user_creations.remaining %}
@@ -180,8 +177,7 @@
         </div>
         {% if venue_creations.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ venue_creations.remaining_count ~ " more recent venue" ~ ("s" if venue_creations.remaining_count != 1 else ""),
-            "Open the full loaded list."
+            "Show " ~ venue_creations.remaining_count ~ " more recent venue" ~ ("s" if venue_creations.remaining_count != 1 else "")
           ) %}
             <div class="admin-compact-list admin-scroll-region">
               {% for row in venue_creations.remaining %}
@@ -216,8 +212,7 @@
         </div>
         {% if item_creations.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ item_creations.remaining_count ~ " more recent item" ~ ("s" if item_creations.remaining_count != 1 else ""),
-            "Open the full loaded list."
+            "Show " ~ item_creations.remaining_count ~ " more recent item" ~ ("s" if item_creations.remaining_count != 1 else "")
           ) %}
             <div class="admin-compact-list admin-scroll-region">
               {% for row in item_creations.remaining %}
@@ -237,10 +232,10 @@
   </div>
 {% endcall %}
 
-{% call admin_ui.region("Archive State", "Current inactive users, venues, and items.", "admin-region-quiet") %}
+{% call admin_ui.region("Archive", none, "admin-region-quiet") %}
   <div class="admin-group-stack">
     <section class="admin-group-panel admin-group-panel-quiet">
-      <div class="admin-group-title">Inactive Users</div>
+      <div class="admin-group-title">Users</div>
       {% if inactive_users.preview %}
         <div class="admin-preview-meta">
           <span>{{ inactive_users.preview_count }} inactive user{{ "s" if inactive_users.preview_count != 1 else "" }} shown first</span>
@@ -256,8 +251,7 @@
         </div>
         {% if inactive_users.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ inactive_users.remaining_count ~ " more inactive user" ~ ("s" if inactive_users.remaining_count != 1 else ""),
-            "Open the full list."
+            "Show " ~ inactive_users.remaining_count ~ " more inactive user" ~ ("s" if inactive_users.remaining_count != 1 else "")
           ) %}
             <div class="admin-compact-list admin-scroll-region">
               {% for row in inactive_users.remaining %}
@@ -276,7 +270,7 @@
     </section>
 
     <section class="admin-group-panel admin-group-panel-quiet">
-      <div class="admin-group-title">Inactive Venues</div>
+      <div class="admin-group-title">Venues</div>
       {% if inactive_venues.preview %}
         <div class="admin-preview-meta">
           <span>{{ inactive_venues.preview_count }} inactive venue{{ "s" if inactive_venues.preview_count != 1 else "" }} shown first</span>
@@ -292,8 +286,7 @@
         </div>
         {% if inactive_venues.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ inactive_venues.remaining_count ~ " more inactive venue" ~ ("s" if inactive_venues.remaining_count != 1 else ""),
-            "Open the full list."
+            "Show " ~ inactive_venues.remaining_count ~ " more inactive venue" ~ ("s" if inactive_venues.remaining_count != 1 else "")
           ) %}
             <div class="admin-compact-list admin-scroll-region">
               {% for row in inactive_venues.remaining %}
@@ -312,7 +305,7 @@
     </section>
 
     <section class="admin-group-panel admin-group-panel-quiet">
-      <div class="admin-group-title">Inactive Items</div>
+      <div class="admin-group-title">Items</div>
       {% if inactive_items.preview %}
         <div class="admin-preview-meta">
           <span>{{ inactive_items.preview_count }} inactive item{{ "s" if inactive_items.preview_count != 1 else "" }} shown first</span>
@@ -328,8 +321,7 @@
         </div>
         {% if inactive_items.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ inactive_items.remaining_count ~ " more inactive item" ~ ("s" if inactive_items.remaining_count != 1 else ""),
-            "Open the full list."
+            "Show " ~ inactive_items.remaining_count ~ " more inactive item" ~ ("s" if inactive_items.remaining_count != 1 else "")
           ) %}
             <div class="admin-compact-list admin-scroll-region">
               {% for row in inactive_items.remaining %}

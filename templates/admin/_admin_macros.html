@@ -14,25 +14,27 @@
   {% endif %}
 {%- endmacro %}
 
-{% macro nav_link(active_key, key, href, icon_class, label, description) -%}
+{% macro nav_link(active_key, key, href, icon_class, label, description=None) -%}
   <a class="admin-nav-link{{ ' is-active' if active_key == key else '' }}" href="{{ href }}">
     <span class="admin-nav-icon" aria-hidden="true">
       <i class="bi {{ icon_class }}"></i>
     </span>
     <span class="admin-nav-copy">
       <span class="admin-nav-label">{{ label }}</span>
-      <span class="admin-nav-description">{{ description }}</span>
+      {% if description %}
+        <span class="admin-nav-description">{{ description }}</span>
+      {% endif %}
     </span>
   </a>
 {%- endmacro %}
 
 {% macro nav(active_key) -%}
   <nav class="admin-nav" aria-label="Admin sections">
-    {{ nav_link(active_key, "overview", url_for("admin.overview"), "bi-speedometer2", "Overview", "Health & launch point.") }}
-    {{ nav_link(active_key, "users", url_for("admin.users"), "bi-people", "Users", "Directory & access.") }}
-    {{ nav_link(active_key, "items", url_for("admin.items"), "bi-box-seam", "Items", "Catalog upkeep.") }}
-    {{ nav_link(active_key, "audit", url_for("admin.user_audit"), "bi-activity", "User Audit", "Recent activity.") }}
-    {{ nav_link(active_key, "history", url_for("admin.history"), "bi-clock-history", "History & Archive", "Retained changes.") }}
+    {{ nav_link(active_key, "overview", url_for("admin.overview"), "bi-speedometer2", "Overview") }}
+    {{ nav_link(active_key, "users", url_for("admin.users"), "bi-people", "Users") }}
+    {{ nav_link(active_key, "items", url_for("admin.items"), "bi-box-seam", "Items") }}
+    {{ nav_link(active_key, "audit", url_for("admin.user_audit"), "bi-activity", "User Audit") }}
+    {{ nav_link(active_key, "history", url_for("admin.history"), "bi-clock-history", "History & Archive") }}
   </nav>
 {%- endmacro %}
 
@@ -98,7 +100,9 @@
       </span>
       <div class="admin-module-summary-copy">
         <h3 class="admin-module-summary-title">{{ title }}</h3>
-        <div class="admin-module-summary-body">{{ body }}</div>
+        {% if body %}
+          <div class="admin-module-summary-body">{{ body }}</div>
+        {% endif %}
       </div>
     </div>
     <div class="admin-module-summary-stats" aria-label="{{ title }} summary">
