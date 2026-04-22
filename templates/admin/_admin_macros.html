@@ -1,0 +1,177 @@
+{% import "_ui_macros.html" as ui %}
+
+{% macro nav_label(key) -%}
+  {% if key == "users" %}
+    Users
+  {% elif key == "items" %}
+    Items
+  {% elif key == "audit" %}
+    User Audit
+  {% elif key == "history" %}
+    History & Archive
+  {% else %}
+    Overview
+  {% endif %}
+{%- endmacro %}
+
+{% macro nav_link(active_key, key, href, icon_class, label, description) -%}
+  <a class="admin-nav-link{{ ' is-active' if active_key == key else '' }}" href="{{ href }}">
+    <span class="admin-nav-icon" aria-hidden="true">
+      <i class="bi {{ icon_class }}"></i>
+    </span>
+    <span class="admin-nav-copy">
+      <span class="admin-nav-label">{{ label }}</span>
+      <span class="admin-nav-description">{{ description }}</span>
+    </span>
+  </a>
+{%- endmacro %}
+
+{% macro nav(active_key) -%}
+  <nav class="admin-nav" aria-label="Admin sections">
+    {{ nav_link(active_key, "overview", url_for("admin.overview"), "bi-speedometer2", "Overview", "Health & launch point.") }}
+    {{ nav_link(active_key, "users", url_for("admin.users"), "bi-people", "Users", "Directory & access.") }}
+    {{ nav_link(active_key, "items", url_for("admin.items"), "bi-box-seam", "Items", "Catalog upkeep.") }}
+    {{ nav_link(active_key, "audit", url_for("admin.user_audit"), "bi-activity", "User Audit", "Recent activity.") }}
+    {{ nav_link(active_key, "history", url_for("admin.history"), "bi-clock-history", "History & Archive", "Retained changes.") }}
+  </nav>
+{%- endmacro %}
+
+{% macro mobile_nav(active_key) -%}
+  <section class="admin-mobile-nav d-lg-none" aria-label="Admin sections">
+    <button
+      class="admin-mobile-nav-toggle"
+      type="button"
+      data-bs-toggle="collapse"
+      data-bs-target="#adminMobileSections"
+      aria-controls="adminMobileSections"
+      aria-expanded="false"
+    >
+      <span class="admin-mobile-nav-copy">
+        <span class="admin-mobile-nav-label">Admin section</span>
+        <span class="admin-mobile-nav-current">{{ nav_label(active_key) }}</span>
+      </span>
+      <span class="admin-mobile-nav-icon" aria-hidden="true">
+        <i class="bi bi-list"></i>
+      </span>
+    </button>
+    <div class="collapse" id="adminMobileSections">
+      <div class="admin-mobile-nav-panel">
+        {{ nav(active_key) }}
+      </div>
+    </div>
+  </section>
+{%- endmacro %}
+
+{% macro summary_card(label, value, icon_class, support=None) -%}
+  <article class="admin-summary-card">
+    <div class="admin-summary-icon" aria-hidden="true">
+      <i class="bi {{ icon_class }}"></i>
+    </div>
+    <div class="admin-summary-label">{{ label }}</div>
+    <div class="admin-summary-value">{{ value }}</div>
+    {% if support %}
+      <div class="admin-summary-support">{{ support }}</div>
+    {% endif %}
+  </article>
+{%- endmacro %}
+
+{% macro module_card(title, body, href, icon_class) -%}
+  <a class="admin-module-link" href="{{ href }}">
+    <span class="admin-module-icon" aria-hidden="true">
+      <i class="bi {{ icon_class }}"></i>
+    </span>
+    <span class="admin-module-copy">
+      <span class="admin-module-title">{{ title }}</span>
+      <span class="admin-module-body">{{ body }}</span>
+    </span>
+    <span class="admin-module-arrow" aria-hidden="true">
+      <i class="bi bi-arrow-up-right"></i>
+    </span>
+  </a>
+{%- endmacro %}
+
+{% macro module_summary_card(title, body, href, icon_class, primary_label, primary_value, secondary_label, secondary_value, action_label, note=None) -%}
+  <article class="admin-module-summary-card">
+    <div class="admin-module-summary-head">
+      <span class="admin-module-summary-icon" aria-hidden="true">
+        <i class="bi {{ icon_class }}"></i>
+      </span>
+      <div class="admin-module-summary-copy">
+        <h3 class="admin-module-summary-title">{{ title }}</h3>
+        <div class="admin-module-summary-body">{{ body }}</div>
+      </div>
+    </div>
+    <div class="admin-module-summary-stats" aria-label="{{ title }} summary">
+      <div class="admin-module-summary-stat">
+        <div class="admin-module-summary-value">{{ primary_value }}</div>
+        <div class="admin-module-summary-label">{{ primary_label }}</div>
+      </div>
+      <div class="admin-module-summary-stat">
+        <div class="admin-module-summary-value">{{ secondary_value }}</div>
+        <div class="admin-module-summary-label">{{ secondary_label }}</div>
+      </div>
+    </div>
+    {% if note %}
+      <div class="admin-module-summary-note">{{ note }}</div>
+    {% endif %}
+    <a class="admin-module-summary-action" href="{{ href }}">
+      <span>{{ action_label }}</span>
+      <i class="bi bi-arrow-up-right" aria-hidden="true"></i>
+    </a>
+  </article>
+{%- endmacro %}
+
+{% macro region(title, subtitle=None, extra_classes="") -%}
+  <section class="admin-region{{ ' ' ~ extra_classes if extra_classes else '' }}">
+    <div class="admin-region-head">
+      <h2 class="admin-region-title">{{ title }}</h2>
+      {% if subtitle %}
+        <div class="admin-region-subtitle">{{ subtitle }}</div>
+      {% endif %}
+    </div>
+    <div class="admin-region-body">
+      {{ caller() }}
+    </div>
+  </section>
+{%- endmacro %}
+
+{% macro panel(title, subtitle=None, extra_classes="") -%}
+  <section class="admin-panel{{ ' ' ~ extra_classes if extra_classes else '' }}">
+    <div class="admin-panel-head">
+      <h3 class="admin-panel-title">{{ title }}</h3>
+      {% if subtitle %}
+        <div class="admin-panel-subtitle">{{ subtitle }}</div>
+      {% endif %}
+    </div>
+    <div class="admin-panel-body">
+      {{ caller() }}
+    </div>
+  </section>
+{%- endmacro %}
+
+{% macro disclosure(label, support=None, body_classes="", open=False) -%}
+  <details class="admin-disclosure" {% if open %}open{% endif %}>
+    <summary class="admin-disclosure-summary">
+      <span class="admin-disclosure-copy">
+        <span class="admin-disclosure-label">{{ label }}</span>
+        {% if support %}
+          <span class="admin-disclosure-support">{{ support }}</span>
+        {% endif %}
+      </span>
+      <span class="admin-disclosure-icon" aria-hidden="true">
+        <i class="bi bi-chevron-down"></i>
+      </span>
+    </summary>
+    <div class="admin-disclosure-body{{ ' ' ~ body_classes if body_classes else '' }}">
+      {{ caller() }}
+    </div>
+  </details>
+{%- endmacro %}
+
+{% macro role_chip(row) -%}
+  {{ ui.chip(row.role_label, tone=row.role_tone, icon_class=row.role_icon_class) }}
+{%- endmacro %}
+
+{% macro state_chip(label, tone, icon_class) -%}
+  {{ ui.chip(label, tone=tone, icon_class=icon_class) }}
+{%- endmacro %}

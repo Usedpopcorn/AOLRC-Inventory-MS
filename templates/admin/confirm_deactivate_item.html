@@ -1,9 +1,10 @@
-{% extends "base.html" %}
+{% extends "admin/layout.html" %}
 {% import "_item_macros.html" as item_ui %}
 {% import "_ui_macros.html" as ui %}
+{% import "admin/_admin_macros.html" as admin_ui %}
 {% block title %}Confirm Deactivate{% endblock %}
 
-{% block content %}
+{% block admin_page %}
 {{ ui.page_header(
   title="Deactivate Item",
   subtitle="Review the impact before removing this shared catalog item from active venue flows.",
@@ -11,8 +12,8 @@
   back_label="Items"
 ) }}
 
-<div class="card">
-  <div class="card-body">
+{% call admin_ui.region("Deactivate Review", "Confirm the impact before retiring this catalog record from active use.") %}
+  {% call admin_ui.panel("Impact Summary", "This item will be removed from active venue tracking if you continue.", "admin-panel-support") %}
     {% call ui.form_section("Impact Summary", "You are about to deactivate this item from the shared catalog.") %}
       <div>
         {{ item_ui.item_heading(
@@ -63,6 +64,6 @@
         <a class="btn btn-outline-secondary ui-control" href="{{ url_for('admin.items') }}">Cancel</a>
       </div>
     {% endcall %}
-  </div>
-</div>
+  {% endcall %}
+{% endcall %}
 {% endblock %}

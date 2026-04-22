@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% import "admin/_admin_macros.html" as admin_ui %}
+
+{% block content %}
+<div class="admin-shell">
+  <aside class="admin-sidebar d-none d-lg-block">
+    <div class="admin-sidebar-frame">
+      <div class="admin-sidebar-brand">
+        <div class="admin-sidebar-eyebrow">Admin</div>
+        <div class="admin-sidebar-title">Inventory Admin</div>
+        <div class="admin-sidebar-copy">
+          Accounts, catalog, audit, and retained history.
+        </div>
+      </div>
+      {{ admin_ui.nav(admin_page_key) }}
+      <div class="admin-sidebar-note">
+        <i class="bi bi-shield-lock" aria-hidden="true"></i>
+        <span>Admin only</span>
+      </div>
+    </div>
+  </aside>
+
+  <div class="admin-shell-main">
+    {{ admin_ui.mobile_nav(admin_page_key) }}
+    <div class="admin-page-stack">
+      {% block admin_page %}{% endblock %}
+    </div>
+  </div>
+</div>
+{% endblock %}

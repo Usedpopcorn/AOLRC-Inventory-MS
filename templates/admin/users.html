@@ -1,0 +1,124 @@
+{% extends "admin/layout.html" %}
+{% import "_ui_macros.html" as ui %}
+{% import "admin/_admin_macros.html" as admin_ui %}
+{% block title %}User Control Center{% endblock %}
+
+{% block admin_page %}
+{{ ui.page_header(
+  title="User Control Center",
+  subtitle="Account state, roles, and current lockouts."
+) }}
+
+{% call admin_ui.region("Account Snapshot", "Account counts and access state.") %}
+  <section class="admin-summary-grid admin-summary-grid-compact" aria-label="User summary">
+    {{ admin_ui.summary_card("Total users", user_center.summary.total_users, "bi-people") }}
+    {{ admin_ui.summary_card("Active", user_center.summary.active_users, "bi-person-check") }}
+    {{ admin_ui.summary_card("Inactive", user_center.summary.inactive_users, "bi-person-dash") }}
+    {{ admin_ui.summary_card("Locked", user_center.summary.locked_users, "bi-lock") }}
+  </section>
+{% endcall %}
+
+{% call admin_ui.region("User Directory", "Newest accounts first. Role, access, lockout, and created date.") %}
+  {% if user_center.pagination.total_count %}
+    <div class="admin-directory-toolbar">
+      <div class="admin-preview-meta">
+        <span>Showing {{ user_center.pagination.showing_from }}-{{ user_center.pagination.showing_to }} of {{ user_center.pagination.total_count }} user{{ "s" if user_center.pagination.total_count != 1 else "" }}</span>
+        <span>Sorted by newest account first</span>
+      </div>
+      {% if user_center.pagination.total_pages > 1 %}
+        <nav class="admin-pager" aria-label="User directory pages">
+          <a
+            class="admin-pager-link{{ ' is-disabled' if not user_center.pagination.has_prev else '' }}"
+            href="{{ url_for('admin.users', page=user_center.pagination.prev_page) if user_center.pagination.has_prev else '#' }}"
+            aria-disabled="{{ 'false' if user_center.pagination.has_prev else 'true' }}"
+            {% if not user_center.pagination.has_prev %}tabindex="-1"{% endif %}
+          >
+            <i class="bi bi-arrow-left" aria-hidden="true"></i>
+            <span>Previous</span>
+          </a>
+          <div class="admin-pager-status">Page {{ user_center.pagination.current_page }} of {{ user_center.pagination.total_pages }}</div>
+          <a
+            class="admin-pager-link{{ ' is-disabled' if not user_center.pagination.has_next else '' }}"
+            href="{{ url_for('admin.users', page=user_center.pagination.next_page) if user_center.pagination.has_next else '#' }}"
+            aria-disabled="{{ 'false' if user_center.pagination.has_next else 'true' }}"
+            {% if not user_center.pagination.has_next %}tabindex="-1"{% endif %}
+          >
+            <span>Next</span>
+            <i class="bi bi-arrow-right" aria-hidden="true"></i>
+          </a>
+        </nav>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <div class="d-none d-xxl-block table-responsive">
+    <table class="table align-middle admin-user-table mb-0">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Display name</th>
+          <th>Role</th>
+          <th>Account state</th>
+          <th>Lockout</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in user_center.rows %}
+          <tr>
+            <td class="fw-semibold">{{ row.email }}</td>
+            <td>{{ row.display_name }}</td>
+            <td>{{ admin_ui.role_chip(row) }}</td>
+            <td>{{ ui.chip(row.active_label, tone=row.active_tone, icon_class='bi-person-check' if row.is_active else 'bi-person-dash') }}</td>
+            <td>
+              {{ ui.chip(row.locked_label, tone=row.locked_tone, icon_class='bi-lock' if row.is_locked else 'bi-unlock') }}
+              {% if row.is_locked %}
+                <div class="small text-muted mt-1">{{ row.locked_until_text }}</div>
+              {% endif %}
+            </td>
+            <td>{{ row.created_at_text }}</td>
+          </tr>
+        {% else %}
+          {{ ui.table_empty_row(6, "No users yet.", body="User accounts appear here once they exist in the current database.") }}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="d-xxl-none admin-user-card-list">
+    {% for row in user_center.rows %}
+      <article class="admin-user-card">
+        <div class="admin-user-card-head">
+          <div class="admin-user-card-identity">
+            <div class="admin-user-card-title">{{ row.display_name }}</div>
+            <div class="admin-user-card-email">{{ row.email }}</div>
+          </div>
+          {{ admin_ui.role_chip(row) }}
+        </div>
+        <div class="admin-user-card-meta">
+          <div class="admin-user-card-row">
+            <span class="admin-user-card-label">Account</span>
+            <span>{{ ui.chip(row.active_label, tone=row.active_tone, icon_class='bi-person-check' if row.is_active else 'bi-person-dash') }}</span>
+          </div>
+          <div class="admin-user-card-row">
+            <span class="admin-user-card-label">Lockout</span>
+            <span>{{ ui.chip(row.locked_label, tone=row.locked_tone, icon_class='bi-lock' if row.is_locked else 'bi-unlock') }}</span>
+          </div>
+          <div class="admin-user-card-row">
+            <span class="admin-user-card-label">Created</span>
+            <span>{{ row.created_at_text }}</span>
+          </div>
+          {% if row.is_locked %}
+            <div class="admin-user-card-row">
+              <span class="admin-user-card-label">Locked until</span>
+              <span>{{ row.locked_until_text }}</span>
+            </div>
+          {% endif %}
+        </div>
+      </article>
+    {% else %}
+      {{ ui.empty_state("No users yet.", body="User accounts appear here once they exist in the current database.", compact=True) }}
+    {% endfor %}
+  </div>
+{% endcall %}
+{% endblock %}
