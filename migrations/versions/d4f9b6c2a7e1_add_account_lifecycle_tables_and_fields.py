@@ -77,7 +77,7 @@ def upgrade():
             """
             UPDATE users
             SET deactivated_at = COALESCE(updated_at, created_at)
-            WHERE active = 0 AND deactivated_at IS NULL
+            WHERE active = FALSE AND deactivated_at IS NULL
             """
         )
     )
