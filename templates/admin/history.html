@@ -74,6 +74,55 @@
       {% endif %}
     {% endcall %}
 
+    {% call admin_ui.panel("Inventory Rules & Setup") %}
+      {% if history_view.inventory_admin_events.preview %}
+        <div class="admin-preview-meta">
+          <span>Showing the latest {{ history_view.inventory_admin_events.preview_count }} retained configuration event{{ "s" if history_view.inventory_admin_events.preview_count != 1 else "" }}</span>
+          {% if history_view.inventory_admin_events.latest %}
+            <span>Latest {{ history_view.inventory_admin_events.latest.changed_at_text }}</span>
+          {% endif %}
+        </div>
+        <div class="admin-feed-list admin-feed-list-dense">
+          {% for row in history_view.inventory_admin_events.preview %}
+            <article class="admin-feed-item">
+              <div class="admin-feed-item-top">
+                <div class="admin-feed-title">
+                  <i class="bi {{ row.icon_class }}" aria-hidden="true"></i>
+                  <span>{{ row.title }}</span>
+                </div>
+                <div class="admin-feed-time">{{ row.changed_at_text }}</div>
+              </div>
+              <div class="admin-feed-body">{{ row.actor_name }}</div>
+              <div class="admin-feed-meta">{{ row.detail }}</div>
+            </article>
+          {% endfor %}
+        </div>
+        {% if history_view.inventory_admin_events.has_more %}
+          {% call admin_ui.disclosure(
+            "Show " ~ history_view.inventory_admin_events.remaining_count ~ " more configuration event" ~ ("s" if history_view.inventory_admin_events.remaining_count != 1 else "")
+          ) %}
+            <div class="admin-feed-list admin-feed-list-dense admin-scroll-region">
+              {% for row in history_view.inventory_admin_events.remaining %}
+                <article class="admin-feed-item">
+                  <div class="admin-feed-item-top">
+                    <div class="admin-feed-title">
+                      <i class="bi {{ row.icon_class }}" aria-hidden="true"></i>
+                      <span>{{ row.title }}</span>
+                    </div>
+                    <div class="admin-feed-time">{{ row.changed_at_text }}</div>
+                  </div>
+                  <div class="admin-feed-body">{{ row.actor_name }}</div>
+                  <div class="admin-feed-meta">{{ row.detail }}</div>
+                </article>
+              {% endfor %}
+            </div>
+          {% endcall %}
+        {% endif %}
+      {% else %}
+        {{ ui.empty_state("No retained configuration events yet.", compact=True) }}
+      {% endif %}
+    {% endcall %}
+
     {% call admin_ui.panel("Inventory Changes") %}
       {% if history_view.inventory_changes.preview %}
         <div class="admin-preview-meta">

@@ -73,7 +73,15 @@ def format_timestamp(value, missing_text="No updates yet"):
     return normalized.strftime("%Y-%m-%d %I:%M %p")
 
 
-def build_signal_freshness(value, missing_text="No updates yet"):
+def _resolve_stale_threshold(stale_threshold=None):
+    if stale_threshold is None:
+        return STALE_SIGNAL_THRESHOLD
+    if isinstance(stale_threshold, timedelta):
+        return stale_threshold
+    return timedelta(days=max(int(stale_threshold), 1))
+
+
+def build_signal_freshness(value, missing_text="No updates yet", stale_threshold=None):
     updated_at = ensure_utc(value)
     if updated_at is None:
         return {
@@ -86,6 +94,7 @@ def build_signal_freshness(value, missing_text="No updates yet"):
 
     now = datetime.now(timezone.utc)
     delta = max(now - updated_at, timedelta(0))
+    resolved_threshold = _resolve_stale_threshold(stale_threshold)
     total_seconds = int(delta.total_seconds())
     if total_seconds < 60:
         relative = "Updated just now"
@@ -100,13 +109,13 @@ def build_signal_freshness(value, missing_text="No updates yet"):
         "text": relative,
         "absolute_text": format_timestamp(updated_at),
         "is_missing": False,
-        "is_stale": delta >= STALE_SIGNAL_THRESHOLD,
+        "is_stale": delta >= resolved_threshold,
         "updated_at": updated_at,
     }
 
 
-def is_signal_stale(value):
-    freshness = build_signal_freshness(value)
+def is_signal_stale(value, stale_threshold=None):
+    freshness = build_signal_freshness(value, stale_threshold=stale_threshold)
     return freshness["is_stale"]
 
 
@@ -243,6 +252,7 @@ def build_consistency_signal(
     par_value,
     status_updated_at,
     count_updated_at,
+    stale_threshold=None,
 ):
     normalized_status = (
         normalize_singleton_status(status_key)
@@ -250,8 +260,16 @@ def build_consistency_signal(
         else normalize_status(status_key)
     )
     suggested_status = suggest_status_from_count(raw_count, par_value, tracking_mode)
-    status_freshness = build_signal_freshness(status_updated_at, missing_text="No status yet")
-    count_freshness = build_signal_freshness(count_updated_at, missing_text="No count yet")
+    status_freshness = build_signal_freshness(
+        status_updated_at,
+        missing_text="No status yet",
+        stale_threshold=stale_threshold,
+    )
+    count_freshness = build_signal_freshness(
+        count_updated_at,
+        missing_text="No count yet",
+        stale_threshold=stale_threshold,
+    )
 
     if tracking_mode == "singleton_asset":
         state = "not_comparable"

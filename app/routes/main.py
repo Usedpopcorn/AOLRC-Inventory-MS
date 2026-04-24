@@ -5,10 +5,19 @@ from urllib.parse import urljoin, urlparse
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import current_user
 from sqlalchemy import func, and_, or_, select, union_all, literal, cast, Integer, String, case
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, selectinload
 from app import db
 from app.authz import roles_required
 from app.models import Venue, VenueItem, VenueNote, Item, Check, CheckLine, CountSession, CountLine, User
+from app.services.inventory_rules import (
+    InventoryRuleError,
+    copy_venue_tracking_setup,
+    get_default_stale_threshold_days,
+    log_inventory_admin_event,
+    normalize_optional_threshold_days,
+    resolve_effective_stale_threshold_days,
+    sync_venue_tracked_items,
+)
 from app.services.venue_profile import build_venue_profile_view_model
 
 main_bp = Blueprint("main", __name__)
@@ -631,7 +640,7 @@ def ensure_utc(value):
     return value.astimezone(timezone.utc)
 
 
-def format_updated_label(value):
+def format_updated_label(value, stale_threshold=None):
     updated_at = ensure_utc(value)
     if updated_at is None:
         return {
@@ -658,7 +667,7 @@ def format_updated_label(value):
     return {
         "text": relative,
         "is_missing": False,
-        "is_stale": delta >= timedelta(days=2),
+        "is_stale": delta >= timedelta(days=max(int(stale_threshold or 2), 1)),
     }
 
 
@@ -783,6 +792,7 @@ def build_recent_venue_activity_rows(venue_id, limit=20):
 
 
 def build_venue_rows(include_inactive=False):
+    global_stale_threshold_days = get_default_stale_threshold_days()
     q = Venue.query
     if not include_inactive:
         q = q.filter(Venue.active == True)
@@ -873,7 +883,14 @@ def build_venue_rows(include_inactive=False):
         detail_counts = latest_status_detail_counts.get(v.id, build_status_detail_counts()).copy()
         notes_count = int(notes_count_map.get(v.id, 0) or 0)
         last_updated_at = last_updated_map.get(v.id)
-        freshness = format_updated_label(last_updated_at)
+        venue_stale_threshold = resolve_effective_stale_threshold_days(
+            venue_stale_threshold_days=v.stale_threshold_days,
+            global_stale_threshold_days=global_stale_threshold_days,
+        )
+        freshness = format_updated_label(
+            last_updated_at,
+            stale_threshold=venue_stale_threshold.value,
+        )
 
         if total_tracked == 0:
             badge = {
@@ -937,6 +954,60 @@ def build_venue_rows(include_inactive=False):
         )
 
     return venue_rows
+
+
+def parse_selected_ids(raw_values):
+    selected_ids = []
+    for raw_value in raw_values or []:
+        value = (raw_value or "").strip()
+        if not value or not value.isdigit():
+            continue
+        parsed = int(value)
+        if parsed not in selected_ids:
+            selected_ids.append(parsed)
+    return selected_ids
+
+
+def fetch_trackable_items_for_setup():
+    return (
+        Item.query.options(selectinload(Item.parent_item))
+        .filter(
+            Item.active == True,
+            Item.is_group_parent == False,
+        )
+        .order_by(Item.name.asc(), Item.id.asc())
+        .all()
+    )
+
+
+def build_venue_create_form_values(source=None):
+    source = source or {}
+    return {
+        "name": (source.get("name") or "").strip(),
+        "is_core": "true" if (source.get("is_core") or "false") == "true" else "false",
+        "stale_threshold_days": (source.get("stale_threshold_days") or "").strip(),
+        "setup_mode": (source.get("setup_mode") or "empty").strip().lower(),
+        "copy_source_venue_id": (source.get("copy_source_venue_id") or "").strip(),
+        "selected_item_ids": parse_selected_ids(source.getlist("item_ids")) if hasattr(source, "getlist") else [],
+    }
+
+
+def build_venue_setup_rows(trackable_items, selected_item_ids=None):
+    selected_item_id_set = set(selected_item_ids or [])
+    rows = []
+    for item in trackable_items:
+        rows.append(
+            {
+                "id": item.id,
+                "name": item.name,
+                "parent_name": item.parent_item.name if item.parent_item else None,
+                "tracking_mode": item.tracking_mode,
+                "item_category": item.item_category or item.item_type,
+                "default_par_level": item.default_par_level,
+                "is_selected": item.id in selected_item_id_set,
+            }
+        )
+    return rows
 
 
 def build_restock_rows(
@@ -1407,6 +1478,106 @@ def dashboard_restocking_rows():
             "has_more": page["has_more"],
         }
     )
+
+
+@main_bp.route("/venues/create", methods=["GET", "POST"])
+@roles_required("admin")
+def create_venue():
+    trackable_items = fetch_trackable_items_for_setup()
+    copy_source_venues = Venue.query.order_by(Venue.name.asc(), Venue.id.asc()).all()
+    form_values = build_venue_create_form_values()
+    tracking_rows = build_venue_setup_rows(trackable_items, form_values["selected_item_ids"])
+
+    if request.method == "POST":
+        form_values = build_venue_create_form_values(request.form)
+        tracking_rows = build_venue_setup_rows(trackable_items, form_values["selected_item_ids"])
+        setup_mode = form_values["setup_mode"]
+        if setup_mode not in {"empty", "copy", "manual"}:
+            setup_mode = "empty"
+            form_values["setup_mode"] = setup_mode
+
+        try:
+            stale_threshold_days = normalize_optional_threshold_days(
+                request.form.get("stale_threshold_days"),
+                field_label="Venue stale threshold",
+            )
+        except InventoryRuleError as exc:
+            flash(str(exc), "error")
+        else:
+            name = form_values["name"]
+            if not name:
+                flash("Venue name is required.", "error")
+            elif Venue.query.filter_by(name=name).first():
+                flash("That venue already exists.", "error")
+            elif setup_mode == "copy" and not form_values["copy_source_venue_id"].isdigit():
+                flash("Choose a source venue to copy from.", "error")
+            else:
+                venue = Venue(
+                    name=name,
+                    is_core=form_values["is_core"] == "true",
+                    active=True,
+                    stale_threshold_days=stale_threshold_days,
+                )
+                db.session.add(venue)
+                db.session.flush()
+
+                log_inventory_admin_event(
+                    "venue_created",
+                    actor=current_user,
+                    subject_type="venue",
+                    subject_id=venue.id,
+                    subject_label=venue.name,
+                    details={"setup_mode": setup_mode},
+                )
+
+                if setup_mode == "copy":
+                    source_venue = Venue.query.get_or_404(int(form_values["copy_source_venue_id"]))
+                    summary = copy_venue_tracking_setup(
+                        source_venue=source_venue,
+                        target_venue=venue,
+                    )
+                    log_inventory_admin_event(
+                        "venue_tracking_copied",
+                        actor=current_user,
+                        subject_type="venue",
+                        subject_id=venue.id,
+                        subject_label=venue.name,
+                        details=summary,
+                    )
+                elif setup_mode == "manual":
+                    summary = sync_venue_tracked_items(
+                        venue=venue,
+                        selected_item_ids=form_values["selected_item_ids"],
+                        par_overrides={},
+                    )
+                    if any(summary.values()):
+                        log_inventory_admin_event(
+                            "venue_tracking_updated",
+                            actor=current_user,
+                            subject_type="venue",
+                            subject_id=venue.id,
+                            subject_label=venue.name,
+                            details=summary,
+                        )
+
+                db.session.commit()
+                flash("Venue created.", "success")
+                return redirect(
+                    url_for(
+                        "venue_settings.settings",
+                        venue_id=venue.id,
+                        next=url_for("main.venues"),
+                    )
+                )
+
+    return render_template(
+        "venues/create.html",
+        form_values=form_values,
+        tracking_rows=tracking_rows,
+        copy_source_venues=copy_source_venues,
+        global_stale_threshold_days=get_default_stale_threshold_days(),
+    )
+
 
 @main_bp.route("/venues", methods=["GET", "POST"])
 @roles_required("viewer", "staff", "admin")

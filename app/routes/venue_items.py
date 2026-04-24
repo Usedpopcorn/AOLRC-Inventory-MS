@@ -312,60 +312,9 @@ def supplies(venue_id):
         request.values.get("next"),
         url_for("venue_settings.settings", venue_id=venue.id),
     )
-
     if request.method == "POST":
-        # IDs of items that were checked in the form
-        selected_ids = set(map(int, request.form.getlist("item_ids")))
-
-        # Current mappings for this venue
-        mappings = VenueItem.query.filter_by(venue_id=venue.id).all()
-        mapping_by_item = {m.item_id: m for m in mappings}
-
-        # Ensure selected items are active
-        created = 0
-        activated = 0
-        deactivated = 0
-
-        for item_id in selected_ids:
-            if item_id in mapping_by_item:
-                if not mapping_by_item[item_id].active:
-                    mapping_by_item[item_id].active = True
-                    activated += 1
-            else:
-                db.session.add(VenueItem(venue_id=venue.id, item_id=item_id, active=True))
-                created += 1
-
-        # Deactivate anything that is currently active but not selected
-        for m in mappings:
-            if m.active and (m.item_id not in selected_ids):
-                m.active = False
-                deactivated += 1
-
-        db.session.commit()
-        flash(f"Saved supplies. Added: {created}, Enabled: {activated}, Disabled: {deactivated}", "success")
-        return redirect(url_for("venue_items.supplies", venue_id=venue.id, next=next_url))
-
-    items = (
-        Item.query.options(selectinload(Item.parent_item))
-        .filter(
-            Item.active == True,
-            Item.is_group_parent == False,
-        )
-        .all()
-    )
-    items = sorted(items, key=operational_item_sort_key)
-    active_item_ids = {
-        m.item_id for m in VenueItem.query.filter_by(venue_id=venue.id, active=True).all()
-    }
-
-    return render_template(
-        "venues/supplies.html",
-        venue=venue,
-        items=items,
-        active_item_ids=active_item_ids,
-        next_url=next_url,
-        back_label=describe_back_destination(next_url, venue.id),
-    )
+        flash("Tracked-item setup now lives on Venue Settings.", "info")
+    return redirect(url_for("venue_settings.settings", venue_id=venue.id, next=next_url))
 
 @venue_items_bp.route("/<int:venue_id>/check", methods=["GET", "POST"])
 @roles_required("viewer", "staff", "admin")

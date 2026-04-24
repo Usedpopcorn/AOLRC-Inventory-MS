@@ -116,6 +116,7 @@ class Venue(db.Model):
     # primary venues cannot be deleted
     is_core = db.Column(db.Boolean, default=False, nullable=False)
     active = db.Column(db.Boolean, default=True, nullable=False)
+    stale_threshold_days = db.Column(db.Integer, nullable=True)
 
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
@@ -159,6 +160,8 @@ class Item(db.Model):
     is_group_parent = db.Column(db.Boolean, nullable=False, default=False)
     unit = db.Column(db.String(40), nullable=True)
     sort_order = db.Column(db.Integer, nullable=False, default=0)
+    default_par_level = db.Column(db.Integer, nullable=True)
+    stale_threshold_days = db.Column(db.Integer, nullable=True)
 
     # Allows “archiving” items instead of deleting
     active = db.Column(db.Boolean, default=True, nullable=False)
@@ -186,6 +189,20 @@ class Item(db.Model):
     def can_be_tracked_directly(self):
         return not bool(self.is_group_parent)
 
+
+class InventoryPolicy(db.Model):
+    __tablename__ = "inventory_policies"
+
+    id = db.Column(db.Integer, primary_key=True)
+    default_stale_threshold_days = db.Column(db.Integer, nullable=False, default=2)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
 class VenueItem(db.Model):
     __tablename__ = "venue_items"
 
@@ -205,6 +222,21 @@ class VenueItem(db.Model):
     __table_args__ = (
         db.UniqueConstraint("venue_id", "item_id", name="uq_venue_item"),
     )
+
+
+class InventoryAdminEvent(db.Model):
+    __tablename__ = "inventory_admin_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    event_type = db.Column(db.String(64), nullable=False, index=True)
+    actor_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    subject_type = db.Column(db.String(32), nullable=False)
+    subject_id = db.Column(db.Integer, nullable=True, index=True)
+    subject_label = db.Column(db.String(255), nullable=True)
+    details_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+
+    actor = db.relationship("User", foreign_keys=[actor_user_id])
 
 class Check(db.Model):
     __tablename__ = "checks"

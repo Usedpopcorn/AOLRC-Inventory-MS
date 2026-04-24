@@ -55,7 +55,15 @@ def test_admin_hub_routes_accessible_for_admin(client):
 
     assert login_response.status_code == 302
 
-    for path in ("/admin", "/admin/users", "/admin/audit/users", "/admin/history", "/admin/items"):
+    for path in (
+        "/admin",
+        "/admin/users",
+        "/admin/inventory-rules",
+        "/admin/items",
+        "/admin/tracking-setup",
+        "/admin/audit/users",
+        "/admin/history",
+    ):
         response = client.get(path)
         assert response.status_code == 200
 
@@ -70,7 +78,15 @@ def test_admin_nav_points_to_admin_overview(client):
 
 
 def test_admin_hub_routes_redirect_unauthenticated(client):
-    for path in ("/admin", "/admin/users", "/admin/audit/users", "/admin/history", "/admin/items"):
+    for path in (
+        "/admin",
+        "/admin/users",
+        "/admin/inventory-rules",
+        "/admin/items",
+        "/admin/tracking-setup",
+        "/admin/audit/users",
+        "/admin/history",
+    ):
         response = client.get(path, follow_redirects=False)
         assert response.status_code == 302
         assert "/login" in response.headers["Location"]
@@ -82,6 +98,8 @@ def test_admin_hub_routes_block_non_admin_users(client):
         for path in (
             "/admin",
             "/admin/users",
+            "/admin/inventory-rules",
+            "/admin/tracking-setup",
             "/admin/audit/users",
             "/admin/history",
             "/admin/items",

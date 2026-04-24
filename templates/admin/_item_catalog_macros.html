@@ -45,6 +45,20 @@
       <div class="admin-item-cell-title">Count and par based</div>
       <div class="admin-item-cell-support">Handled as a standard quantity supply.</div>
     {% endif %}
+    {% if not item.is_group_parent %}
+      <div class="admin-item-cell-support">
+        Default par:
+        {{ item.default_par_level if item.default_par_level is not none else "Not set" }}
+      </div>
+      <div class="admin-item-cell-support">
+        Stale rule:
+        {% if item.stale_threshold_days is not none %}
+          Item override {{ item.stale_threshold_days }}d
+        {% else %}
+          Venue or global fallback
+        {% endif %}
+      </div>
+    {% endif %}
   </div>
 {%- endmacro %}
 

@@ -17,6 +17,11 @@ from app.services.inventory_status import (
     restock_status_meta_for_item,
     status_sort_value,
 )
+from app.services.inventory_rules import (
+    get_default_stale_threshold_days,
+    resolve_effective_par_level,
+    resolve_effective_stale_threshold_days,
+)
 
 
 def operational_item_sort_key(item):
@@ -35,8 +40,13 @@ def operational_item_sort_key(item):
 
 def build_venue_profile_view_model(venue_id):
     venue = Venue.query.get_or_404(venue_id)
+    global_stale_threshold_days = get_default_stale_threshold_days()
+    venue_stale_threshold = resolve_effective_stale_threshold_days(
+        venue_stale_threshold_days=venue.stale_threshold_days,
+        global_stale_threshold_days=global_stale_threshold_days,
+    )
     tracked_rows = (
-        db.session.query(Item, VenueItem.expected_qty.label("par_value"))
+        db.session.query(Item, VenueItem.expected_qty.label("venue_par_override"))
         .join(VenueItem, VenueItem.item_id == Item.id)
         .options(selectinload(Item.parent_item))
         .filter(
@@ -71,11 +81,21 @@ def build_venue_profile_view_model(venue_id):
     overall_counts = {"good": 0, "ok": 0, "low": 0, "out": 0, "not_checked": 0}
     overall_detail_counts = build_status_detail_counts()
 
-    for item, par_value in tracked_rows:
+    for item, venue_par_override in tracked_rows:
+        effective_par = resolve_effective_par_level(
+            item_default_par_level=item.default_par_level,
+            venue_par_override=venue_par_override,
+        )
+        effective_stale_threshold = resolve_effective_stale_threshold_days(
+            item_stale_threshold_days=item.stale_threshold_days,
+            venue_stale_threshold_days=venue.stale_threshold_days,
+            global_stale_threshold_days=global_stale_threshold_days,
+        )
         item_row = _build_item_row(
             item,
             venue_id=venue_id,
-            par_value=par_value,
+            par_setting=effective_par,
+            stale_threshold_setting=effective_stale_threshold,
             latest_status=latest_status_by_item.get(item.id),
             latest_count=latest_count_by_item.get(item.id),
         )
@@ -95,7 +115,10 @@ def build_venue_profile_view_model(venue_id):
         "latest_raw_count_at": latest_raw_count_at,
         "last_updated_at": last_updated_at,
         "last_updated_text": format_timestamp(last_updated_at),
-        "last_updated_freshness": build_signal_freshness(last_updated_at),
+        "last_updated_freshness": build_signal_freshness(
+            last_updated_at,
+            stale_threshold=venue_stale_threshold.value,
+        ),
     }
 
 
@@ -172,7 +195,8 @@ def _build_latest_count_map(venue_id, item_ids):
     }
 
 
-def _build_item_row(item, *, venue_id, par_value, latest_status, latest_count):
+def _build_item_row(item, *, venue_id, par_setting, stale_threshold_setting, latest_status, latest_count):
+    par_value = par_setting.value
     raw_count = latest_count["raw_count"] if latest_count else None
     count_updated_at = latest_count["updated_at"] if latest_count else None
     derived_count = False
@@ -198,6 +222,7 @@ def _build_item_row(item, *, venue_id, par_value, latest_status, latest_count):
         par_value=par_value,
         status_updated_at=status_updated_at,
         count_updated_at=count_updated_at,
+        stale_threshold=stale_threshold_setting.value,
     )
 
     status_freshness = consistency["status_freshness"]
@@ -252,6 +277,9 @@ def _build_item_row(item, *, venue_id, par_value, latest_status, latest_count):
         "item_category": item.item_category or item.item_type,
         "tracking_mode": item.tracking_mode or "quantity",
         "par_value": par_value,
+        "par_source": par_setting.source,
+        "effective_stale_threshold_days": stale_threshold_setting.value,
+        "stale_threshold_source": stale_threshold_setting.source,
         "raw_count": raw_count,
         "count_is_derived": derived_count,
         "status_key": status_key,
@@ -444,6 +472,7 @@ def _hydrate_family_group(group):
     has_singleton_children = False
     has_quantity_children = False
     latest_update_at = None
+    stale_threshold_days = None
 
     for child in children:
         status_counts[child["status_key"]] += 1
@@ -479,6 +508,10 @@ def _hydrate_family_group(group):
                 counted_children += 1
             count_coverage_total += child["count_coverage_score"]
         latest_update_at = _max_timestamp(latest_update_at, child["last_signal_at"])
+        if stale_threshold_days is None:
+            stale_threshold_days = child["effective_stale_threshold_days"]
+        else:
+            stale_threshold_days = min(stale_threshold_days, child["effective_stale_threshold_days"])
 
     child_count = len(children)
     if has_singleton_children and not has_quantity_children:
@@ -542,7 +575,10 @@ def _hydrate_family_group(group):
         if quantity_child_count
         else 2
     )
-    group["latest_update_freshness"] = build_signal_freshness(latest_update_at)
+    group["latest_update_freshness"] = build_signal_freshness(
+        latest_update_at,
+        stale_threshold=stale_threshold_days,
+    )
     group["last_signal_timestamp"] = _timestamp_sort_value(latest_update_at)
     group["worst_status_key"] = worst_child["status_key"]
     group["worst_status_meta"] = worst_child["status_meta"]

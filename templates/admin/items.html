@@ -107,6 +107,23 @@
 
   <div class="collapse{{ ' show' if show_add_item_form else '' }}" id="addItemCollapse">
     {% call admin_ui.panel("New Item", none, "admin-item-action-panel") %}
+      {% if similar_name_matches %}
+        <div class="mb-3">
+          {{ ui.state_banner(
+            "Similar names already exist.",
+            "Review these matches, then submit again if this item is intentionally distinct.",
+            tone="warning",
+            extra_classes="mb-2"
+          ) }}
+          <div class="admin-item-cell">
+            <div class="admin-item-cell-support">
+              {% for match in similar_name_matches %}
+                <span class="me-2">{{ match.name }}{% if not match.active %} (inactive){% endif %}</span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      {% endif %}
       {% call ui.form_section("Item Details") %}
         <form method="post" class="row g-3">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -114,6 +131,9 @@
         <input type="hidden" name="status" value="{{ item_catalog.filters.status }}" data-item-catalog-sync="status">
         <input type="hidden" name="structure" value="{{ item_catalog.filters.structure }}" data-item-catalog-sync="structure">
         <input type="hidden" name="page" value="{{ item_catalog.pagination.current_page }}" data-item-catalog-sync="page">
+        {% if similar_name_matches %}
+          <input type="hidden" name="confirm_similar_name" value="1">
+        {% endif %}
         <div class="col-12 col-md-6">
           <label class="form-label" for="item-name">Item name</label>
           <input
@@ -158,6 +178,37 @@
           <input id="item-unit" class="form-control ui-control" name="unit" value="{{ form_values.unit }}" placeholder="each, box, bottle...">
         </div>
         <div class="col-12 col-sm-6 col-md-3">
+          <label class="form-label" for="item-default-par-level">Default par</label>
+          <input
+            id="item-default-par-level"
+            class="form-control ui-control"
+            type="number"
+            min="0"
+            step="1"
+            name="default_par_level"
+            value="{{ form_values.default_par_level }}"
+            placeholder="Optional"
+          >
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <label class="form-label" for="item-stale-threshold-days">Item stale override</label>
+          <div class="input-group">
+            <input
+              id="item-stale-threshold-days"
+              class="form-control ui-control"
+              type="number"
+              min="1"
+              max="365"
+              step="1"
+              name="stale_threshold_days"
+              value="{{ form_values.stale_threshold_days }}"
+              placeholder="{{ global_stale_threshold_days }}"
+            >
+            <span class="input-group-text">days</span>
+          </div>
+          <div class="form-text">Leave blank to use the global {{ global_stale_threshold_days }}-day rule.</div>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
           <div class="form-check mt-md-4 pt-md-2">
             <input class="form-check-input" type="checkbox" id="item-is-group-parent" name="is_group_parent" value="1" {% if form_values.is_group_parent %}checked{% endif %}>
             <label class="form-check-label" for="item-is-group-parent">
@@ -173,8 +224,42 @@
             </label>
           </div>
         </div>
+        <div class="col-12">
+          <div class="admin-panel admin-panel-support">
+            <div class="admin-panel-head">
+              <h3 class="admin-panel-title">Assign to Venues</h3>
+              <div class="admin-panel-subtitle">Choose where this item should start tracking immediately. Per-venue par overrides live on venue settings and Tracking Setup.</div>
+            </div>
+            <div class="admin-panel-body">
+              {% if available_venues %}
+                <div class="row g-2">
+                  {% for venue in available_venues %}
+                    <div class="col-12 col-md-6 col-xl-4">
+                      <label class="d-flex align-items-center gap-2 p-2 border rounded">
+                        <input
+                          class="form-check-input mt-0"
+                          type="checkbox"
+                          name="venue_ids"
+                          value="{{ venue.id }}"
+                          data-item-venue-checkbox
+                          {% if venue.id in form_values.selected_venue_ids %}checked{% endif %}
+                        >
+                        <span>
+                          <span class="fw-semibold">{{ venue.name }}</span>
+                          <span class="text-muted small d-block">{{ "Primary venue" if venue.is_core else "Other venue" }}</span>
+                        </span>
+                      </label>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="text-muted small">No active venues are available yet.</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
         <div class="col-12 col-md-3 ms-md-auto">
-          <button class="btn w-100 btn-aolrc-accent ui-control">Create Item</button>
+          <button class="btn w-100 btn-aolrc-accent ui-control">{{ "Create Anyway" if similar_name_matches else "Create Item" }}</button>
         </div>
         </form>
       {% endcall %}
@@ -211,6 +296,7 @@
     const trackingLineEl = document.getElementById("itemFormSummaryTracking");
     const familyLineEl = document.getElementById("itemFormSummaryFamily");
     const countedLineEl = document.getElementById("itemFormSummaryCounted");
+    const venueCheckboxes = Array.from(document.querySelectorAll("[data-item-venue-checkbox]"));
 
     function selectedParentLabel() {
       const option = parentSelectEl?.selectedOptions?.[0];
@@ -222,8 +308,15 @@
       if (groupParentEl.checked) {
         parentSelectEl.value = "";
         parentSelectEl.disabled = true;
+        venueCheckboxes.forEach((checkbox) => {
+          checkbox.checked = false;
+          checkbox.disabled = true;
+        });
       } else {
         parentSelectEl.disabled = false;
+        venueCheckboxes.forEach((checkbox) => {
+          checkbox.disabled = false;
+        });
       }
 
       const trackingMode = trackingModeEl.value || "quantity";

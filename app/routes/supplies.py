@@ -14,6 +14,11 @@ from app.services.inventory_status import (
     is_signal_stale as shared_is_signal_stale,
     normalize_singleton_status as shared_normalize_singleton_status,
 )
+from app.services.inventory_rules import (
+    get_default_stale_threshold_days,
+    resolve_effective_par_level,
+    resolve_effective_stale_threshold_days,
+)
 
 supplies_bp = Blueprint("supplies", __name__)
 
@@ -26,9 +31,6 @@ SUPPLY_QUICK_FILTER_OPTIONS = {
     "durable",
     "singleton_asset",
 }
-STALE_UPDATE_THRESHOLD = timedelta(days=2)
-
-
 def normalize_singleton_status_key(value):
     return shared_normalize_singleton_status(value)
 
@@ -61,7 +63,7 @@ def build_supply_timestamp_parts(value):
     }
 
 
-def build_supply_updated_label(value):
+def build_supply_updated_label(value, stale_threshold=None):
     updated_at = ensure_utc(value)
     if updated_at is None:
         return {
@@ -86,12 +88,12 @@ def build_supply_updated_label(value):
     return {
         "text": relative,
         "is_missing": False,
-        "is_stale": delta >= STALE_UPDATE_THRESHOLD,
+        "is_stale": shared_is_signal_stale(updated_at, stale_threshold=stale_threshold),
     }
 
 
-def is_supply_update_stale(value):
-    return shared_is_signal_stale(value)
+def is_supply_update_stale(value, stale_threshold=None):
+    return shared_is_signal_stale(value, stale_threshold=stale_threshold)
 
 
 def build_family_progress(counted, total, attention_level):
@@ -378,6 +380,7 @@ def coverage_meta_for_row(row):
 
 
 def build_supply_audit_rows():
+    global_stale_threshold_days = get_default_stale_threshold_days()
     parent_alias = aliased(Item)
     active_items = (
         db.session.query(
@@ -388,6 +391,8 @@ def build_supply_audit_rows():
             Item.tracking_mode,
             Item.parent_item_id,
             parent_alias.name.label("parent_name"),
+            Item.default_par_level.label("default_par_level"),
+            Item.stale_threshold_days.label("item_stale_threshold_days"),
         )
         .outerjoin(parent_alias, parent_alias.id == Item.parent_item_id)
         .filter(Item.active == True, Item.is_group_parent == False)
@@ -402,6 +407,8 @@ def build_supply_audit_rows():
             "item_type": item.item_type,
             "item_category": item.item_category or item.item_type,
             "tracking_mode": item.tracking_mode or "quantity",
+            "default_par_level": item.default_par_level,
+            "item_stale_threshold_days": item.item_stale_threshold_days,
             "parent_item_id": item.parent_item_id,
             "parent_name": item.parent_name,
             "total_raw_count": 0,
@@ -416,6 +423,7 @@ def build_supply_audit_rows():
             "total_par_count": 0,
             "par_venue_count": 0,
             "last_count_updated_at": None,
+            "minimum_stale_threshold_days": None,
             "venue_rows": [],
         }
         for item in active_items
@@ -471,7 +479,8 @@ def build_supply_audit_rows():
             parent_alias.name.label("parent_name"),
             Venue.id.label("venue_id"),
             Venue.name.label("venue_name"),
-            VenueItem.expected_qty.label("par_count"),
+            Venue.stale_threshold_days.label("venue_stale_threshold_days"),
+            VenueItem.expected_qty.label("par_override"),
             VenueItemCount.raw_count.label("raw_count"),
             VenueItemCount.updated_at.label("updated_at"),
         )
@@ -503,6 +512,15 @@ def build_supply_audit_rows():
         singleton_status = "not_checked"
         updated_at = ensure_utc(row.updated_at)
         effective_raw_count = row.raw_count
+        effective_par = resolve_effective_par_level(
+            item_default_par_level=item_row["default_par_level"],
+            venue_par_override=row.par_override,
+        )
+        effective_stale_threshold = resolve_effective_stale_threshold_days(
+            item_stale_threshold_days=item_row["item_stale_threshold_days"],
+            venue_stale_threshold_days=row.venue_stale_threshold_days,
+            global_stale_threshold_days=global_stale_threshold_days,
+        )
 
         if is_singleton:
             if singleton_status_meta:
@@ -516,16 +534,26 @@ def build_supply_audit_rows():
 
         item_row["tracked_venue_count"] += 1
 
-        if row.par_count is not None:
-            item_row["total_par_count"] += row.par_count
+        if effective_par.value is not None:
+            item_row["total_par_count"] += effective_par.value
             item_row["par_venue_count"] += 1
+        if item_row["minimum_stale_threshold_days"] is None:
+            item_row["minimum_stale_threshold_days"] = effective_stale_threshold.value
+        else:
+            item_row["minimum_stale_threshold_days"] = min(
+                item_row["minimum_stale_threshold_days"],
+                effective_stale_threshold.value,
+            )
 
         if effective_raw_count is None:
             item_row["missing_count_venue_count"] += 1
         else:
             item_row["counted_venue_count"] += 1
             item_row["total_raw_count"] += effective_raw_count
-            venue_is_stale = is_supply_update_stale(updated_at)
+            venue_is_stale = is_supply_update_stale(
+                updated_at,
+                stale_threshold=effective_stale_threshold.value,
+            )
             if venue_is_stale:
                 item_row["stale_update_venue_count"] += 1
             if is_singleton:
@@ -553,9 +581,16 @@ def build_supply_audit_rows():
                 "status_key": singleton_status if is_singleton else None,
                 "raw_count_text": "Not Counted" if effective_raw_count is None else str(effective_raw_count),
                 "is_missing": effective_raw_count is None,
-                "is_stale": is_supply_update_stale(updated_at) if effective_raw_count is not None else False,
-                "par_count": row.par_count,
-                "par_count_text": "Not Set" if row.par_count is None else str(row.par_count),
+                "is_stale": (
+                    is_supply_update_stale(updated_at, stale_threshold=effective_stale_threshold.value)
+                    if effective_raw_count is not None
+                    else False
+                ),
+                "par_count": effective_par.value,
+                "par_count_text": "Not Set" if effective_par.value is None else str(effective_par.value),
+                "par_source": effective_par.source,
+                "stale_threshold_days": effective_stale_threshold.value,
+                "stale_threshold_source": effective_stale_threshold.source,
                 "updated_at_text": (
                     "No checks yet"
                     if is_singleton and updated_at is None
@@ -587,7 +622,10 @@ def build_supply_audit_rows():
             and total_par_count > 0
             and item_row["total_raw_count"] < total_par_count
         )
-        updated_label = build_supply_updated_label(item_row["last_count_updated_at"])
+        updated_label = build_supply_updated_label(
+            item_row["last_count_updated_at"],
+            stale_threshold=item_row["minimum_stale_threshold_days"],
+        )
         updated_parts = build_supply_timestamp_parts(item_row["last_count_updated_at"])
         updated_text = format_supply_timestamp(item_row["last_count_updated_at"])
         if is_singleton and updated_label["is_missing"]:
@@ -608,6 +646,9 @@ def build_supply_audit_rows():
         item_row["last_count_updated_label"] = updated_label
         item_row["last_updated_timestamp"] = (
             item_row["last_count_updated_at"].timestamp() if item_row["last_count_updated_at"] else None
+        )
+        item_row["effective_stale_threshold_days"] = (
+            item_row["minimum_stale_threshold_days"] or global_stale_threshold_days
         )
         if is_singleton:
             item_row["par_progress"] = build_singleton_progress(
@@ -738,7 +779,13 @@ def build_supply_display_groups(rows):
             continue
         child_count = len(group["children"])
         group["child_count"] = child_count
-        updated_label = build_supply_updated_label(group["last_count_updated_at"])
+        stale_threshold_days = min(
+            [child["effective_stale_threshold_days"] for child in group["children"]]
+        ) if group["children"] else None
+        updated_label = build_supply_updated_label(
+            group["last_count_updated_at"],
+            stale_threshold=stale_threshold_days,
+        )
         if group["has_singleton_children"] and not group["has_quantity_children"] and updated_label["is_missing"]:
             updated_label["text"] = "No checks yet"
         group["last_count_updated_label"] = updated_label

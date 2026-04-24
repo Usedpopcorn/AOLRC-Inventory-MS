@@ -1,0 +1,51 @@
+{% extends "admin/layout.html" %}
+{% import "_ui_macros.html" as ui %}
+{% import "admin/_admin_macros.html" as admin_ui %}
+{% block title %}Inventory Rules{% endblock %}
+
+{% block admin_page %}
+{{ ui.page_header(
+  title="Inventory Rules",
+  subtitle="Global defaults that apply across the inventory system."
+) }}
+
+{{ ui.state_banner(
+  "Keep this page policy-focused.",
+  "Global defaults live here. Item-specific overrides stay on item pages, and venue-specific overrides stay on venue settings.",
+  tone="info",
+  icon_class="bi-sliders"
+) }}
+
+{% call admin_ui.region("Global Defaults") %}
+  {% call admin_ui.panel("Stale Threshold", "Used as the fallback when an item or venue does not override freshness timing.") %}
+    <form method="post" class="row g-3 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-12 col-md-4">
+        <label class="form-label" for="default-stale-threshold-days">Global stale threshold</label>
+        <div class="input-group">
+          <input
+            id="default-stale-threshold-days"
+            class="form-control ui-control"
+            type="number"
+            min="1"
+            max="365"
+            name="default_stale_threshold_days"
+            value="{{ form_values.default_stale_threshold_days }}"
+            required
+          >
+          <span class="input-group-text">days</span>
+        </div>
+      </div>
+      <div class="col-12 col-md-8">
+        <div class="admin-item-cell">
+          <div class="admin-item-cell-title">Precedence</div>
+          <div class="admin-item-cell-support">Item override wins first, then venue override, then this global default.</div>
+        </div>
+      </div>
+      <div class="col-12 col-md-3 ms-md-auto">
+        <button class="btn btn-aolrc-accent ui-control w-100" type="submit">Save Rules</button>
+      </div>
+    </form>
+  {% endcall %}
+{% endcall %}
+{% endblock %}

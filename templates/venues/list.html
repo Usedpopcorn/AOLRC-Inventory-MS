@@ -34,47 +34,12 @@
         </div>
         {% if current_user.is_admin %}
           <div class="ui-toolbar-actions venue-directory-toolbar-actions">
-            <button
-              class="btn btn-aolrc-accent ui-control venue-directory-add-btn"
-              type="button"
-              data-bs-toggle="collapse"
-              data-bs-target="#addVenueCollapse"
-              aria-controls="addVenueCollapse"
-              aria-expanded="false"
-            >
-              Add Venue
-            </button>
+            <a class="btn btn-aolrc-accent ui-control venue-directory-add-btn" href="{{ url_for('main.create_venue') }}">
+              Create Venue
+            </a>
           </div>
         {% endif %}
       {% endcall %}
-      {% if current_user.is_admin %}
-        <div class="collapse venue-directory-add-collapse" id="addVenueCollapse">
-          {% call ui.form_section("Add a venue", "Primary venues are protected from deletion; other venues are editable and removable.") %}
-            <form method="post" class="row g-3 align-items-end">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <div class="col-lg-6">
-                <label class="form-label mb-1">Venue name</label>
-                <input class="form-control ui-control" type="text" name="name" placeholder="e.g., Veda 5">
-              </div>
-              <div class="col-lg-4">
-                <label class="form-label mb-1">Venue type</label>
-                <select class="form-select ui-control" name="is_core">
-                  <option value="false" selected>Other (can be deleted later)</option>
-                  <option value="true">Primary (cannot be deleted)</option>
-                </select>
-              </div>
-              <div class="col-12">
-                <div class="form-text">
-                  Primary venues are protected from deletion; other venues are editable and removable.
-                </div>
-              </div>
-              <div class="col-lg-2">
-                <button class="btn w-100 btn-aolrc-accent ui-control">Create</button>
-              </div>
-            </form>
-          {% endcall %}
-        </div>
-      {% endif %}
     </div>
   </div>
 

@@ -5,6 +5,7 @@ from flask_login import current_user
 from app import db
 from app.authz import roles_required
 from app.models import (
+    InventoryPolicy,
     Item,
     User,
     VALID_ROLES,
@@ -30,6 +31,23 @@ from app.services.admin_hub import (
     build_admin_overview_view_model,
     build_admin_user_audit_view_model,
     build_admin_user_list_view_model,
+)
+from app.services.inventory_rules import (
+    ITEM_HARD_DELETE_WINDOW_DAYS,
+    InventoryRuleError,
+    build_item_delete_guard,
+    copy_venue_tracking_setup,
+    ensure_inventory_policy,
+    find_similar_items,
+    get_default_stale_threshold_days,
+    has_exact_item_name_duplicate,
+    log_inventory_admin_event,
+    normalize_optional_threshold_days,
+    normalize_optional_tracking_value,
+    resolve_effective_par_level,
+    resolve_effective_stale_threshold_days,
+    sync_item_venue_assignments,
+    sync_venue_tracked_items,
 )
 from sqlalchemy.orm import selectinload
 
@@ -85,6 +103,13 @@ def _parse_user_page(value, default=1):
         return default
 
 
+def _parse_optional_id(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def build_user_form_values(source=None):
     source = source or {}
     return {
@@ -125,7 +150,18 @@ def build_item_form_values(item=None):
             "active": True,
             "unit": "",
             "sort_order": 0,
+            "default_par_level": "",
+            "stale_threshold_days": "",
+            "selected_venue_ids": [],
+            "confirm_similar_name": False,
         }
+    selected_venue_ids = [
+        link.venue_id
+        for link in VenueItem.query.filter(
+            VenueItem.item_id == item.id,
+            VenueItem.active == True,
+        ).all()
+    ]
     return {
         "name": item.name,
         "tracking_mode": normalize_tracking_mode(item.tracking_mode),
@@ -136,7 +172,27 @@ def build_item_form_values(item=None):
         "active": bool(item.active),
         "unit": item.unit or "",
         "sort_order": item.sort_order or 0,
+        "default_par_level": "" if item.default_par_level is None else str(item.default_par_level),
+        "stale_threshold_days": "" if item.stale_threshold_days is None else str(item.stale_threshold_days),
+        "selected_venue_ids": selected_venue_ids,
+        "confirm_similar_name": False,
     }
+
+
+def parse_selected_ids(raw_values):
+    selected_ids = []
+    for raw_value in raw_values or []:
+        value = (raw_value or "").strip()
+        if not value or not value.isdigit():
+            continue
+        parsed = int(value)
+        if parsed not in selected_ids:
+            selected_ids.append(parsed)
+    return selected_ids
+
+
+def fetch_active_venues():
+    return Venue.query.filter(Venue.active == True).order_by(Venue.name.asc()).all()
 
 
 def build_item_rows(items):
@@ -311,6 +367,91 @@ def fetch_parent_options(exclude_item_id=None):
     return query.order_by(Item.name.asc()).all()
 
 
+def build_inventory_rules_form_values(source=None, policy=None):
+    if source is not None:
+        return {
+            "default_stale_threshold_days": (source.get("default_stale_threshold_days") or "").strip(),
+        }
+    return {
+        "default_stale_threshold_days": str(
+            (policy.default_stale_threshold_days if policy is not None else get_default_stale_threshold_days())
+        ),
+    }
+
+
+def build_item_assignment_rows(*, item, venues):
+    active_links = {}
+    if venues:
+        active_links = {
+            link.venue_id: link
+            for link in VenueItem.query.filter(
+                VenueItem.item_id == item.id,
+                VenueItem.venue_id.in_([venue.id for venue in venues]),
+            ).all()
+        }
+    rows = []
+    for venue in venues:
+        link = active_links.get(venue.id)
+        link_override = link.expected_qty if link and link.active else None
+        effective_par = resolve_effective_par_level(
+            item_default_par_level=item.default_par_level,
+            venue_par_override=link_override,
+        )
+        rows.append(
+            {
+                "id": venue.id,
+                "name": venue.name,
+                "is_core": bool(venue.is_core),
+                "is_selected": bool(link and link.active),
+                "par_override": "" if link_override is None else str(link_override),
+                "effective_par": effective_par.value,
+                "effective_par_source": effective_par.source,
+            }
+        )
+    return rows
+
+
+def build_tracking_setup_view_model(selected_item_id=None):
+    active_items = (
+        Item.query.filter(
+            Item.active == True,
+            Item.is_group_parent == False,
+        )
+        .order_by(Item.name.asc(), Item.id.asc())
+        .all()
+    )
+    active_venues = fetch_active_venues()
+    selected_item = None
+    if active_items:
+        selected_item = next((item for item in active_items if item.id == selected_item_id), active_items[0])
+
+    venue_rows = []
+    if selected_item is not None:
+        venue_rows = build_item_assignment_rows(item=selected_item, venues=active_venues)
+
+    global_stale_threshold_days = get_default_stale_threshold_days()
+    selected_item_rules = None
+    if selected_item is not None:
+        stale_rule = resolve_effective_stale_threshold_days(
+            item_stale_threshold_days=selected_item.stale_threshold_days,
+            global_stale_threshold_days=global_stale_threshold_days,
+        )
+        selected_item_rules = {
+            "default_par_level": selected_item.default_par_level,
+            "stale_threshold_days": stale_rule.value,
+            "stale_threshold_source": stale_rule.source,
+        }
+
+    return {
+        "items": active_items,
+        "venues": active_venues,
+        "selected_item": selected_item,
+        "selected_item_rules": selected_item_rules,
+        "venue_rows": venue_rows,
+        "global_stale_threshold_days": global_stale_threshold_days,
+    }
+
+
 def parse_item_payload(existing_item=None):
     name = (request.form.get("name") or "").strip()
     tracking_mode = normalize_tracking_mode(request.form.get("tracking_mode"))
@@ -319,11 +460,33 @@ def parse_item_payload(existing_item=None):
     is_group_parent = to_bool_field(request.form.get("is_group_parent"))
     active = to_bool_field(request.form.get("active"))
     unit = (request.form.get("unit") or "").strip() or None
+    confirm_similar_name = to_bool_field(request.form.get("confirm_similar_name"))
+    selected_venue_ids = parse_selected_ids(request.form.getlist("venue_ids"))
     sort_order_raw = (request.form.get("sort_order") or "").strip()
     try:
         sort_order = int(sort_order_raw) if sort_order_raw else 0
     except ValueError:
         sort_order = 0
+    try:
+        default_par_level = normalize_optional_tracking_value(
+            request.form.get("default_par_level"),
+            field_label="Default par",
+        )
+    except InventoryRuleError as exc:
+        default_par_level = request.form.get("default_par_level")
+        default_par_error = str(exc)
+    else:
+        default_par_error = None
+    try:
+        stale_threshold_days = normalize_optional_threshold_days(
+            request.form.get("stale_threshold_days"),
+            field_label="Item stale threshold",
+        )
+    except InventoryRuleError as exc:
+        stale_threshold_days = request.form.get("stale_threshold_days")
+        stale_threshold_error = str(exc)
+    else:
+        stale_threshold_error = None
 
     form_values = {
         "name": name,
@@ -335,17 +498,29 @@ def parse_item_payload(existing_item=None):
         "active": active,
         "unit": unit or "",
         "sort_order": sort_order,
+        "default_par_level": "" if default_par_level in (None, "") else str(default_par_level),
+        "stale_threshold_days": "" if stale_threshold_days in (None, "") else str(stale_threshold_days),
+        "selected_venue_ids": selected_venue_ids,
+        "confirm_similar_name": confirm_similar_name,
     }
 
     errors = []
+    similar_matches = []
     if not name:
         errors.append("Item name is required.")
+    if default_par_error:
+        errors.append(default_par_error)
+    if stale_threshold_error:
+        errors.append(stale_threshold_error)
 
-    duplicate_query = Item.query.filter(Item.name == name)
-    if existing_item is not None:
-        duplicate_query = duplicate_query.filter(Item.id != existing_item.id)
-    if name and duplicate_query.first():
+    name_changed = existing_item is None or existing_item.name.strip() != name
+
+    if name and has_exact_item_name_duplicate(name, exclude_item_id=getattr(existing_item, "id", None)):
         errors.append("An item with this name already exists.")
+    elif name and name_changed:
+        similar_matches = find_similar_items(name, exclude_item_id=getattr(existing_item, "id", None))
+        if similar_matches and not confirm_similar_name:
+            errors.append("Similar item names already exist. Review them and submit again to confirm.")
 
     parent_item = None
     if parent_item_id == "invalid":
@@ -370,9 +545,24 @@ def parse_item_payload(existing_item=None):
         if has_children:
             errors.append("Items with children cannot be moved under another parent.")
 
+    active_venue_ids = {venue.id for venue in fetch_active_venues()}
+    invalid_venue_ids = [venue_id for venue_id in selected_venue_ids if venue_id not in active_venue_ids]
+    if invalid_venue_ids:
+        errors.append("One or more selected venues are no longer available.")
+
     if is_group_parent:
         tracking_mode = "quantity"
         parent_item_id = None
+        default_par_level = None
+        selected_venue_ids = []
+        form_values["selected_venue_ids"] = []
+    elif existing_item and existing_item.is_group_parent and selected_venue_ids:
+        errors.append("Family organizers cannot be assigned directly to venues.")
+
+    if existing_item and is_group_parent:
+        has_links = VenueItem.query.filter(VenueItem.item_id == existing_item.id).first() is not None
+        if has_links:
+            errors.append("Items with venue assignments cannot become family organizers.")
 
     payload = {
         "name": name,
@@ -384,8 +574,13 @@ def parse_item_payload(existing_item=None):
         "active": active,
         "unit": unit,
         "sort_order": sort_order,
+        "default_par_level": default_par_level if isinstance(default_par_level, int) or default_par_level is None else None,
+        "stale_threshold_days": (
+            stale_threshold_days if isinstance(stale_threshold_days, int) or stale_threshold_days is None else None
+        ),
+        "selected_venue_ids": selected_venue_ids,
     }
-    return payload, form_values, errors
+    return payload, form_values, errors, similar_matches
 
 
 @admin_bp.get("")
@@ -538,6 +733,106 @@ def issue_user_password_link(user_id):
     return redirect(_user_return_target("admin.users"))
 
 
+@admin_bp.route("/inventory-rules", methods=["GET", "POST"])
+@roles_required("admin")
+def inventory_rules():
+    policy = ensure_inventory_policy()
+    form_values = build_inventory_rules_form_values(policy=policy)
+
+    if request.method == "POST":
+        form_values = build_inventory_rules_form_values(source=request.form)
+        try:
+            default_stale_threshold_days = normalize_optional_threshold_days(
+                request.form.get("default_stale_threshold_days"),
+                field_label="Global stale threshold",
+            )
+        except InventoryRuleError as exc:
+            flash(str(exc), "error")
+        else:
+            if default_stale_threshold_days is None:
+                flash("Global stale threshold is required.", "error")
+            else:
+                previous_threshold = int(policy.default_stale_threshold_days or get_default_stale_threshold_days())
+                policy.default_stale_threshold_days = default_stale_threshold_days
+                if previous_threshold != default_stale_threshold_days:
+                    log_inventory_admin_event(
+                        "inventory_policy_updated",
+                        actor=current_user,
+                        subject_type="inventory_policy",
+                        subject_id=policy.id,
+                        subject_label="Inventory Rules",
+                        details={
+                            "previous_threshold_days": previous_threshold,
+                            "new_threshold_days": default_stale_threshold_days,
+                        },
+                    )
+                db.session.commit()
+                flash("Inventory rules saved.", "success")
+                return redirect(url_for("admin.inventory_rules"))
+
+    return render_template(
+        "admin/inventory_rules.html",
+        admin_page_key="inventory_rules",
+        form_values=form_values,
+        policy=policy,
+    )
+
+
+@admin_bp.route("/tracking-setup", methods=["GET", "POST"])
+@roles_required("admin")
+def tracking_setup():
+    selected_item_id = _parse_optional_id(request.values.get("item_id"))
+    tracking_setup_view = build_tracking_setup_view_model(selected_item_id)
+
+    if request.method == "POST":
+        selected_item = tracking_setup_view["selected_item"]
+        if selected_item is None:
+            flash("Select an item to manage tracking assignments.", "error")
+        else:
+            selected_venue_ids = parse_selected_ids(request.form.getlist("venue_ids"))
+            par_overrides = {}
+            errors = []
+            for venue in tracking_setup_view["venues"]:
+                try:
+                    par_overrides[venue.id] = normalize_optional_tracking_value(
+                        request.form.get(f"par_override_{venue.id}"),
+                        field_label=f"Par override for {venue.name}",
+                    )
+                except InventoryRuleError as exc:
+                    errors.append(str(exc))
+
+            if errors:
+                for error in errors:
+                    flash(error, "error")
+            else:
+                summary = sync_item_venue_assignments(
+                    item=selected_item,
+                    selected_venue_ids=selected_venue_ids,
+                    par_overrides={venue_id: par_overrides.get(venue_id) for venue_id in selected_venue_ids},
+                )
+                if any(summary.values()):
+                    log_inventory_admin_event(
+                        "bulk_tracking_updated",
+                        actor=current_user,
+                        subject_type="item",
+                        subject_id=selected_item.id,
+                        subject_label=selected_item.name,
+                        details=summary,
+                    )
+                    db.session.commit()
+                    flash("Bulk tracking setup saved.", "success")
+                else:
+                    db.session.rollback()
+                    flash("No bulk tracking changes were needed.", "success")
+                return redirect(url_for("admin.tracking_setup", item_id=selected_item.id))
+
+    return render_template(
+        "admin/tracking_setup.html",
+        admin_page_key="tracking_setup",
+        tracking_setup_view=tracking_setup_view,
+    )
+
+
 @admin_bp.get("/audit/users")
 @roles_required("admin")
 def user_audit():
@@ -563,14 +858,20 @@ def history():
 def items():
     form_values = build_item_form_values()
     show_add_item_form = False
+    similar_name_matches = []
+    available_venues = fetch_active_venues()
+    global_stale_threshold_days = get_default_stale_threshold_days()
     catalog_filters = parse_item_catalog_filters(request.form if request.method == "POST" else request.args)
 
     if request.method == "POST":
         show_add_item_form = True
-        payload, form_values, errors = parse_item_payload()
+        payload, form_values, errors, similar_name_matches = parse_item_payload()
         if errors:
             for error in errors:
-                flash(error, "error")
+                flash(
+                    error,
+                    "warning" if error.startswith("Similar item names already exist.") else "error",
+                )
         else:
             item = Item(
                 name=payload["name"],
@@ -582,8 +883,36 @@ def items():
                 active=payload["active"],
                 unit=payload["unit"],
                 sort_order=payload["sort_order"],
+                default_par_level=payload["default_par_level"],
+                stale_threshold_days=payload["stale_threshold_days"],
             )
             db.session.add(item)
+            db.session.flush()
+            assignment_summary = sync_item_venue_assignments(
+                item=item,
+                selected_venue_ids=payload["selected_venue_ids"],
+            )
+            log_inventory_admin_event(
+                "item_created",
+                actor=current_user,
+                subject_type="item",
+                subject_id=item.id,
+                subject_label=item.name,
+                details={
+                    "default_par_level": item.default_par_level,
+                    "stale_threshold_days": item.stale_threshold_days,
+                    "assigned_venue_count": len(payload["selected_venue_ids"]),
+                },
+            )
+            if any(assignment_summary.values()):
+                log_inventory_admin_event(
+                    "item_tracking_updated",
+                    actor=current_user,
+                    subject_type="item",
+                    subject_id=item.id,
+                    subject_label=item.name,
+                    details=assignment_summary,
+                )
             db.session.commit()
             flash("Item added.", "success")
             return redirect(url_for("admin.items", **build_item_catalog_query_args(catalog_filters, page=catalog_filters["page"])))
@@ -621,6 +950,9 @@ def items():
         valid_item_categories=ITEM_CATEGORY_OPTIONS,
         form_values=form_values,
         show_add_item_form=show_add_item_form,
+        available_venues=available_venues,
+        similar_name_matches=similar_name_matches,
+        global_stale_threshold_days=global_stale_threshold_days,
     )
 
 
@@ -633,13 +965,41 @@ def edit_item(item_id):
         .first_or_404()
     )
     form_values = build_item_form_values(item)
+    similar_name_matches = []
+    available_venues = fetch_active_venues()
+    global_stale_threshold_days = get_default_stale_threshold_days()
 
     if request.method == "POST":
-        payload, form_values, errors = parse_item_payload(existing_item=item)
+        payload, form_values, errors, similar_name_matches = parse_item_payload(existing_item=item)
         if errors:
             for error in errors:
-                flash(error, "error")
+                flash(
+                    error,
+                    "warning" if error.startswith("Similar item names already exist.") else "error",
+                )
         else:
+            changed_fields = []
+            if item.name != payload["name"]:
+                changed_fields.append("name")
+            if item.item_category != payload["item_category"]:
+                changed_fields.append("category")
+            if item.tracking_mode != payload["tracking_mode"]:
+                changed_fields.append("tracking mode")
+            if item.parent_item_id != payload["parent_item_id"]:
+                changed_fields.append("parent family")
+            if bool(item.is_group_parent) != bool(payload["is_group_parent"]):
+                changed_fields.append("family structure")
+            if bool(item.active) != bool(payload["active"]):
+                changed_fields.append("active status")
+            if (item.unit or None) != payload["unit"]:
+                changed_fields.append("unit")
+            if int(item.sort_order or 0) != int(payload["sort_order"]):
+                changed_fields.append("sort order")
+            if item.default_par_level != payload["default_par_level"]:
+                changed_fields.append("default par")
+            if item.stale_threshold_days != payload["stale_threshold_days"]:
+                changed_fields.append("stale threshold")
+
             item.name = payload["name"]
             item.item_type = payload["item_type"]
             item.tracking_mode = payload["tracking_mode"]
@@ -649,6 +1009,30 @@ def edit_item(item_id):
             item.active = payload["active"]
             item.unit = payload["unit"]
             item.sort_order = payload["sort_order"]
+            item.default_par_level = payload["default_par_level"]
+            item.stale_threshold_days = payload["stale_threshold_days"]
+            assignment_summary = sync_item_venue_assignments(
+                item=item,
+                selected_venue_ids=payload["selected_venue_ids"],
+            )
+            if changed_fields:
+                log_inventory_admin_event(
+                    "item_updated",
+                    actor=current_user,
+                    subject_type="item",
+                    subject_id=item.id,
+                    subject_label=item.name,
+                    details={"changed_fields": changed_fields},
+                )
+            if any(assignment_summary.values()):
+                log_inventory_admin_event(
+                    "item_tracking_updated",
+                    actor=current_user,
+                    subject_type="item",
+                    subject_id=item.id,
+                    subject_label=item.name,
+                    details=assignment_summary,
+                )
             db.session.commit()
             flash("Item updated.", "success")
             return redirect(url_for("admin.items"))
@@ -665,7 +1049,43 @@ def edit_item(item_id):
         tracking_mode_options=TRACKING_MODE_OPTIONS,
         item_category_options=ITEM_CATEGORY_FORM_OPTIONS,
         form_values=form_values,
+        available_venues=available_venues,
+        similar_name_matches=similar_name_matches,
+        global_stale_threshold_days=global_stale_threshold_days,
+        item_delete_guard=build_item_delete_guard(item),
+        item_delete_window_days=ITEM_HARD_DELETE_WINDOW_DAYS,
     )
+
+
+@admin_bp.post("/items/<int:item_id>/delete")
+@roles_required("admin")
+def hard_delete_item(item_id):
+    item = db.get_or_404(Item, item_id)
+    delete_guard = build_item_delete_guard(item)
+    confirmation_name = (request.form.get("confirm_delete_name") or "").strip()
+
+    if confirmation_name != item.name:
+        flash("Type the exact item name to confirm hard delete.", "error")
+        return redirect(url_for("admin.edit_item", item_id=item.id))
+
+    if not delete_guard["eligible"]:
+        for blocker in delete_guard["blockers"]:
+            flash(blocker, "error")
+        return redirect(url_for("admin.edit_item", item_id=item.id))
+
+    item_name = item.name
+    log_inventory_admin_event(
+        "item_hard_deleted",
+        actor=current_user,
+        subject_type="item",
+        subject_id=item.id,
+        subject_label=item_name,
+    )
+    VenueItem.query.filter(VenueItem.item_id == item.id).delete(synchronize_session=False)
+    db.session.delete(item)
+    db.session.commit()
+    flash(f"{item_name} was permanently deleted.", "success")
+    return redirect(url_for("admin.items"))
 
 
 @admin_bp.route("/items/<int:item_id>/deactivate", methods=["GET", "POST"])
@@ -690,6 +1110,14 @@ def deactivate_item(item_id):
     # POST: user confirmed “Deactivate anyway”
     it.active = False
     VenueItem.query.filter_by(item_id=item_id, active=True).update({"active": False})
+    log_inventory_admin_event(
+        "item_updated",
+        actor=current_user,
+        subject_type="item",
+        subject_id=it.id,
+        subject_label=it.name,
+        details={"changed_fields": ["active status"]},
+    )
     db.session.commit()
 
     flash(f"Item deactivated and removed from {len(venues)} venue(s).", "success")
@@ -701,6 +1129,14 @@ def deactivate_item(item_id):
 def activate_item(item_id):
     it = db.get_or_404(Item, item_id)
     it.active = True
+    log_inventory_admin_event(
+        "item_updated",
+        actor=current_user,
+        subject_type="item",
+        subject_id=it.id,
+        subject_label=it.name,
+        details={"changed_fields": ["active status"]},
+    )
     db.session.commit()
     flash("Item activated.", "success")
     return redirect(url_for("admin.items"))

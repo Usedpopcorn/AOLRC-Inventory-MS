@@ -3,8 +3,12 @@
 {% macro nav_label(key) -%}
   {% if key == "users" %}
     Users
+  {% elif key == "inventory_rules" %}
+    Inventory Rules
   {% elif key == "items" %}
     Items
+  {% elif key == "tracking_setup" %}
+    Tracking Setup
   {% elif key == "audit" %}
     User Audit
   {% elif key == "history" %}
@@ -32,7 +36,9 @@
   <nav class="admin-nav" aria-label="Admin sections">
     {{ nav_link(active_key, "overview", url_for("admin.overview"), "bi-speedometer2", "Overview") }}
     {{ nav_link(active_key, "users", url_for("admin.users"), "bi-people", "Users") }}
+    {{ nav_link(active_key, "inventory_rules", url_for("admin.inventory_rules"), "bi-sliders", "Inventory Rules") }}
     {{ nav_link(active_key, "items", url_for("admin.items"), "bi-box-seam", "Items") }}
+    {{ nav_link(active_key, "tracking_setup", url_for("admin.tracking_setup"), "bi-diagram-2", "Tracking Setup") }}
     {{ nav_link(active_key, "audit", url_for("admin.user_audit"), "bi-activity", "User Audit") }}
     {{ nav_link(active_key, "history", url_for("admin.history"), "bi-clock-history", "History & Archive") }}
   </nav>

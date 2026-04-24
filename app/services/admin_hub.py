@@ -12,6 +12,7 @@ from app.models import (
     CheckLine,
     CountLine,
     CountSession,
+    InventoryAdminEvent,
     Item,
     PasswordActionToken,
     User,
@@ -19,6 +20,7 @@ from app.models import (
     VenueNote,
 )
 from app.services.account_security import describe_account_event
+from app.services.inventory_rules import describe_inventory_admin_event
 from app.services.inventory_status import ensure_utc, normalize_status
 
 USER_ACTIVITY_WINDOW_DAYS = 30
@@ -200,6 +202,7 @@ def build_admin_user_audit_view_model():
 
 def build_admin_history_view_model():
     inventory_rows = _build_inventory_change_rows(limit=RECENT_HISTORY_LIMIT)
+    inventory_admin_rows = _build_recent_inventory_admin_event_rows(limit=RECENT_HISTORY_LIMIT)
     note_rows = _build_recent_note_update_rows(limit=8)
     account_event_rows = _build_recent_account_event_rows(limit=RECENT_HISTORY_LIMIT)
     recent_creation_groups = _build_recent_creation_groups(limit=5)
@@ -210,6 +213,7 @@ def build_admin_history_view_model():
     }
     return {
         "account_events": _build_preview_state(account_event_rows, preview_limit=FEED_PREVIEW_LIMIT),
+        "inventory_admin_events": _build_preview_state(inventory_admin_rows, preview_limit=FEED_PREVIEW_LIMIT),
         "inventory_changes": _build_preview_state(inventory_rows, preview_limit=FEED_PREVIEW_LIMIT),
         "note_updates": _build_preview_state(note_rows, preview_limit=FEED_PREVIEW_LIMIT),
         "recent_creations": {
@@ -485,6 +489,7 @@ def _build_recent_operational_activity_rows(limit=RECENT_ACTIVITY_LIMIT):
 def _build_recent_system_change_rows(limit=RECENT_ACTIVITY_LIMIT):
     note_rows = _build_recent_note_update_rows(limit=limit)
     account_rows = _build_recent_account_event_rows(limit=limit)
+    inventory_admin_rows = _build_recent_inventory_admin_event_rows(limit=limit)
     venue_rows = (
         Venue.query.order_by(Venue.created_at.desc(), Venue.id.desc()).limit(limit).all()
     )
@@ -505,6 +510,17 @@ def _build_recent_system_change_rows(limit=RECENT_ACTIVITY_LIMIT):
         )
 
     for row in account_rows:
+        merged_rows.append(
+            {
+                "icon_class": row["icon_class"],
+                "title": row["title"],
+                "detail": f"{row['detail']} | {row['actor_name']}",
+                "changed_at": row["changed_at"],
+                "changed_at_text": row["changed_at_text"],
+            }
+        )
+
+    for row in inventory_admin_rows:
         merged_rows.append(
             {
                 "icon_class": row["icon_class"],
@@ -578,6 +594,26 @@ def _build_recent_account_event_rows(limit=RECENT_HISTORY_LIMIT, target_user_id=
                 target_name=target_name,
             )
         )
+    return rows
+
+
+def _build_recent_inventory_admin_event_rows(limit=RECENT_HISTORY_LIMIT):
+    actor_user = aliased(User)
+    query = (
+        db.session.query(InventoryAdminEvent, actor_user)
+        .outerjoin(actor_user, actor_user.id == InventoryAdminEvent.actor_user_id)
+        .order_by(InventoryAdminEvent.created_at.desc(), InventoryAdminEvent.id.desc())
+    )
+    if limit is not None:
+        query = query.limit(limit)
+
+    rows = []
+    for event, actor in query.all():
+        actor_name = build_user_display_name(
+            getattr(actor, "display_name", None),
+            getattr(actor, "email", None),
+        )
+        rows.append(describe_inventory_admin_event(event, actor_name=actor_name))
     return rows
 
 
