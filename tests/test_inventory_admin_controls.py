@@ -196,7 +196,10 @@ def test_item_create_requires_confirmation_for_similar_names(client, app):
     )
 
     assert first_response.status_code == 200
-    assert b"Similar names already exist." in first_response.data
+    assert (
+        b"Similar item names already exist. Review them and submit again to confirm."
+        in first_response.data
+    )
 
     with app.app_context():
         assert Item.query.filter_by(name="Tea Towel").first() is None
