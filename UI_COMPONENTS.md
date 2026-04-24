@@ -12,6 +12,25 @@ Use this file as the practical map of the shared UI system.
 
 ## Shared Primitives
 
+### Surface System
+
+- Use the shared surface tokens in `styles.css` before introducing page-local whites, borders, or shadows.
+- Primary app tokens:
+  - `--ui-surface-canvas`
+  - `--ui-surface-primary`
+  - `--ui-surface-secondary`
+  - `--ui-surface-quiet`
+  - `--ui-border-subtle`
+  - `--ui-border-strong`
+  - `--ui-shadow-soft`
+  - `--ui-shadow-lifted`
+- Use the opt-in utilities for legacy wrappers that still need an explicit shell:
+  - `.ui-surface-card`
+  - `.ui-surface-card-secondary`
+  - `.ui-surface-card-quiet`
+  - `.ui-surface-card-elevated`
+- Do not rely on raw Bootstrap `card` defaults when a surface needs to match the rest of the app.
+
 ### Page Header
 
 - Use `ui.page_header(...)` for page-level title, subtitle, back link, primary action, and header meta.
@@ -99,4 +118,5 @@ Use this file as the practical map of the shared UI system.
 - Do not dump long admin lists fully expanded by default when a disclosure or capped preview will keep the page readable.
 - Do not create a second inventory hierarchy style for family rows or singleton assets.
 - Do not add one-off spacing or control-height hacks before checking shared tokens/classes in `styles.css`.
+- Do not add new near-white background shades, border values, or box shadows before checking the shared surface tokens and utilities.
 - Do not rebuild empty/no-results/info banners with raw Bootstrap alerts unless the shared state primitives truly cannot fit.

@@ -8,7 +8,7 @@
     subtitle="Search venue status, filter by type, and manage the directory from one consistent toolbar."
   ) }}
 
-  <div class="card mb-3 venue-directory-toolbar-shell">
+  <div class="card mb-3 venue-directory-toolbar-shell ui-surface-card-secondary">
     <div class="card-body">
       {% call ui.toolbar("ui-toolbar-split venue-directory-toolbar") %}
         <div class="ui-toolbar-main ui-toolbar-main-3 venue-directory-toolbar-row venue-toolbar-controls">
@@ -43,7 +43,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card ui-surface-card">
     <div class="card-body">
       <div id="venueResultCount" class="text-muted small mb-3">
         {{ venue_rows|length }} {{ "result" if venue_rows|length == 1 else "results" }}

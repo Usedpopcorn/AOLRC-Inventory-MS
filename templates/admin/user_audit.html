@@ -6,12 +6,12 @@
 {% block admin_page %}
 {{ ui.page_header(
   title="User Audit",
-  subtitle="Activity and account attention."
+  subtitle="Activity, lockouts, and inactivity."
 ) }}
 
 {{ ui.state_banner(
-  "Operational activity is approximate.",
-  "Checks + count sessions + notes in the last " ~ user_audit.summary.window_days ~ " days. Not a full auth log.",
+  "Activity score is approximate.",
+  "Checks + count sessions + notes in the last " ~ user_audit.summary.window_days ~ " days.",
   tone="info",
   icon_class="bi-info-circle-fill"
 ) }}
@@ -31,7 +31,7 @@
     {% call admin_ui.panel("Most Active") %}
       {% if user_audit.most_active_users.preview %}
         <div class="admin-preview-meta">
-          <span>{{ user_audit.most_active_users.loaded_count }} ranked user{{ "s" if user_audit.most_active_users.loaded_count != 1 else "" }} with recorded activity</span>
+          <span>{{ user_audit.most_active_users.loaded_count }} user{{ "s" if user_audit.most_active_users.loaded_count != 1 else "" }} with activity</span>
         </div>
         <div class="admin-score-list">
           {% for row in user_audit.most_active_users.preview %}
@@ -71,7 +71,7 @@
     {% call admin_ui.panel("Least Active") %}
       {% if user_audit.least_active_users.preview %}
         <div class="admin-preview-meta">
-          <span>{{ user_audit.least_active_users.loaded_count }} low-touch account{{ "s" if user_audit.least_active_users.loaded_count != 1 else "" }} in view</span>
+          <span>{{ user_audit.least_active_users.loaded_count }} low-activity account{{ "s" if user_audit.least_active_users.loaded_count != 1 else "" }}</span>
         </div>
         <div class="admin-score-list">
           {% for row in user_audit.least_active_users.preview %}
@@ -87,7 +87,7 @@
         </div>
         {% if user_audit.least_active_users.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ user_audit.least_active_users.remaining_count ~ " more low-touch account" ~ ("s" if user_audit.least_active_users.remaining_count != 1 else "")
+            "Show " ~ user_audit.least_active_users.remaining_count ~ " more low-activity account" ~ ("s" if user_audit.least_active_users.remaining_count != 1 else "")
           ) %}
             <div class="admin-score-list admin-scroll-region">
               {% for row in user_audit.least_active_users.remaining %}
@@ -104,7 +104,7 @@
           {% endcall %}
         {% endif %}
       {% else %}
-        {{ ui.empty_state("No users to rank yet.", compact=True) }}
+        {{ ui.empty_state("No ranked users yet.", compact=True) }}
       {% endif %}
     {% endcall %}
   </div>
@@ -115,7 +115,7 @@
     {% call admin_ui.panel("Operational Activity") %}
       {% if user_audit.recent_activity.preview %}
         <div class="admin-preview-meta">
-          <span>Showing the latest {{ user_audit.recent_activity.preview_count }} linked record{{ "s" if user_audit.recent_activity.preview_count != 1 else "" }}</span>
+          <span>Latest {{ user_audit.recent_activity.preview_count }} event{{ "s" if user_audit.recent_activity.preview_count != 1 else "" }}</span>
           {% if user_audit.recent_activity.latest %}
             <span>Latest {{ user_audit.recent_activity.latest.changed_at_text }}</span>
           {% endif %}
@@ -137,7 +137,7 @@
         </div>
         {% if user_audit.recent_activity.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ user_audit.recent_activity.remaining_count ~ " more linked record" ~ ("s" if user_audit.recent_activity.remaining_count != 1 else "")
+            "Show " ~ user_audit.recent_activity.remaining_count ~ " more activity event" ~ ("s" if user_audit.recent_activity.remaining_count != 1 else "")
           ) %}
             <div class="admin-feed-list admin-feed-list-dense admin-scroll-region">
               {% for row in user_audit.recent_activity.remaining %}
@@ -157,14 +157,14 @@
           {% endcall %}
         {% endif %}
       {% else %}
-        {{ ui.empty_state("No user-linked activity yet.", compact=True) }}
+        {{ ui.empty_state("No user activity yet.", compact=True) }}
       {% endif %}
     {% endcall %}
 
-    {% call admin_ui.panel("Account Actions", none, "admin-panel-support") %}
+    {% call admin_ui.panel("Account Events", none, "admin-panel-support") %}
       {% if user_audit.recent_account_activity.preview %}
         <div class="admin-preview-meta">
-          <span>Showing the latest {{ user_audit.recent_account_activity.preview_count }} retained account event{{ "s" if user_audit.recent_account_activity.preview_count != 1 else "" }}</span>
+          <span>Latest {{ user_audit.recent_account_activity.preview_count }} account event{{ "s" if user_audit.recent_account_activity.preview_count != 1 else "" }}</span>
           {% if user_audit.recent_account_activity.latest %}
             <span>Latest {{ user_audit.recent_account_activity.latest.changed_at_text }}</span>
           {% endif %}
@@ -186,7 +186,7 @@
         </div>
         {% if user_audit.recent_account_activity.has_more %}
           {% call admin_ui.disclosure(
-            "Show " ~ user_audit.recent_account_activity.remaining_count ~ " more retained account event" ~ ("s" if user_audit.recent_account_activity.remaining_count != 1 else "")
+            "Show " ~ user_audit.recent_account_activity.remaining_count ~ " more account event" ~ ("s" if user_audit.recent_account_activity.remaining_count != 1 else "")
           ) %}
             <div class="admin-feed-list admin-feed-list-dense admin-scroll-region">
               {% for row in user_audit.recent_account_activity.remaining %}
@@ -206,7 +206,7 @@
           {% endcall %}
         {% endif %}
       {% else %}
-        {{ ui.empty_state("No retained account events yet.", compact=True) }}
+        {{ ui.empty_state("No account events yet.", compact=True) }}
       {% endif %}
     {% endcall %}
   </div>
@@ -217,7 +217,7 @@
     {% call admin_ui.panel("Locked Accounts", none, "admin-panel-support") %}
       {% if user_audit.locked_users.preview %}
         <div class="admin-preview-meta">
-          <span>{{ user_audit.locked_users.loaded_count }} locked account{{ "s" if user_audit.locked_users.loaded_count != 1 else "" }} in view</span>
+          <span>{{ user_audit.locked_users.loaded_count }} locked account{{ "s" if user_audit.locked_users.loaded_count != 1 else "" }}</span>
         </div>
         <div class="admin-list">
           {% for row in user_audit.locked_users.preview %}
@@ -254,14 +254,14 @@
           {% endcall %}
         {% endif %}
       {% else %}
-        {{ ui.empty_state("No locked accounts right now.", compact=True) }}
+        {{ ui.empty_state("No locked accounts.", compact=True) }}
       {% endif %}
     {% endcall %}
 
     {% call admin_ui.panel("Inactive Accounts", none, "admin-panel-support") %}
       {% if user_audit.inactive_users.preview %}
         <div class="admin-preview-meta">
-          <span>{{ user_audit.inactive_users.loaded_count }} inactive account{{ "s" if user_audit.inactive_users.loaded_count != 1 else "" }} in view</span>
+          <span>{{ user_audit.inactive_users.loaded_count }} inactive account{{ "s" if user_audit.inactive_users.loaded_count != 1 else "" }}</span>
         </div>
         <div class="admin-list">
           {% for row in user_audit.inactive_users.preview %}
@@ -298,7 +298,7 @@
           {% endcall %}
         {% endif %}
       {% else %}
-        {{ ui.empty_state("No inactive accounts right now.", compact=True) }}
+        {{ ui.empty_state("No inactive accounts.", compact=True) }}
       {% endif %}
     {% endcall %}
   </div>

@@ -27,22 +27,22 @@
     <article class="item-guide-card">
       {{ item_ui.structure_badges(tracking_mode="quantity", show_category=False, show_kind=False) }}
       <h3 class="h6 mt-3 mb-1">Quantity item</h3>
-      <p class="text-muted small mb-0">Standard supply row with counts and par targets.</p>
+      <p class="text-muted small mb-0">Standard counted supply.</p>
     </article>
     <article class="item-guide-card">
       {{ item_ui.structure_badges(tracking_mode="singleton_asset", show_category=False, show_kind=False) }}
       <h3 class="h6 mt-3 mb-1">Singleton asset</h3>
-      <p class="text-muted small mb-0">Presence and condition matter more than low-stock counts.</p>
+      <p class="text-muted small mb-0">Tracked by presence and condition.</p>
     </article>
     <article class="item-guide-card">
       {{ item_ui.structure_badges(is_group_parent=True, show_tracking=False, show_category=False) }}
       <h3 class="h6 mt-3 mb-1">Family organizer</h3>
-      <p class="text-muted small mb-0">Groups related variants and stays out of counted rows.</p>
+      <p class="text-muted small mb-0">Container for child items.</p>
     </article>
     <article class="item-guide-card">
       {{ item_ui.structure_badges(parent_name="Tea", show_tracking=False, show_category=False) }}
       <h3 class="h6 mt-3 mb-1">Family member</h3>
-      <p class="text-muted small mb-0">Tracked child item that lives inside a parent family.</p>
+      <p class="text-muted small mb-0">Tracked inside a parent family.</p>
     </article>
   </div>
 {% endcall %}
@@ -110,8 +110,8 @@
       {% if similar_name_matches %}
         <div class="mb-3">
           {{ ui.state_banner(
-            "Similar names already exist.",
-            "Review these matches, then submit again if this item is intentionally distinct.",
+            "Similar item names found.",
+            "Review these, then submit again if this item is intentional.",
             tone="warning",
             extra_classes="mb-2"
           ) }}

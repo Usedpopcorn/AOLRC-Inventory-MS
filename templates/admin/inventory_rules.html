@@ -6,18 +6,11 @@
 {% block admin_page %}
 {{ ui.page_header(
   title="Inventory Rules",
-  subtitle="Global defaults that apply across the inventory system."
-) }}
-
-{{ ui.state_banner(
-  "Keep this page policy-focused.",
-  "Global defaults live here. Item-specific overrides stay on item pages, and venue-specific overrides stay on venue settings.",
-  tone="info",
-  icon_class="bi-sliders"
+  subtitle="Global stale defaults."
 ) }}
 
 {% call admin_ui.region("Global Defaults") %}
-  {% call admin_ui.panel("Stale Threshold", "Used as the fallback when an item or venue does not override freshness timing.") %}
+  {% call admin_ui.panel("Stale Threshold") %}
     <form method="post" class="row g-3 align-items-end">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="col-12 col-md-4">
@@ -39,7 +32,7 @@
       <div class="col-12 col-md-8">
         <div class="admin-item-cell">
           <div class="admin-item-cell-title">Precedence</div>
-          <div class="admin-item-cell-support">Item override wins first, then venue override, then this global default.</div>
+          <div class="admin-item-cell-support">Item -> venue -> global.</div>
         </div>
       </div>
       <div class="col-12 col-md-3 ms-md-auto">

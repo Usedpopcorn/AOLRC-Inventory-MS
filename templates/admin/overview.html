@@ -6,7 +6,7 @@
 {% block admin_page %}
 {{ ui.page_header(
   title="Admin Hub",
-  subtitle="Health, modules, and recent activity."
+  subtitle="Status and activity."
 ) }}
 
 {% call admin_ui.region("Account Health") %}
@@ -65,12 +65,12 @@
   </section>
 {% endcall %}
 
-{% call admin_ui.region("Operational Monitoring") %}
+{% call admin_ui.region("Monitoring") %}
   <div class="admin-overview-monitor-grid">
     {% call admin_ui.panel("Locked Accounts", none, "admin-panel-support") %}
       {% if overview.locked_users.preview %}
         <div class="admin-preview-meta">
-          <span>{{ overview.locked_users.loaded_count }} locked right now</span>
+          <span>{{ overview.locked_users.loaded_count }} locked now</span>
           {% if overview.locked_users.latest %}
             <span>Next unlock {{ overview.locked_users.latest.locked_until_text }}</span>
           {% endif %}
@@ -110,14 +110,14 @@
           {% endcall %}
         {% endif %}
       {% else %}
-        {{ ui.empty_state("No locked accounts right now.", compact=True) }}
+        {{ ui.empty_state("No locked accounts.", compact=True) }}
       {% endif %}
     {% endcall %}
 
-    {% call admin_ui.panel("Recent Operational Activity") %}
+    {% call admin_ui.panel("Recent Activity") %}
       {% if overview.recent_operational_activity.preview %}
         <div class="admin-preview-meta">
-          <span>Showing the latest {{ overview.recent_operational_activity.preview_count }} session{{ "s" if overview.recent_operational_activity.preview_count != 1 else "" }}</span>
+          <span>Latest {{ overview.recent_operational_activity.preview_count }} session{{ "s" if overview.recent_operational_activity.preview_count != 1 else "" }}</span>
           {% if overview.recent_operational_activity.latest %}
             <span>Latest {{ overview.recent_operational_activity.latest.changed_at_text }}</span>
           {% endif %}
@@ -159,56 +159,58 @@
           {% endcall %}
         {% endif %}
       {% else %}
-        {{ ui.empty_state("No recent operational activity yet.", compact=True) }}
+        {{ ui.empty_state("No recent activity yet.", compact=True) }}
       {% endif %}
     {% endcall %}
   </div>
 {% endcall %}
 
 {% call admin_ui.region("System Changes") %}
-  {% if overview.recent_system_changes.preview %}
-    <div class="admin-preview-meta">
-      <span>Showing the latest {{ overview.recent_system_changes.preview_count }} system update{{ "s" if overview.recent_system_changes.preview_count != 1 else "" }}</span>
-      {% if overview.recent_system_changes.latest %}
-        <span>Latest {{ overview.recent_system_changes.latest.changed_at_text }}</span>
-      {% endif %}
-    </div>
-    <div class="admin-feed-list admin-feed-list-dense">
-      {% for row in overview.recent_system_changes.preview %}
-        <article class="admin-feed-item">
-          <div class="admin-feed-item-top">
-            <div class="admin-feed-title">
-              <i class="bi {{ row.icon_class }}" aria-hidden="true"></i>
-              <span>{{ row.title }}</span>
-            </div>
-            <div class="admin-feed-time">{{ row.changed_at_text }}</div>
-          </div>
-          <div class="admin-feed-meta">{{ row.detail }}</div>
-        </article>
-      {% endfor %}
-    </div>
-    {% if overview.recent_system_changes.has_more %}
-      {% call admin_ui.disclosure(
-        "Show " ~ overview.recent_system_changes.remaining_count ~ " more system change" ~ ("s" if overview.recent_system_changes.remaining_count != 1 else "")
-      ) %}
-        <div class="admin-feed-list admin-feed-list-dense admin-scroll-region">
-          {% for row in overview.recent_system_changes.remaining %}
-            <article class="admin-feed-item">
-              <div class="admin-feed-item-top">
-                <div class="admin-feed-title">
-                  <i class="bi {{ row.icon_class }}" aria-hidden="true"></i>
-                  <span>{{ row.title }}</span>
-                </div>
-                <div class="admin-feed-time">{{ row.changed_at_text }}</div>
+  {% call admin_ui.panel("Recent Changes", none, "admin-panel-support") %}
+    {% if overview.recent_system_changes.preview %}
+      <div class="admin-preview-meta">
+        <span>Latest {{ overview.recent_system_changes.preview_count }} update{{ "s" if overview.recent_system_changes.preview_count != 1 else "" }}</span>
+        {% if overview.recent_system_changes.latest %}
+          <span>Latest {{ overview.recent_system_changes.latest.changed_at_text }}</span>
+        {% endif %}
+      </div>
+      <div class="admin-feed-list admin-feed-list-dense">
+        {% for row in overview.recent_system_changes.preview %}
+          <article class="admin-feed-item">
+            <div class="admin-feed-item-top">
+              <div class="admin-feed-title">
+                <i class="bi {{ row.icon_class }}" aria-hidden="true"></i>
+                <span>{{ row.title }}</span>
               </div>
-              <div class="admin-feed-meta">{{ row.detail }}</div>
-            </article>
-          {% endfor %}
-        </div>
-      {% endcall %}
+              <div class="admin-feed-time">{{ row.changed_at_text }}</div>
+            </div>
+            <div class="admin-feed-meta">{{ row.detail }}</div>
+          </article>
+        {% endfor %}
+      </div>
+      {% if overview.recent_system_changes.has_more %}
+        {% call admin_ui.disclosure(
+          "Show " ~ overview.recent_system_changes.remaining_count ~ " more system change" ~ ("s" if overview.recent_system_changes.remaining_count != 1 else "")
+        ) %}
+          <div class="admin-feed-list admin-feed-list-dense admin-scroll-region">
+            {% for row in overview.recent_system_changes.remaining %}
+              <article class="admin-feed-item">
+                <div class="admin-feed-item-top">
+                  <div class="admin-feed-title">
+                    <i class="bi {{ row.icon_class }}" aria-hidden="true"></i>
+                    <span>{{ row.title }}</span>
+                  </div>
+                  <div class="admin-feed-time">{{ row.changed_at_text }}</div>
+                </div>
+                <div class="admin-feed-meta">{{ row.detail }}</div>
+              </article>
+            {% endfor %}
+          </div>
+        {% endcall %}
+      {% endif %}
+    {% else %}
+      {{ ui.empty_state("No recent changes yet.", compact=True) }}
     {% endif %}
-  {% else %}
-    {{ ui.empty_state("No recent system changes yet.", compact=True) }}
-  {% endif %}
+  {% endcall %}
 {% endcall %}
 {% endblock %}

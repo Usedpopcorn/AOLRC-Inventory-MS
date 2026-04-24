@@ -19,7 +19,7 @@
 {% block admin_page %}
 {{ ui.page_header(
   title="Edit Item",
-  subtitle="Adjust how this item appears and behaves.",
+  subtitle="Structure and defaults.",
   back_url=url_for('admin.items'),
   back_label="Items"
 ) }}
@@ -28,8 +28,8 @@
   {% if similar_name_matches %}
     <div class="mb-3">
       {{ ui.state_banner(
-        "Similar names already exist.",
-        "Review these matches, then save again if this item is intentionally distinct.",
+        "Similar item names found.",
+        "Review these, then save again if needed.",
         tone="warning",
         extra_classes="mb-2"
       ) }}
@@ -144,13 +144,12 @@
           >
           <span class="input-group-text">days</span>
         </div>
-        <div class="form-text">Leave blank to use the venue override or global {{ global_stale_threshold_days }}-day rule.</div>
+        <div class="form-text">Blank = venue or global {{ global_stale_threshold_days }}d.</div>
       </div>
       <div class="col-12">
         <div class="admin-panel admin-panel-support">
           <div class="admin-panel-head">
-            <h3 class="admin-panel-title">Venue Assignments</h3>
-            <div class="admin-panel-subtitle">Choose where this item should be tracked. Per-venue par overrides live on venue settings and Tracking Setup.</div>
+            <h3 class="admin-panel-title">Venue Tracking</h3>
           </div>
           <div class="admin-panel-body">
             {% if available_venues %}
@@ -175,7 +174,7 @@
                 {% endfor %}
               </div>
             {% else %}
-              <div class="text-muted small">No active venues are available yet.</div>
+              <div class="text-muted small">No active venues yet.</div>
             {% endif %}
           </div>
         </div>
@@ -215,11 +214,11 @@
   </section>
 {% endcall %}
 
-{% call admin_ui.panel("Danger Zone", "Hard delete is only available for recent items with no meaningful venue or inventory history.", "admin-panel-support") %}
+{% call admin_ui.panel("Danger Zone", "Permanent delete only works for recent items with no history.", "admin-panel-support") %}
   {% if item_delete_guard.eligible %}
     {{ ui.state_banner(
       "Hard delete is available.",
-      "This item is still inside the " ~ item_delete_window_days ~ "-day delete window and has no retained tracking history.",
+      item_delete_window_days ~ "-day window. No tracking history.",
       tone="warning",
       extra_classes="mb-3"
     ) }}
@@ -241,12 +240,12 @@
   {% else %}
     {{ ui.state_banner(
       "Hard delete is blocked.",
-      "This item must stay archived instead of being permanently removed.",
+      "Archive this item instead.",
       tone="danger",
       extra_classes="mb-3"
     ) }}
     <div class="admin-item-cell">
-      <div class="admin-item-cell-title">Blocking rules</div>
+      <div class="admin-item-cell-title">Why delete is blocked</div>
       <div class="admin-item-cell-support">
         {% for blocker in item_delete_guard.blockers %}
           <div>{{ blocker }}</div>

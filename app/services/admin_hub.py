@@ -58,6 +58,21 @@ def format_admin_timestamp(value, missing_text="No recorded time"):
     return normalized.strftime("%Y-%m-%d %I:%M %p")
 
 
+def format_admin_timestamp_parts(value, missing_text="No recorded time"):
+    normalized = ensure_utc(value)
+    if normalized is None:
+        return {
+            "primary": missing_text,
+            "secondary": None,
+            "has_value": False,
+        }
+    return {
+        "primary": normalized.strftime("%Y-%m-%d"),
+        "secondary": normalized.strftime("%I:%M %p"),
+        "has_value": True,
+    }
+
+
 def build_user_display_name(display_name, email):
     return (display_name or "").strip() or (email or "Unknown user")
 
@@ -385,7 +400,9 @@ def _serialize_user_row(user, *, actor=None, pending_token=None, include_passwor
         "failed_login_attempts": int(user.failed_login_attempts or 0),
         "locked_until_text": format_admin_timestamp(user.locked_until, missing_text="Not locked"),
         "created_at_text": format_admin_timestamp(user.created_at),
+        "created_at_parts": format_admin_timestamp_parts(user.created_at),
         "last_login_at_text": format_admin_timestamp(user.last_login_at, missing_text="Never"),
+        "last_login_at_parts": format_admin_timestamp_parts(user.last_login_at, missing_text="Never"),
         "password_changed_at_text": format_admin_timestamp(user.password_changed_at, missing_text="Not recorded"),
         "deactivated_at_text": format_admin_timestamp(user.deactivated_at, missing_text="Not deactivated"),
         "is_self": is_self,

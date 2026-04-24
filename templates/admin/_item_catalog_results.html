@@ -70,7 +70,7 @@
           <td>{{ catalog_ui.item_actions(it) }}</td>
         </tr>
       {% else %}
-        {{ ui.table_empty_row(5, "No matching items.", body="Adjust the search or filters, or add a new catalog item.") }}
+        {{ ui.table_empty_row(5, "No matching items.", body="Adjust filters or add an item.") }}
       {% endfor %}
     </tbody>
   </table>
@@ -105,6 +105,6 @@
       {{ catalog_ui.item_actions(it, mobile=True) }}
     </article>
   {% else %}
-    {{ ui.empty_state("No matching items.", body="Adjust the search or filters, or add a new catalog item.", compact=True) }}
+    {{ ui.empty_state("No matching items.", body="Adjust filters or add an item.", compact=True) }}
   {% endfor %}
 </div>

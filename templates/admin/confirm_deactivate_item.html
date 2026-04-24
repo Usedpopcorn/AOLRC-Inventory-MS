@@ -7,14 +7,14 @@
 {% block admin_page %}
 {{ ui.page_header(
   title="Deactivate Item",
-  subtitle="Review before deactivating.",
+  subtitle="Review before you deactivate.",
   back_url=url_for('admin.items'),
   back_label="Items"
 ) }}
 
-{% call admin_ui.region("Deactivate Review") %}
-  {% call admin_ui.panel("Impact Summary", none, "admin-panel-support") %}
-    {% call ui.form_section("Impact Summary") %}
+{% call admin_ui.region("Review") %}
+  {% call admin_ui.panel("Item", none, "admin-panel-support") %}
+    {% call ui.form_section("Deactivate") %}
       <div>
         {{ item_ui.item_heading(
           item.name,
@@ -34,7 +34,7 @@
 
       {% if venues %}
         {{ ui.state_banner(
-          "Tracked in active venues",
+          "Tracked in venues",
           venues|length ~ " venue(s) will lose this item.",
           tone="warning"
         ) }}
@@ -50,7 +50,7 @@
       {% else %}
         {{ ui.state_banner(
           "Not currently assigned",
-          "This will remove it from future venue lists.",
+          "This removes it from future venue lists.",
           tone="warning"
         ) }}
       {% endif %}
@@ -58,7 +58,7 @@
       <div class="d-flex flex-wrap gap-2">
         <form method="post" action="{{ url_for('admin.deactivate_item', item_id=item.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-danger ui-control">Deactivate anyway</button>
+          <button type="submit" class="btn btn-danger ui-control">Deactivate</button>
         </form>
 
         <a class="btn btn-outline-secondary ui-control" href="{{ url_for('admin.items') }}">Cancel</a>

@@ -20,7 +20,7 @@
     ("lowest_count_coverage", "Lowest count coverage"),
     ("recent", "Recently updated")
   ] %}
-  <div class="card mb-3 venue-profile-hero">
+  <div class="card mb-3 venue-profile-hero ui-surface-card-elevated">
     <div class="card-body">
       {% call ui.page_header(
         title=venue.name,
@@ -123,7 +123,7 @@
   <div class="tab-content">
     <div class="tab-pane fade {{ 'show active' if active_profile_tab == 'overview' else '' }}" id="venue-profile-overview-pane" role="tabpanel" aria-labelledby="venue-profile-overview-tab">
       {% if venue_profile.summary.total_tracked_items == 0 %}
-        <div class="card mb-3">
+        <div class="card mb-3 ui-surface-card-secondary">
           <div class="card-body">
             {{ ui.empty_state("No tracked inventory yet.", body="Assign venue supplies first, then this overview will show operational status, count context, and review signals.") }}
           </div>
@@ -131,7 +131,7 @@
       {% else %}
         <div class="venue-profile-summary-grid mb-3">
           {% for card in venue_profile.summary.cards %}
-            <article class="card venue-profile-summary-card venue-profile-summary-card-{{ card.tone }}">
+            <article class="card venue-profile-summary-card venue-profile-summary-card-{{ card.tone }} ui-surface-card-secondary">
               <div class="card-body">
                 <div class="venue-profile-summary-label">{{ card.title }}</div>
                 <div class="venue-profile-summary-value">{{ card.value }}</div>
@@ -159,7 +159,7 @@
           </div>
         {% endif %}
 
-        <section class="card mb-3">
+        <section class="card mb-3 ui-surface-card">
           <div class="card-body">
             <div class="venue-profile-section-head">
               <div>
@@ -264,7 +264,7 @@
     </div>
 
     <div class="tab-pane fade {{ 'show active' if active_profile_tab == 'notes' else '' }}" id="venue-profile-notes-pane" role="tabpanel" aria-labelledby="venue-profile-notes-tab">
-      <div class="card mb-3">
+      <div class="card mb-3 ui-surface-card">
         <div class="card-body">
           <h2 class="h5 mb-3">Venue Notes</h2>
           {% if current_user.is_staff %}
@@ -325,7 +325,7 @@
     </div>
 
     <div class="tab-pane fade {{ 'show active' if active_profile_tab == 'activity' else '' }}" id="venue-profile-activity-pane" role="tabpanel" aria-labelledby="venue-profile-activity-tab">
-      <div class="card mb-3">
+      <div class="card mb-3 ui-surface-card">
         <div class="card-body">
           <h2 class="h5 mb-3">Recent Activity</h2>
           <div class="d-flex flex-column gap-2">
@@ -365,7 +365,7 @@
     </div>
 
     <div class="tab-pane fade {{ 'show active' if active_profile_tab == 'files' else '' }}" id="venue-profile-files-pane" role="tabpanel" aria-labelledby="venue-profile-files-tab">
-      <div class="card mb-3">
+      <div class="card mb-3 ui-surface-card-secondary">
         <div class="card-body">
           <h2 class="h5 mb-3">Venue Files</h2>
           {{ ui.empty_state("No venue files yet.", body="This future-ready tab is reserved for setup diagrams, instructions, checklists, and other venue documents once file uploads are added.", compact=True) }}

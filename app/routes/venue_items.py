@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from urllib.parse import urljoin, urlparse
 from flask_login import current_user
@@ -20,6 +21,7 @@ from app.services.inventory_status import (
     infer_singleton_status_from_count as shared_infer_singleton_status_from_count,
     normalize_singleton_status as shared_normalize_singleton_status,
 )
+from app.services.inventory_rules import resolve_effective_par_level
 
 venue_items_bp = Blueprint("venue_items", __name__, url_prefix="/venues")
 MAX_DB_INT = 2_147_483_647
@@ -110,6 +112,40 @@ def sanitize_raw_count(raw_value):
     if parsed > MAX_DB_INT:
         return MAX_DB_INT, True
     return parsed, False
+
+
+def normalize_quick_count_submission(raw_value):
+    normalized = (raw_value or "").strip()
+    if normalized == "":
+        return None, False
+
+    try:
+        parsed = int(normalized)
+    except ValueError:
+        return None, False
+
+    adjusted = False
+    if parsed < 0:
+        parsed = 0
+        adjusted = True
+    if parsed > MAX_DB_INT:
+        parsed = MAX_DB_INT
+        adjusted = True
+    return parsed, adjusted
+
+
+def quick_check_save_message(*, count_update_count=0, status_update_count=0):
+    parts = []
+    if count_update_count:
+        parts.append(f"{count_update_count} count update{'s' if count_update_count != 1 else ''}")
+    if status_update_count:
+        parts.append(f"{status_update_count} status update{'s' if status_update_count != 1 else ''}")
+
+    if not parts:
+        return "Saved updates."
+    if len(parts) == 2:
+        return f"Saved {parts[0]} and {parts[1]}."
+    return f"Saved {parts[0]}."
 
 
 def resolve_status_key_from_counts(total_tracked, counts):
@@ -212,6 +248,19 @@ def quick_check_status_meta(item, status_key):
         "label": labels.get(normalized, "Not checked"),
         "severity": severity,
     }
+
+
+def normalize_quick_check_submission(item, raw_status):
+    normalized = (raw_status or "").strip().lower()
+    if normalized == "":
+        return None
+
+    if item.tracking_mode == "singleton_asset":
+        return normalize_singleton_status(normalized)
+
+    if normalized not in {"good", "ok", "low", "out", "not_checked"}:
+        return None
+    return normalized
 
 
 def build_quick_check_groups(items, latest_status, latest_counts):
@@ -325,8 +374,8 @@ def quick_check(venue_id):
     entered_from_profile = urlparse(next_url).path == url_for("main.venue_detail", venue_id=venue.id)
 
     # Items tracked in this venue (active mappings, active items)
-    tracked = (
-        db.session.query(Item)
+    tracked_rows = (
+        db.session.query(Item, VenueItem.expected_qty.label("venue_par_override"))
         .options(selectinload(Item.parent_item))
         .join(VenueItem, VenueItem.item_id == Item.id)
         .filter(
@@ -337,7 +386,15 @@ def quick_check(venue_id):
         )
         .all()
     )
-    tracked = sorted(tracked, key=operational_item_sort_key)
+    tracked_rows = sorted(tracked_rows, key=lambda row: operational_item_sort_key(row[0]))
+    tracked = [item for item, _ in tracked_rows]
+    effective_par_by_item = {
+        item.id: resolve_effective_par_level(
+            item_default_par_level=item.default_par_level,
+            venue_par_override=venue_par_override,
+        ).value
+        for item, venue_par_override in tracked_rows
+    }
 
     selected_mode = (request.values.get("mode") or "status").strip().lower()
     if selected_mode not in ("status", "raw_counts"):
@@ -360,57 +417,72 @@ def quick_check(venue_id):
             adjusted_inputs = 0
             quantity_items = [it for it in tracked if it.tracking_mode != "singleton_asset"]
             singleton_items = [it for it in tracked if it.tracking_mode == "singleton_asset"]
+            quantity_count_updates = []
+            singleton_status_updates = []
 
-            count_session = None
-            if quantity_items:
+            for it in quantity_items:
+                raw_count, adjusted = normalize_quick_count_submission(request.form.get(f"count_{it.id}"))
+                if raw_count is None:
+                    continue
+                if adjusted:
+                    adjusted_inputs += 1
+                quantity_count_updates.append((it, raw_count))
+
+            for it in singleton_items:
+                status = normalize_quick_check_submission(
+                    it,
+                    request.form.get(f"status_{it.id}"),
+                )
+                if status is None:
+                    continue
+                singleton_status_updates.append((it, status))
+
+            if not quantity_count_updates and not singleton_status_updates:
+                flash("Add at least one count or status update before saving.", "warning")
+                return redirect(
+                    url_for(
+                        "venue_items.quick_check",
+                        venue_id=venue.id,
+                        next=next_url,
+                        mode="raw_counts",
+                    )
+                )
+
+            if quantity_count_updates:
                 count_session = CountSession(venue_id=venue.id, user_id=current_user.id)
                 db.session.add(count_session)
                 db.session.flush()
 
-            for it in quantity_items:
-                raw_value = (request.form.get(f"count_{it.id}") or "").strip()
-                if raw_value == "":
-                    # Keep blank counts as "Not Counted" (no CountLine and no VenueItemCount row).
-                    continue
-
-                try:
-                    raw_count = int(raw_value)
-                except ValueError:
-                    continue
-
-                if raw_count < 0:
-                    raw_count = 0
-                if raw_count > MAX_DB_INT:
-                    raw_count = MAX_DB_INT
-                    adjusted_inputs += 1
-
-                db.session.add(
-                    CountLine(
-                        count_session_id=count_session.id,
-                        item_id=it.id,
-                        raw_count=raw_count,
-                    )
-                )
-
-                current = existing_counts.get(it.id)
-                if current:
-                    current.raw_count = raw_count
-                else:
+                refreshed_at = datetime.now(timezone.utc)
+                for it, raw_count in quantity_count_updates:
                     db.session.add(
-                        VenueItemCount(
-                            venue_id=venue.id,
+                        CountLine(
+                            count_session_id=count_session.id,
                             item_id=it.id,
                             raw_count=raw_count,
                         )
                     )
 
-            if singleton_items:
+                    current = existing_counts.get(it.id)
+                    if current:
+                        current.raw_count = raw_count
+                        current.updated_at = refreshed_at
+                    else:
+                        current = VenueItemCount(
+                            venue_id=venue.id,
+                            item_id=it.id,
+                            raw_count=raw_count,
+                            updated_at=refreshed_at,
+                        )
+                        db.session.add(current)
+                        existing_counts[it.id] = current
+
+            if singleton_status_updates:
                 chk = Check(venue_id=venue.id, user_id=current_user.id)
                 db.session.add(chk)
                 db.session.flush()
 
-                for it in singleton_items:
-                    status = normalize_singleton_status(request.form.get(f"status_{it.id}"))
+                for it, status in singleton_status_updates:
                     db.session.add(CheckLine(check_id=chk.id, item_id=it.id, status=status))
                     sync_singleton_compat_count(existing_counts, venue.id, it.id, status)
 
@@ -420,7 +492,13 @@ def quick_check(venue_id):
                     f"{adjusted_inputs} raw count value(s) were out of range and adjusted to fit database limits.",
                     "warning",
                 )
-            flash("Saved updates.", "success")
+            flash(
+                quick_check_save_message(
+                    count_update_count=len(quantity_count_updates),
+                    status_update_count=len(singleton_status_updates),
+                ),
+                "success",
+            )
             return redirect(
                 url_for(
                     "venue_items.quick_check",
@@ -430,37 +508,50 @@ def quick_check(venue_id):
                 )
             )
 
-        # Create a new status check (existing behavior)
-        chk = Check(venue_id=venue.id, user_id=current_user.id)
-        db.session.add(chk)
-        db.session.flush()  # assign chk.id
-
-        # For each tracked item, read status from form
+        selected_status_updates = []
         for it in tracked:
-            status = (request.form.get(f"status_{it.id}") or "not_checked").strip().lower()
-            if it.tracking_mode == "singleton_asset":
-                status = normalize_singleton_status(status)
-            elif status not in ("good", "ok", "low", "out", "not_checked"):
-                status = "not_checked"
-
-            db.session.add(CheckLine(check_id=chk.id, item_id=it.id, status=status))
-
-        existing_counts = {
-            row.item_id: row
-            for row in VenueItemCount.query.filter_by(venue_id=venue.id).all()
-        }
-        for it in tracked:
-            if it.tracking_mode != "singleton_asset":
-                continue
-            sync_singleton_compat_count(
-                existing_counts,
-                venue.id,
-                it.id,
+            normalized_status = normalize_quick_check_submission(
+                it,
                 request.form.get(f"status_{it.id}"),
             )
+            if normalized_status is None:
+                continue
+            selected_status_updates.append((it, normalized_status))
+
+        if not selected_status_updates:
+            flash("Select at least one status to record a fresh quick check.", "warning")
+            return redirect(
+                url_for("venue_items.quick_check", venue_id=venue.id, next=next_url, mode="status")
+            )
+
+        chk = Check(venue_id=venue.id, user_id=current_user.id)
+        db.session.add(chk)
+        db.session.flush()
+
+        for it, status in selected_status_updates:
+            db.session.add(CheckLine(check_id=chk.id, item_id=it.id, status=status))
+
+        selected_singleton_updates = [
+            (it, status) for it, status in selected_status_updates if it.tracking_mode == "singleton_asset"
+        ]
+        if selected_singleton_updates:
+            existing_counts = {
+                row.item_id: row
+                for row in VenueItemCount.query.filter_by(venue_id=venue.id).all()
+            }
+            for it, status in selected_singleton_updates:
+                sync_singleton_compat_count(
+                    existing_counts,
+                    venue.id,
+                    it.id,
+                    status,
+                )
 
         db.session.commit()
-        flash("Saved check.", "success")
+        flash(
+            quick_check_save_message(status_update_count=len(selected_status_updates)),
+            "success",
+        )
         return redirect(
             url_for("venue_items.quick_check", venue_id=venue.id, next=next_url, mode="status")
         )
@@ -520,6 +611,7 @@ def quick_check(venue_id):
         quick_check_groups=quick_check_groups,
         latest_status=latest_status,
         latest_counts=latest_counts,
+        effective_par_by_item=effective_par_by_item,
         selected_mode=selected_mode,
         next_url=next_url,
         show_profile_link=not entered_from_profile,

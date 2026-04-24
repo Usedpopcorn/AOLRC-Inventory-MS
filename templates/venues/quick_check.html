@@ -1,11 +1,29 @@
 {% extends "base.html" %}
 {% import "_item_macros.html" as item_ui %}
-{% import "_inventory_macros.html" as inventory_ui %}
 {% import "_ui_macros.html" as ui %}
 {% block title %}{{ venue.name }} Check{% endblock %}
 
-{% macro check_row(it, latest_status, latest_counts, is_counts_mode, is_view_only, nested=False, hidden=False) -%}
+{% macro current_status_pill(tracking_mode, status_key, extra_classes="") -%}
+  {% set normalized = (status_key or "not_checked")|lower %}
+  {% if tracking_mode == "singleton_asset" %}
+    {% set label = "Present" if normalized == "good" else "Damaged" if normalized == "low" else "Missing" if normalized == "out" else "Not checked" %}
+  {% else %}
+    {% set label = "Good" if normalized == "good" else "OK" if normalized == "ok" else "Low" if normalized == "low" else "Out" if normalized == "out" else "Not checked" %}
+  {% endif %}
+  {% set icon_class = "bi-check-circle-fill" if normalized in ["good", "ok"] else "bi-exclamation-triangle-fill" if normalized == "low" else "bi-x-circle-fill" if normalized == "out" else "bi-dash-circle" %}
+  {{ ui.status_pill(normalized, label, icon_class, extra_classes=extra_classes) }}
+{%- endmacro %}
+
+{% macro quantity_unit_label(item, amount=None) -%}{% set custom_unit = (item.unit or "")|trim %}{% if custom_unit %}{{- custom_unit -}}{% elif amount == 1 %}unit{% else %}units{% endif %}{%- endmacro %}
+
+{% macro quantity_with_unit(value, item) -%}
+  {{- value }} {{ quantity_unit_label(item, value) -}}
+{%- endmacro %}
+
+{% macro check_row(it, latest_status, latest_counts, effective_par_by_item, is_view_only, nested=False, hidden=False) -%}
   {% set current_status = latest_status[it.id] %}
+  {% set last_count = latest_counts[it.id] %}
+  {% set par_value = effective_par_by_item[it.id] %}
   <div
     class="quick-check-row quick-check-entry-row supply-status-row inventory-row-shell{{ ' quick-check-row-child' if nested else '' }}"
     data-name="{{ (it.name ~ ' ' ~ (it.parent_item.name if it.parent_item else ''))|lower }}"
@@ -14,6 +32,11 @@
     data-display-name="{{ it.name|lower }}"
     data-item-id="{{ it.id }}"
     data-tracking-mode="{{ it.tracking_mode }}"
+    data-current-status="{{ current_status }}"
+    data-pending-status=""
+    data-current-count="{{ '' if last_count is none else last_count }}"
+    data-par-count="{{ '' if par_value is none else par_value }}"
+    data-unit-label="{{ it.unit or '' }}"
     {{ 'hidden' if hidden else '' }}
   >
     <div class="quick-check-row-main">
@@ -35,57 +58,78 @@
       {% endif %}
     </div>
 
-    <input type="hidden" name="status_{{ it.id }}" id="status_{{ it.id }}" value="{{ current_status }}">
+    <input type="hidden" name="status_{{ it.id }}" id="status_{{ it.id }}" value="">
 
     <div class="inventory-row-entry">
-      <div class="status-seg{% if is_counts_mode and it.tracking_mode != 'singleton_asset' %} status-mode-only d-none{% endif %}" role="group" aria-label="Status for {{ it.name }}">
-        {% if it.tracking_mode == "singleton_asset" %}
-          <button type="button" class="status-seg-btn status-seg-good status-btn"
-                  data-item="{{ it.id }}" data-value="good" {{ "disabled" if is_view_only else "" }}>Present</button>
-          <button type="button" class="status-seg-btn status-seg-low status-btn"
-                  data-item="{{ it.id }}" data-value="low" {{ "disabled" if is_view_only else "" }}>Damaged</button>
-          <button type="button" class="status-seg-btn status-seg-out status-btn"
-                  data-item="{{ it.id }}" data-value="out" {{ "disabled" if is_view_only else "" }}>Missing</button>
-          <button type="button" class="status-seg-btn status-seg-na status-btn"
-                  data-item="{{ it.id }}" data-value="not_checked" {{ "disabled" if is_view_only else "" }}>&mdash;</button>
-        {% else %}
-          <button type="button" class="status-seg-btn status-seg-good status-btn"
-                  data-item="{{ it.id }}" data-value="good" {{ "disabled" if is_view_only else "" }}>Good</button>
-          <button type="button" class="status-seg-btn status-seg-ok status-btn"
-                  data-item="{{ it.id }}" data-value="ok" {{ "disabled" if is_view_only else "" }}>OK</button>
-          <button type="button" class="status-seg-btn status-seg-low status-btn"
-                  data-item="{{ it.id }}" data-value="low" {{ "disabled" if is_view_only else "" }}>Low</button>
-          <button type="button" class="status-seg-btn status-seg-out status-btn"
-                  data-item="{{ it.id }}" data-value="out" {{ "disabled" if is_view_only else "" }}>Out</button>
-          <button type="button" class="status-seg-btn status-seg-na status-btn"
-                  data-item="{{ it.id }}" data-value="not_checked" {{ "disabled" if is_view_only else "" }}>&mdash;</button>
+      <div class="quick-check-entry-stack">
+        <div class="quick-check-status-surface">
+          <div class="quick-check-status-summary">
+            <span class="quick-check-status-current">
+              <span class="quick-check-saved-label">Current</span>
+              {{ current_status_pill(it.tracking_mode, current_status, extra_classes="quick-check-current-status-pill") }}
+            </span>
+            <span class="quick-check-status-note is-empty" data-status-pending-note aria-hidden="true">&nbsp;</span>
+          </div>
+          <div class="status-seg" role="group" aria-label="Status for {{ it.name }}">
+            {% if it.tracking_mode == "singleton_asset" %}
+              <button type="button" class="status-seg-btn status-seg-good status-btn"
+                      data-item="{{ it.id }}" data-value="good" {{ "disabled" if is_view_only else "" }}>Present</button>
+              <button type="button" class="status-seg-btn status-seg-low status-btn"
+                      data-item="{{ it.id }}" data-value="low" {{ "disabled" if is_view_only else "" }}>Damaged</button>
+              <button type="button" class="status-seg-btn status-seg-out status-btn"
+                      data-item="{{ it.id }}" data-value="out" {{ "disabled" if is_view_only else "" }}>Missing</button>
+              <button type="button" class="status-seg-btn status-seg-na status-btn"
+                      data-item="{{ it.id }}" data-value="not_checked" {{ "disabled" if is_view_only else "" }}>&mdash;</button>
+            {% else %}
+              <button type="button" class="status-seg-btn status-seg-good status-btn"
+                      data-item="{{ it.id }}" data-value="good" {{ "disabled" if is_view_only else "" }}>Good</button>
+              <button type="button" class="status-seg-btn status-seg-ok status-btn"
+                      data-item="{{ it.id }}" data-value="ok" {{ "disabled" if is_view_only else "" }}>OK</button>
+              <button type="button" class="status-seg-btn status-seg-low status-btn"
+                      data-item="{{ it.id }}" data-value="low" {{ "disabled" if is_view_only else "" }}>Low</button>
+              <button type="button" class="status-seg-btn status-seg-out status-btn"
+                      data-item="{{ it.id }}" data-value="out" {{ "disabled" if is_view_only else "" }}>Out</button>
+              <button type="button" class="status-seg-btn status-seg-na status-btn"
+                      data-item="{{ it.id }}" data-value="not_checked" {{ "disabled" if is_view_only else "" }}>&mdash;</button>
+            {% endif %}
+          </div>
+        </div>
+
+        {% if it.tracking_mode != "singleton_asset" %}
+          <div class="quick-check-count-surface">
+            <div class="quick-check-count-context">
+              <div class="quick-check-count-metric">
+                <span class="quick-check-count-metric-label">Last</span>
+                <span class="quick-check-count-metric-value{{ ' quick-check-count-metric-value-muted' if last_count is none else '' }}">
+                  {{ "No prior count" if last_count is none else quantity_with_unit(last_count, it) }}
+                </span>
+              </div>
+              <div class="quick-check-count-metric">
+                <span class="quick-check-count-metric-label">Par</span>
+                <span class="quick-check-count-metric-value{{ ' quick-check-count-metric-value-muted' if par_value is none else '' }}">
+                  {{ "No par set" if par_value is none else quantity_with_unit(par_value, it) }}
+                </span>
+              </div>
+            </div>
+            <div class="quick-check-count-entry">
+              <label class="quick-check-count-entry-label" for="count_{{ it.id }}">New count ({{ quantity_unit_label(it) }})</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                inputmode="numeric"
+                class="form-control ui-control count-input"
+                id="count_{{ it.id }}"
+                name="count_{{ it.id }}"
+                value=""
+                placeholder="Enter count"
+                {{ "disabled" if is_view_only else "" }}
+              >
+              <div class="quick-check-count-entry-note is-empty" data-count-pending-note aria-hidden="true">&nbsp;</div>
+            </div>
+          </div>
         {% endif %}
       </div>
-
-      {% if it.tracking_mode != "singleton_asset" %}
-        <div class="count-wrap counts-mode-only{% if not is_counts_mode %} d-none{% endif %}">
-          <label class="visually-hidden" for="count_{{ it.id }}">Count for {{ it.name }}</label>
-          {{ inventory_ui.state_badge(
-            "Not Counted",
-            tone="missing",
-            icon_class="bi-dash-circle",
-            extra_classes="count-not-counted-badge" ~ (" d-none" if latest_counts[it.id] is not none else ""),
-            extra_attrs='data-not-counted-badge-for="count_' ~ it.id ~ '"'
-          ) }}
-          <input
-            type="number"
-            min="0"
-            step="1"
-            inputmode="numeric"
-            class="form-control ui-control count-input"
-            id="count_{{ it.id }}"
-            name="count_{{ it.id }}"
-            value="{{ '' if latest_counts[it.id] is none else latest_counts[it.id] }}"
-            placeholder="-"
-            {{ "disabled" if is_view_only else "" }}
-          >
-        </div>
-      {% endif %}
     </div>
   </div>
 {%- endmacro %}
@@ -130,23 +174,37 @@
   </div>
 {% endcall %}
 <div class="text-muted mb-3 status-mode-only{% if selected_mode == 'raw_counts' %} d-none{% endif %}">
-  Expand a family when needed, tap a status for each tracked item, then Save Changes.
+  Review the saved status on each row, then tap a status only for items you want to refresh.
 </div>
 <div class="text-muted mb-3 counts-mode-only{% if selected_mode != 'raw_counts' %} d-none{% endif %}">
-  Expand a family when needed, enter counts for quantity items, and update singleton asset status directly. Leave quantity fields blank for Not counted yet.
+  Review the saved last count and par on each row, then enter only the new counts or singleton status updates you want to record.
 </div>
 
 {% if items|length == 0 %}
   {{ ui.empty_state("No supplies are tracked for this venue yet.", body="Assign venue supplies first, then staff can update status or counts here.") }}
 {% else %}
 {% set is_view_only = not current_user.is_staff %}
+{% set is_counts_mode = (selected_mode == "raw_counts") %}
 {% if is_view_only %}
   {{ ui.state_banner("View-only access", "Statuses and counts cannot be changed from this account.", tone="info") }}
 {% endif %}
 <form method="post" id="quick-check-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="next" value="{{ next_url }}">
-  {% set is_counts_mode = (selected_mode == "raw_counts") %}
+  <div
+    id="statusSelectionWarning"
+    class="ui-state-banner ui-state-banner-warning d-none mb-3"
+    role="alert"
+    aria-live="polite"
+  >
+    <div class="ui-state-banner-icon" aria-hidden="true">
+      <i class="bi bi-exclamation-triangle-fill"></i>
+    </div>
+    <div class="ui-state-banner-copy">
+      <div class="ui-state-banner-title" id="statusSelectionWarningTitle">Select a status to update</div>
+      <div class="ui-state-banner-body" id="statusSelectionWarningBody">Choose at least one item to record a fresh quick check.</div>
+    </div>
+  </div>
   <div class="card">
     <div class="card-body quick-check-layout{% if is_counts_mode %} quick-check-layout-raw{% endif %}" id="quickCheckLayout">
       {% call ui.toolbar("quick-check-toolbar mb-3") %}
@@ -173,10 +231,7 @@
 
       <div class="quick-check-column-header inventory-row-shell d-none d-md-grid fw-bold mb-2">
         <div>Supplies</div>
-        <div
-          id="mode_column_header"
-          class="mode-column-header{% if is_counts_mode %} raw-mode{% endif %}"
-        >
+        <div id="mode_column_header" class="mode-column-header{% if is_counts_mode %} raw-mode{% endif %}">
           {% if is_counts_mode %}Entry{% else %}Status{% endif %}
         </div>
       </div>
@@ -201,18 +256,28 @@
                 <span class="quick-check-family-main inventory-family-shell">
                   <span class="quick-check-family-leading inventory-family-summary">
                     <span class="quick-check-family-title">
-                    {{ item_ui.item_heading(
-                      group.family_name,
-                      is_group_parent=True,
-                      child_count=group.child_count,
-                      note=group.tracking_summary,
-                      compact=True,
-                      count_label="variant"
-                    ) }}
+                      {{ item_ui.item_heading(
+                        group.family_name,
+                        is_group_parent=True,
+                        child_count=group.child_count,
+                        note=group.tracking_summary,
+                        compact=True,
+                        count_label="variant"
+                      ) }}
                     </span>
                     <span class="quick-check-family-meta-line">
                       <span class="quick-check-family-meta-text" data-family-summary-count>
-                      {% if is_counts_mode %}{{ group.counted_summary }}{% else %}{{ group.checked_summary }}{% endif %}
+                        {% if is_counts_mode %}
+                          {% if group.has_singleton_children and not group.has_quantity_children %}
+                            0 of {{ group.child_count }} variants checked
+                          {% elif group.has_quantity_children and not group.has_singleton_children %}
+                            0 of {{ group.child_count }} variants counted
+                          {% else %}
+                            0 of {{ group.child_count }} variants updated
+                          {% endif %}
+                        {% else %}
+                          {{ group.checked_summary }}
+                        {% endif %}
                       </span>
                       <span class="quick-check-family-meta-dot" aria-hidden="true">&middot;</span>
                       <span class="quick-check-family-meta-text quick-check-family-meta-hint">Expand to review variant items</span>
@@ -228,11 +293,11 @@
               </button>
               <div class="quick-check-family-children inventory-tree-children" id="{{ group.id }}-children" hidden>
                 {% for it in group.children %}
-                  {{ check_row(it, latest_status, latest_counts, is_counts_mode, is_view_only, nested=True, hidden=True) }}
+                  {{ check_row(it, latest_status, latest_counts, effective_par_by_item, is_view_only, nested=True, hidden=True) }}
                 {% endfor %}
               </div>
             {% else %}
-              {{ check_row(group.item, latest_status, latest_counts, is_counts_mode, is_view_only) }}
+              {{ check_row(group.item, latest_status, latest_counts, effective_par_by_item, is_view_only) }}
             {% endif %}
           </section>
         {% endfor %}
@@ -252,6 +317,7 @@
 
 <script>
   (() => {
+    const quickCheckForm = document.getElementById("quick-check-form");
     const quickCheckLayout = document.getElementById("quickCheckLayout");
     const modeSelect = document.getElementById("check_mode");
     const supplySearchEl = document.getElementById("supplySearch");
@@ -259,9 +325,14 @@
     const overallStatusPill = document.getElementById("overallStatusPill");
     const overallStatusIcon = document.getElementById("overallStatusIcon");
     const overallStatusText = document.getElementById("overallStatusText");
+    const selectionWarning = document.getElementById("statusSelectionWarning");
+    const selectionWarningTitle = document.getElementById("statusSelectionWarningTitle");
+    const selectionWarningBody = document.getElementById("statusSelectionWarningBody");
     const initialUrl = new URL(window.location.href);
     const focusItemId = initialUrl.searchParams.get("focus_item_id");
     let hasAppliedFocusHighlight = false;
+    let hasTouchedStatusSelection = false;
+    let hasTouchedCountSelection = false;
 
     function getGroups() {
       return Array.from(document.querySelectorAll(".quick-check-group"));
@@ -269,6 +340,88 @@
 
     function getEntryRows() {
       return Array.from(document.querySelectorAll(".quick-check-entry-row"));
+    }
+
+    function getRowByItemId(itemId) {
+      return document.querySelector(`.quick-check-entry-row[data-item-id="${itemId}"]`);
+    }
+
+    function getStatusInput(itemId) {
+      return document.getElementById(`status_${itemId}`);
+    }
+
+    function getCountInput(row) {
+      const itemId = row?.dataset.itemId;
+      return itemId ? document.getElementById(`count_${itemId}`) : null;
+    }
+
+    function normalizeSelectableStatus(value, allowBlank = false) {
+      const normalized = (value || "").toLowerCase();
+      if (allowBlank && normalized === "") return "";
+      return ["good", "ok", "low", "out", "not_checked"].includes(normalized)
+        ? normalized
+        : (allowBlank ? "" : "not_checked");
+    }
+
+    function getCurrentStatusValue(row) {
+      return normalizeSelectableStatus(row?.dataset.currentStatus || "not_checked");
+    }
+
+    function getPendingStatusValue(row) {
+      return normalizeSelectableStatus(row?.dataset.pendingStatus || "", true);
+    }
+
+    function getEffectiveStatusValue(row) {
+      if (!row) return "not_checked";
+      if (modeSelect.value === "raw_counts" && (row.dataset.trackingMode || "") !== "singleton_asset") {
+        return getCurrentStatusValue(row);
+      }
+      return getPendingStatusValue(row) || getCurrentStatusValue(row);
+    }
+
+    function getStatusValueForButtons(row) {
+      return getPendingStatusValue(row);
+    }
+
+    function getCurrentCountValue(row) {
+      const raw = (row?.dataset.currentCount || "").trim();
+      return raw === "" ? null : raw;
+    }
+
+    function getPendingCountValue(row) {
+      const input = getCountInput(row);
+      return (input?.value || "").trim();
+    }
+
+    function getUnitLabel(row, amount = null) {
+      const configured = (row?.dataset.unitLabel || "").trim();
+      if (configured) return configured;
+      return Number(amount) === 1 ? "unit" : "units";
+    }
+
+    function getPendingCountRowCount() {
+      return getEntryRows().reduce((count, row) => {
+        if ((row.dataset.trackingMode || "") === "singleton_asset") return count;
+        return count + (getPendingCountValue(row) !== "" ? 1 : 0);
+      }, 0);
+    }
+
+    function getPendingStatusCount({ singletonOnly = false } = {}) {
+      return getEntryRows().reduce((count, row) => {
+        if (singletonOnly && (row.dataset.trackingMode || "") !== "singleton_asset") return count;
+        return count + (getPendingStatusValue(row) ? 1 : 0);
+      }, 0);
+    }
+
+    function syncRowStatusInput(row) {
+      const itemId = row?.dataset.itemId;
+      const input = itemId ? getStatusInput(itemId) : null;
+      if (!input) return;
+      input.value = getPendingStatusValue(row);
+    }
+
+    function syncAllStatusInputs() {
+      getEntryRows().forEach((row) => syncRowStatusInput(row));
     }
 
     function getStatusMeta(row, statusValue) {
@@ -284,6 +437,80 @@
         label: labels[normalized] || "Not checked",
         severity: severityMap[normalized] ?? 2,
       };
+    }
+
+    function updatePendingStatusNote(row) {
+      const note = row?.querySelector("[data-status-pending-note]");
+      if (!note) return;
+
+      const pending = getPendingStatusValue(row);
+      if (!pending) {
+        note.textContent = "\u00A0";
+        note.classList.add("is-empty");
+        note.setAttribute("aria-hidden", "true");
+        return;
+      }
+
+      if (pending === getCurrentStatusValue(row)) {
+        note.textContent = "Update status";
+      } else {
+        note.textContent = `Set to ${getStatusMeta(row, pending).label}`;
+      }
+      note.classList.remove("is-empty");
+      note.removeAttribute("aria-hidden");
+    }
+
+    function updatePendingCountNote(row) {
+      const note = row?.querySelector("[data-count-pending-note]");
+      if (!note) return;
+
+      const pending = getPendingCountValue(row);
+      if (pending === "") {
+        note.textContent = "\u00A0";
+        note.classList.add("is-empty");
+        note.setAttribute("aria-hidden", "true");
+        return;
+      }
+
+      const current = getCurrentCountValue(row);
+      const unitLabel = getUnitLabel(row, pending);
+      if (current === null) {
+        note.textContent = `First count: ${pending} ${unitLabel}`;
+      } else if (Number(current) === Number(pending)) {
+        note.textContent = `Update count: ${pending} ${unitLabel}`;
+      } else {
+        note.textContent = `Set to ${pending} ${unitLabel}`;
+      }
+      note.classList.remove("is-empty");
+      note.removeAttribute("aria-hidden");
+    }
+
+    function hideSelectionWarning() {
+      if (!selectionWarning) return;
+      selectionWarning.classList.add("d-none");
+    }
+
+    function showSelectionWarning() {
+      if (!selectionWarning) return;
+
+      if (modeSelect.value === "raw_counts") {
+        if (hasTouchedCountSelection || hasTouchedStatusSelection) {
+          selectionWarningTitle.textContent = "No count or status updates are queued";
+          selectionWarningBody.textContent = "You cleared your pending entries. Enter a new count or select a singleton status before saving.";
+        } else {
+          selectionWarningTitle.textContent = "Add a count or status update";
+          selectionWarningBody.textContent = "Enter a new count or select a singleton status before saving.";
+        }
+      } else if (hasTouchedStatusSelection) {
+        selectionWarningTitle.textContent = "No status updates are queued";
+        selectionWarningBody.textContent = "You cleared your pending selections. Choose at least one item to record a fresh quick check.";
+      } else {
+        selectionWarningTitle.textContent = "Select a status to update";
+        selectionWarningBody.textContent = "Choose at least one item to record a fresh quick check.";
+      }
+
+      selectionWarning.classList.remove("d-none");
+      selectionWarning.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
 
     function resolveOverallStatusFromCounts(total, counts, detailCounts = null) {
@@ -370,10 +597,7 @@
       };
 
       getEntryRows().forEach((row) => {
-        const itemId = row.dataset.itemId;
-        const input = itemId ? document.getElementById(`status_${itemId}`) : null;
-        let value = (input?.value || "not_checked").toLowerCase();
-        if (!(value in counts)) value = "not_checked";
+        const value = getEffectiveStatusValue(row);
         counts[value] += 1;
         if (value === "low" || value === "out") {
           const suffix = (row.dataset.trackingMode || "") === "singleton_asset" ? "singleton" : "quantity";
@@ -393,15 +617,6 @@
       overallStatusPill.classList.add(statusClassByKey[meta.key] || "status-na");
       overallStatusIcon.className = `bi ${meta.iconClass}`;
       overallStatusText.textContent = meta.text;
-    }
-
-    function refreshCountBadges() {
-      document.querySelectorAll(".count-input").forEach((inputEl) => {
-        const badge = document.querySelector(`[data-not-counted-badge-for="${inputEl.id}"]`);
-        if (!badge) return;
-        const isMissing = (inputEl.value || "").trim() === "";
-        badge.classList.toggle("d-none", !isMissing);
-      });
     }
 
     function syncQuickCheckActionUrls() {
@@ -445,11 +660,12 @@
       }
     }
 
-      function updateFamilySummary(groupEl) {
-        if (groupEl.dataset.kind !== "family") return;
+    function updateFamilySummary(groupEl) {
+      if (groupEl.dataset.kind !== "family") return;
 
       const childRows = Array.from(groupEl.querySelectorAll(".quick-check-entry-row"));
       const childCount = childRows.length;
+      const isCountsMode = modeSelect.value === "raw_counts";
       let checkedCount = 0;
       let countedCount = 0;
       let hasSingletonChildren = false;
@@ -457,20 +673,22 @@
       const statusCounts = { good: 0, ok: 0, low: 0, out: 0, not_checked: 0 };
 
       childRows.forEach((row) => {
-        const itemId = row.dataset.itemId;
-        const statusInput = itemId ? document.getElementById(`status_${itemId}`) : null;
-        const countInput = itemId ? document.getElementById(`count_${itemId}`) : null;
-        const meta = getStatusMeta(row, statusInput?.value || "not_checked");
+        const effectiveStatus = getEffectiveStatusValue(row);
+        const meta = getStatusMeta(row, effectiveStatus);
         const isSingleton = (row.dataset.trackingMode || "") === "singleton_asset";
 
         if (meta.key in statusCounts) statusCounts[meta.key] += 1;
         if (meta.key !== "not_checked") checkedCount += 1;
         if (isSingleton) {
           hasSingletonChildren = true;
-          if (meta.key !== "not_checked") countedCount += 1;
+          if (isCountsMode) {
+            if (getPendingStatusValue(row)) countedCount += 1;
+          } else if (meta.key !== "not_checked") {
+            countedCount += 1;
+          }
         } else {
           hasQuantityChildren = true;
-          if ((countInput?.value || "").trim() !== "") countedCount += 1;
+          if (isCountsMode && getPendingCountValue(row) !== "") countedCount += 1;
         }
       });
 
@@ -481,9 +699,7 @@
         out_singleton: 0,
       };
       childRows.forEach((row) => {
-        const itemId = row.dataset.itemId;
-        const statusInput = itemId ? document.getElementById(`status_${itemId}`) : null;
-        const value = ((statusInput?.value || "not_checked").toLowerCase());
+        const value = getEffectiveStatusValue(row);
         if (value === "low" || value === "out") {
           const suffix = (row.dataset.trackingMode || "") === "singleton_asset" ? "singleton" : "quantity";
           detailCounts[`${value}_${suffix}`] += 1;
@@ -491,9 +707,8 @@
       });
 
       const resolvedStatus = resolveOverallStatusFromCounts(childCount, statusCounts, detailCounts);
-      const resolvedKey = resolvedStatus.key;
       const worstMeta = {
-        key: resolvedKey,
+        key: resolvedStatus.key,
         label: buildFamilyStatusLabel(childCount, statusCounts, detailCounts, {
           assetOnly: hasSingletonChildren && !hasQuantityChildren,
         }),
@@ -503,7 +718,7 @@
       const statusSummaryEl = groupEl.querySelector("[data-family-summary-status]");
       const familyButton = groupEl.querySelector("[data-family-toggle]");
       if (countSummaryEl) {
-        if (modeSelect.value === "raw_counts") {
+        if (isCountsMode) {
           if (hasSingletonChildren && !hasQuantityChildren) {
             countSummaryEl.textContent = `${countedCount} of ${childCount} variants checked`;
           } else if (hasQuantityChildren && !hasSingletonChildren) {
@@ -611,29 +826,53 @@
       }, 3200);
     }
 
-    function refreshButtons(itemId) {
-      const val = document.getElementById(`status_${itemId}`).value;
+    function refreshStatusRow(row) {
+      const itemId = row?.dataset.itemId;
+      if (!itemId) return;
+
+      const val = getStatusValueForButtons(row);
       document.querySelectorAll(`.status-btn[data-item="${itemId}"]`).forEach((btn) => {
         btn.classList.toggle("active", btn.dataset.value === val);
       });
 
-      const row = document.querySelector(`.quick-check-entry-row[data-item-id="${itemId}"]`);
-      const familyGroup = row?.closest(".quick-check-group-family");
+      updatePendingStatusNote(row);
+      syncRowStatusInput(row);
+      const familyGroup = row.closest(".quick-check-group-family");
       if (familyGroup) updateFamilySummary(familyGroup);
       refreshOverallStatus();
+    }
+
+    function refreshAllStatusRows() {
+      getEntryRows().forEach((row) => refreshStatusRow(row));
+    }
+
+    function refreshCountRow(row) {
+      updatePendingCountNote(row);
+      const familyGroup = row?.closest(".quick-check-group-family");
+      if (familyGroup) updateFamilySummary(familyGroup);
+    }
+
+    function refreshAllCountRows() {
+      getEntryRows().forEach((row) => refreshCountRow(row));
     }
 
     document.querySelectorAll(".status-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         const itemId = btn.dataset.item;
-        document.getElementById(`status_${itemId}`).value = btn.dataset.value;
-        refreshButtons(itemId);
-      });
-    });
+        const row = getRowByItemId(itemId);
+        if (!row) return;
 
-    document.querySelectorAll('input[id^="status_"]').forEach((inp) => {
-      const itemId = inp.id.replace("status_", "");
-      refreshButtons(itemId);
+        const currentPending = getPendingStatusValue(row);
+        row.dataset.pendingStatus = currentPending === btn.dataset.value ? "" : btn.dataset.value;
+        hasTouchedStatusSelection = true;
+        refreshStatusRow(row);
+        if (
+          (modeSelect.value === "status" && getPendingStatusCount() > 0) ||
+          (modeSelect.value === "raw_counts" && (getPendingCountRowCount() + getPendingStatusCount({ singletonOnly: true }) > 0))
+        ) {
+          hideSelectionWarning();
+        }
+      });
     });
 
     document.querySelectorAll("[data-family-toggle]").forEach((button) => {
@@ -655,7 +894,6 @@
       document.querySelectorAll(".status-mode-only").forEach((el) => {
         el.classList.toggle("d-none", isCountsMode);
       });
-
       document.querySelectorAll(".counts-mode-only").forEach((el) => {
         el.classList.toggle("d-none", !isCountsMode);
       });
@@ -666,36 +904,69 @@
         header.classList.toggle("raw-mode", isCountsMode);
       }
 
+      syncAllStatusInputs();
+      if (
+        (isCountsMode && (getPendingCountRowCount() + getPendingStatusCount({ singletonOnly: true }) > 0)) ||
+        (!isCountsMode && getPendingStatusCount() > 0)
+      ) {
+        hideSelectionWarning();
+      }
       refreshAllFamilySummaries();
+      refreshOverallStatus();
       syncQuickCheckUrl();
     }
 
     modeSelect.addEventListener("change", () => {
       refreshModeUI();
+      refreshAllStatusRows();
+      refreshAllCountRows();
       applyQuickCheckView();
     });
+
     supplySearchEl.addEventListener("input", () => {
       applyQuickCheckView();
       syncQuickCheckUrl();
     });
+
     document.querySelectorAll(".count-input").forEach((inputEl) => {
-      inputEl.addEventListener("input", () => {
-        refreshCountBadges();
+      const handleCountInput = () => {
+        hasTouchedCountSelection = true;
         const row = inputEl.closest(".quick-check-entry-row");
-        const familyGroup = row?.closest(".quick-check-group-family");
-        if (familyGroup) updateFamilySummary(familyGroup);
-      });
-      inputEl.addEventListener("change", () => {
-        refreshCountBadges();
-        const row = inputEl.closest(".quick-check-entry-row");
-        const familyGroup = row?.closest(".quick-check-group-family");
-        if (familyGroup) updateFamilySummary(familyGroup);
-      });
+        refreshCountRow(row);
+        if (getPendingCountRowCount() > 0) {
+          hideSelectionWarning();
+        }
+      };
+      inputEl.addEventListener("input", handleCountInput);
+      inputEl.addEventListener("change", handleCountInput);
+    });
+
+    quickCheckForm.addEventListener("submit", (event) => {
+      syncAllStatusInputs();
+
+      if (modeSelect.value === "status") {
+        if (getPendingStatusCount() > 0) {
+          hideSelectionWarning();
+          return;
+        }
+        event.preventDefault();
+        showSelectionWarning();
+        return;
+      }
+
+      if (getPendingCountRowCount() + getPendingStatusCount({ singletonOnly: true }) > 0) {
+        hideSelectionWarning();
+        return;
+      }
+
+      event.preventDefault();
+      showSelectionWarning();
     });
 
     syncQuickCheckActionUrls();
     refreshModeUI();
-    refreshCountBadges();
+    refreshAllStatusRows();
+    refreshAllCountRows();
     refreshAllFamilySummaries();
     applyQuickCheckView();
     refreshOverallStatus();

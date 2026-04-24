@@ -89,7 +89,7 @@
 <div class="tab-content">
   <!-- Venues TAB -->
   <div class="tab-pane fade {{ 'show active' if active_tab == 'venues' else '' }}" id="venues" role="tabpanel">
-    <div class="card mb-3">
+    <div class="card mb-3 ui-surface-card-secondary">
       <div class="card-body d-flex flex-column gap-3">
         <div class="dashboard-toolbar-inline">
           <div class="venue-toolbar-controls">
@@ -124,7 +124,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card ui-surface-card">
       <div class="card-body">
         <div id="venueResultCount" class="text-muted small mb-2">
           {{ venue_rows|length }} {{ "result" if venue_rows|length == 1 else "results" }}
@@ -374,7 +374,7 @@
       <input type="hidden" name="restock_item_submitted" value="1">
       <input type="hidden" name="restock_venue_submitted" value="1">
 
-      <div class="card mb-3">
+      <div class="card mb-3 ui-surface-card-secondary">
         <div class="card-body d-flex flex-column gap-3">
           <div class="dashboard-toolbar-inline">
             <div class="restock-input-row">
@@ -625,7 +625,7 @@
       </div>
     </form>
 
-    <div class="card">
+    <div class="card ui-surface-card">
       <div class="card-body">
         <div
           id="restockResultCount"
@@ -1585,7 +1585,7 @@
 
   <!-- Activity TAB -->
   <div class="tab-pane fade {{ 'show active' if active_tab == 'activity' else '' }}" id="activity" role="tabpanel" data-activity-loaded="{{ 'true' if activity_loaded else 'false' }}">
-    <div class="card mb-3">
+    <div class="card mb-3 ui-surface-card-secondary">
       <form method="get" action="{{ url_for('main.dashboard') }}" id="activityForm" class="card-body d-flex flex-column gap-3">
         <input type="hidden" name="tab" value="activity">
         <input type="hidden" name="activity_page" id="activityPageField" value="{{ activity_pagination.current_page }}">
@@ -1655,7 +1655,7 @@
       </form>
     </div>
 
-    <div class="card">
+    <div class="card ui-surface-card">
       <div class="card-body">
         <div id="activityResultCount" class="text-muted small mb-2">
           {% if activity_pagination.total_count %}

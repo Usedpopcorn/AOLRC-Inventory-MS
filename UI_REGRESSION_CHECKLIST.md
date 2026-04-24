@@ -38,6 +38,9 @@ Use this checklist for any UI-affecting change.
 - Chip clutter: no redundant chips or new Bootstrap badge drift.
 - Copy discipline: no repeated helper text, “snapshot” filler, or explanatory copy that the surrounding UI already makes clear.
 - Feed density: activity/history sections read like feeds or compact lists, not stacks of identical full cards.
+- Surface hierarchy: adjacent cards and panels stay visually distinct even at lower display contrast or brightness.
+- Border consistency: neighboring surfaces use the shared border weight/tone instead of mixed thick/thin outlines.
+- Shadow discipline: shadows stay subtle, support hierarchy, and do not create muddy edges or clipped corners.
 - Preview-first behavior: disclosures, capped previews, and paging keep long admin sections from flooding the page.
 - Empty/loading/error states: shared state components used, copy still clear, no broken spacing.
 - Overflow and horizontal scroll: operational pages should not rely on sideways scrolling on small screens.

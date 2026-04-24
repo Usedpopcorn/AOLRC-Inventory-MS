@@ -20,15 +20,15 @@
 
 {% if row.is_self %}
   {{ ui.state_banner(
-    "Self-protection is enabled.",
-    "You can update your display name here, but you cannot deactivate yourself or remove your own admin role.",
+    "You can't change your own access here.",
+    "You can still update your name.",
     tone="info",
     icon_class="bi-shield-lock"
   ) }}
 {% endif %}
 
 <div class="admin-user-detail-grid">
-  {% call ui.form_section("Account Details", "Edit the shared display name and role used around the app.", "admin-user-detail-card") %}
+  {% call ui.form_section("Account Details", none, "admin-user-detail-card") %}
     <form method="post" action="{{ url_for('admin.edit_user', user_id=row.id) }}" class="admin-user-create-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="next" value="{{ next_path }}">
@@ -58,7 +58,7 @@
     </form>
   {% endcall %}
 
-  {% call admin_ui.panel("Security State", none, "admin-user-detail-card") %}
+  {% call admin_ui.panel("Security", none, "admin-user-detail-card") %}
     <div class="admin-user-detail-stack">
       <div class="admin-user-detail-row">
         <span class="admin-user-detail-label">Last sign in</span>
@@ -69,11 +69,11 @@
         <span>{{ row.password_status_label }}</span>
       </div>
       <div class="admin-user-detail-row">
-        <span class="admin-user-detail-label">Password detail</span>
+        <span class="admin-user-detail-label">Password</span>
         <span>{{ row.password_status_detail }}</span>
       </div>
       <div class="admin-user-detail-row">
-        <span class="admin-user-detail-label">Password last changed</span>
+        <span class="admin-user-detail-label">Password changed</span>
         <span>{{ row.password_changed_at_text }}</span>
       </div>
       <div class="admin-user-detail-row">
@@ -96,7 +96,7 @@
       {% endif %}
     </div>
   {% endcall %}
-  {% call admin_ui.panel("Account Actions", none, "admin-user-detail-card") %}
+  {% call admin_ui.panel("Actions", none, "admin-user-detail-card") %}
     <div class="admin-user-actions-mobile">
       <form method="post" action="{{ url_for('admin.issue_user_password_link', user_id=row.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -131,7 +131,7 @@
   {% endcall %}
 </div>
 
-{% call admin_ui.region("Recent Account Events", "The latest retained lifecycle events for this account.") %}
+{% call admin_ui.region("Recent Events") %}
   {% if user_detail.recent_account_events.preview %}
     <div class="admin-feed-list admin-feed-list-dense">
       {% for event in user_detail.recent_account_events.preview %}
@@ -170,7 +170,7 @@
       {% endcall %}
     {% endif %}
   {% else %}
-    {{ ui.empty_state("No retained account events yet.", compact=True) }}
+    {{ ui.empty_state("No account events yet.", compact=True) }}
   {% endif %}
 {% endcall %}
 {% endblock %}

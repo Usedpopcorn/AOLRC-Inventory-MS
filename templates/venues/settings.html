@@ -26,13 +26,6 @@
   {{ ui.chip("Effective stale " ~ effective_stale_threshold.value ~ "d", tone="neutral") }}
 {% endcall %}
 
-{{ ui.state_banner(
-  "Venue settings stay contextual.",
-  "Venue-specific stale overrides and tracked items live here. Global defaults stay in Admin, and item defaults stay on item pages.",
-  tone="info",
-  icon_class="bi-gear"
-) }}
-
 <div class="card mb-3">
   <div class="card-body">
     {% call ui.form_section("Venue Details", "Save name, visibility, and the venue-level stale override here.") %}
