@@ -6,6 +6,9 @@ VALID_ROLES = ("viewer", "staff", "admin")
 ITEM_TRACKING_MODES = ("quantity", "singleton_asset")
 ITEM_CATEGORY_OPTIONS = ("consumable", "durable", "beverage", "cleaning", "office", "other")
 PASSWORD_ACTION_PURPOSES = ("password_setup", "password_reset")
+ORDER_BATCH_TYPES = ("monthly", "quarterly", "ad_hoc")
+ORDER_LINE_STATUSES = ("planned", "ordered", "received", "skipped")
+FEEDBACK_SUBMISSION_TYPES = ("feedback", "bug_report")
 
 
 def normalize_role(raw_role):
@@ -29,6 +32,22 @@ def normalize_item_category(raw_category):
     if category in {"durable", "consumable"}:
         return category
     return "other"
+
+
+def normalize_order_batch_type(raw_value):
+    batch_type = (raw_value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if batch_type == "adhoc":
+        batch_type = "ad_hoc"
+    if batch_type not in ORDER_BATCH_TYPES:
+        return "monthly"
+    return batch_type
+
+
+def normalize_order_line_status(raw_value):
+    status = (raw_value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if status not in ORDER_LINE_STATUSES:
+        return "planned"
+    return status
 
 
 class User(UserMixin, db.Model):
@@ -127,6 +146,7 @@ class VenueNote(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     venue_id = db.Column(db.Integer, db.ForeignKey("venues.id"), nullable=False, index=True)
     author_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    item_id = db.Column(db.Integer, db.ForeignKey("items.id"), nullable=True, index=True)
     title = db.Column(db.String(160), nullable=False)
     body = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -136,6 +156,50 @@ class VenueNote(db.Model):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+
+    item = db.relationship("Item", foreign_keys=[item_id])
+
+
+class SupplyNote(db.Model):
+    __tablename__ = "supply_notes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey("items.id"), nullable=False, index=True)
+    author_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    title = db.Column(db.String(160), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    item = db.relationship("Item", foreign_keys=[item_id])
+
+
+class FeedbackSubmission(db.Model):
+    __tablename__ = "feedback_submissions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    submission_type = db.Column(db.String(32), nullable=False, index=True)
+    summary = db.Column(db.String(160), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    is_anonymous = db.Column(db.Boolean, nullable=False, default=False)
+    source_path = db.Column(db.String(255), nullable=False)
+    source_query = db.Column(db.Text, nullable=True)
+    user_agent = db.Column(db.String(512), nullable=True)
+    submitter_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    created_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+
+    submitter = db.relationship("User", foreign_keys=[submitter_user_id])
+
 
 class Item(db.Model):
     __tablename__ = "items"
@@ -162,6 +226,8 @@ class Item(db.Model):
     sort_order = db.Column(db.Integer, nullable=False, default=0)
     default_par_level = db.Column(db.Integer, nullable=True)
     stale_threshold_days = db.Column(db.Integer, nullable=True)
+    setup_group_code = db.Column(db.String(32), nullable=True, index=True)
+    setup_group_label = db.Column(db.String(120), nullable=True)
 
     # Allows “archiving” items instead of deleting
     active = db.Column(db.Boolean, default=True, nullable=False)
@@ -305,3 +371,82 @@ class VenueItemCount(db.Model):
     __table_args__ = (
         db.UniqueConstraint("venue_id", "item_id", name="uq_venue_item_count"),
     )
+
+
+class OrderBatch(db.Model):
+    __tablename__ = "order_batches"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(160), nullable=False)
+    batch_type = db.Column(db.String(32), nullable=False, default="monthly", index=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    created_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+
+    created_by = db.relationship("User", foreign_keys=[created_by_user_id])
+    lines = db.relationship(
+        "OrderLine",
+        back_populates="batch",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class OrderLine(db.Model):
+    __tablename__ = "order_lines"
+
+    id = db.Column(db.Integer, primary_key=True)
+    order_batch_id = db.Column(
+        db.Integer,
+        db.ForeignKey("order_batches.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    item_id = db.Column(
+        db.Integer,
+        db.ForeignKey("items.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    venue_id = db.Column(
+        db.Integer,
+        db.ForeignKey("venues.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    item_name_snapshot = db.Column(db.String(120), nullable=False)
+    venue_name_snapshot = db.Column(db.String(120), nullable=False)
+    setup_group_code_snapshot = db.Column(db.String(32), nullable=True)
+    setup_group_label_snapshot = db.Column(db.String(120), nullable=True)
+    count_snapshot = db.Column(db.Integer, nullable=True)
+    par_snapshot = db.Column(db.Integer, nullable=True)
+    suggested_order_qty_snapshot = db.Column(db.Integer, nullable=False, default=0)
+    over_par_qty_snapshot = db.Column(db.Integer, nullable=False, default=0)
+    actual_ordered_qty = db.Column(db.Integer, nullable=True)
+    status = db.Column(db.String(32), nullable=False, default="planned", index=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "order_batch_id",
+            "venue_id",
+            "item_id",
+            name="uq_order_lines_batch_venue_item",
+        ),
+    )
+
+    batch = db.relationship("OrderBatch", back_populates="lines")
+    item = db.relationship("Item", foreign_keys=[item_id])
+    venue = db.relationship("Venue", foreign_keys=[venue_id])

@@ -13,7 +13,7 @@ from app.models import (
     InventoryAdminEvent,
     InventoryPolicy,
     Item,
-    Venue,
+    OrderLine,
     VenueItem,
     VenueItemCount,
 )
@@ -320,6 +320,7 @@ def build_item_delete_guard(item, *, now=None):
     snapshot_history_exists = (
         db.session.query(VenueItemCount.id).filter(VenueItemCount.item_id == item.id).first() is not None
     )
+    order_history_exists = db.session.query(OrderLine.id).filter(OrderLine.item_id == item.id).first() is not None
 
     blockers = []
     if reference_time > delete_deadline:
@@ -330,7 +331,7 @@ def build_item_delete_guard(item, *, now=None):
         blockers.append("Family organizers with child items cannot be hard deleted.")
     if venue_link_count:
         blockers.append("Tracked venue assignments exist for this item.")
-    if count_history_exists or status_history_exists or snapshot_history_exists:
+    if count_history_exists or status_history_exists or snapshot_history_exists or order_history_exists:
         blockers.append("Inventory history exists for this item.")
 
     return {
@@ -339,7 +340,9 @@ def build_item_delete_guard(item, *, now=None):
         "remaining_days": remaining_days,
         "child_count": child_count,
         "venue_link_count": venue_link_count,
-        "has_history": bool(count_history_exists or status_history_exists or snapshot_history_exists),
+        "has_history": bool(
+            count_history_exists or status_history_exists or snapshot_history_exists or order_history_exists
+        ),
         "blockers": blockers,
     }
 

@@ -1,0 +1,730 @@
+{% import "_ui_macros.html" as ui %}
+{% import "admin/_admin_macros.html" as admin_ui %}
+{% import "orders/_detail_macros.html" as order_ui %}
+
+<div class="orders-detail-stack" data-orders-content-root>
+  <section class="orders-overview-section">
+    <section class="row g-2 orders-summary-strip">
+      <div class="col-6 col-xl-3">
+        <article class="card border-0 shadow-sm ui-surface-card-secondary orders-summary-stat">
+          <div class="card-body">
+            <div class="orders-summary-stat-label">Lines</div>
+            <div class="orders-summary-stat-value">{{ batch_summary.line_count }}</div>
+            <div class="orders-summary-stat-support">Snapshot total</div>
+          </div>
+        </article>
+      </div>
+      <div class="col-6 col-xl-3">
+        <article class="card border-0 shadow-sm ui-surface-card-secondary orders-summary-stat">
+          <div class="card-body">
+            <div class="orders-summary-stat-label">Suggested</div>
+            <div class="orders-summary-stat-value">{{ batch_summary.total_suggested_qty }}</div>
+            <div class="orders-summary-stat-support">Non-negative reorder only</div>
+          </div>
+        </article>
+      </div>
+      <div class="col-6 col-xl-3">
+        <article class="card border-0 shadow-sm ui-surface-card-secondary orders-summary-stat">
+          <div class="card-body">
+            <div class="orders-summary-stat-label">Over Par</div>
+            <div class="orders-summary-stat-value">{{ batch_summary.total_over_par_qty }}</div>
+            <div class="orders-summary-stat-support">Tracked separately</div>
+          </div>
+        </article>
+      </div>
+      <div class="col-6 col-xl-3">
+        <article class="card border-0 shadow-sm ui-surface-card-secondary orders-summary-stat">
+          <div class="card-body">
+            <div class="orders-summary-stat-label">Actual Ordered</div>
+            <div class="orders-summary-stat-value">{{ batch_summary.total_actual_ordered_qty }}</div>
+            <div class="orders-summary-stat-support">Admin-entered progress</div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    {% if current_user.is_admin or batch.notes %}
+      <section class="orders-batch-notes-slot">
+        {% if current_user.is_admin %}
+          {% call admin_ui.disclosure(
+            "Batch Notes",
+            support=(batch.notes|truncate(108)) if batch.notes else "Optional batch context, planning reminders, or ordering notes.",
+            open=False
+          ) %}
+            <form method="post" action="{{ url_for('orders.update_batch', batch_id=batch.id) }}" class="d-flex flex-column gap-2">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="return_q" value="{{ line_filters.q }}">
+              <input type="hidden" name="return_status" value="{{ line_filters.status if line_filters.status != 'all' else '' }}">
+              <textarea
+                name="notes"
+                rows="3"
+                class="form-control ui-control-area"
+                placeholder="Optional batch notes"
+              >{{ batch.notes or "" }}</textarea>
+              <div class="d-flex justify-content-end">
+                <button class="btn btn-aolrc-accent ui-control-sm" type="submit">Save Notes</button>
+              </div>
+            </form>
+          {% endcall %}
+        {% elif batch.notes %}
+          {% call admin_ui.disclosure("Batch Notes", support=batch.notes|truncate(108), open=False) %}
+            <div class="orders-note-copy">{{ batch.notes }}</div>
+          {% endcall %}
+        {% endif %}
+      </section>
+    {% endif %}
+  </section>
+
+  <section class="card border-0 shadow-sm ui-surface-card orders-purchase-card">
+    <div class="card-body">
+      {% call admin_ui.disclosure(
+        "Purchase Summary By Item",
+        support=purchase_summary_support,
+        body_classes="orders-purchase-disclosure-body",
+        open=False
+      ) %}
+        <div class="orders-purchase-toolbar" data-orders-purchase-summary>
+          <div class="orders-section-heading orders-section-heading-primary">
+            <div class="orders-section-kicker">Purchasing Review</div>
+            <div class="text-muted small">
+              Scan overall demand first, then expand an item to see which venue lines contribute to it. Venue-level lines below remain the only editable source of truth.
+            </div>
+          </div>
+          <div class="orders-section-actions">
+            <div class="ui-export-action-group">
+              <a
+                class="btn btn-outline-secondary ui-control-sm"
+                href="{{ purchase_summary_export_url }}"
+                data-order-purchase-export-current
+                data-base-href="{{ purchase_summary_export_url }}"
+              >
+                Export View CSV
+              </a>
+              <a class="btn btn-outline-secondary ui-control-sm" href="{{ full_purchase_summary_export_url }}">
+                Export Full CSV
+              </a>
+            </div>
+          </div>
+          <div class="orders-purchase-search-field">
+            <label class="form-label" for="ordersPurchaseSearch">Quick filter items</label>
+            <input
+              id="ordersPurchaseSearch"
+              type="search"
+              class="form-control ui-control"
+              placeholder="Filter purchase rows by item, group, or venue"
+              value="{{ purchase_summary_filters.q }}"
+              data-order-purchase-search
+            >
+          </div>
+        </div>
+
+        <div class="orders-purchase-meta">
+          <span class="orders-purchase-meta-strong">
+            <span data-order-purchase-visible-count>{{ purchase_summary_rows|length }}</span> of {{ purchase_summary_rows|length }} items shown
+          </span>
+          <span class="text-muted small">Quick filter is local to this review section.</span>
+        </div>
+
+        {% if purchase_summary_rows %}
+          <div class="orders-purchase-summary-list">
+            {% for summary in purchase_summary_rows %}
+              <details
+                class="orders-purchase-row"
+                data-order-purchase-row
+                data-order-purchase-search-text="{{ summary.search_text }}"
+              >
+                <summary class="orders-purchase-row-summary">
+                  <div class="orders-purchase-row-main">
+                    <div class="orders-purchase-row-copy">
+                      <div class="orders-purchase-row-title">{{ summary.item_name }}</div>
+                      <div class="orders-purchase-row-meta">
+                        <span>{{ summary.setup_group_display or "Unassigned" }}</span>
+                        <span>{{ summary.venue_count_text }}</span>
+                        <span>{{ summary.line_count }} contributing {{ "line" if summary.line_count == 1 else "lines" }}</span>
+                      </div>
+                    </div>
+                    <div class="orders-purchase-row-metrics" aria-label="{{ summary.item_name }} rollup totals">
+                      <div class="orders-purchase-row-metric orders-purchase-row-metric-wide">
+                        <span class="orders-purchase-row-metric-label">Count / Par</span>
+                        <span class="orders-purchase-row-metric-value">{{ summary.total_count_snapshot }} / {{ summary.total_par_snapshot }}</span>
+                      </div>
+                      <div class="orders-purchase-row-metric orders-purchase-row-metric-accent">
+                        <span class="orders-purchase-row-metric-label">Suggested</span>
+                        <span class="orders-purchase-row-metric-value">{{ summary.total_suggested_order_qty }}</span>
+                      </div>
+                      <div class="orders-purchase-row-metric">
+                        <span class="orders-purchase-row-metric-label">Actual</span>
+                        <span class="orders-purchase-row-metric-value">{{ summary.total_actual_ordered_qty }}</span>
+                      </div>
+                      <div class="orders-purchase-row-metric">
+                        <span class="orders-purchase-row-metric-label">Over Par</span>
+                        <span class="orders-purchase-row-metric-value">{{ summary.total_over_par_qty }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="orders-purchase-row-side">
+                    <div class="orders-purchase-row-status">{{ order_ui.order_status_chip(summary.rollup_status_key, summary.rollup_status_label) }}</div>
+                    <div class="orders-purchase-row-status-breakdown">{{ summary.status_breakdown_text }}</div>
+                    <div class="orders-purchase-row-notes{{ ' has-notes' if summary.note_count else '' }}">
+                      <i class="bi bi-journal-text" aria-hidden="true"></i>
+                      <span>{{ summary.note_summary_text }}</span>
+                    </div>
+                    <span class="orders-purchase-row-toggle" aria-hidden="true">
+                      <i class="bi bi-chevron-down"></i>
+                    </span>
+                  </div>
+                </summary>
+                <div class="orders-purchase-row-body">
+                  <div class="orders-purchase-row-body-head">
+                    <div class="text-muted small">
+                      These contributing venue lines explain the total above. Edit status, ordered quantity, and notes in
+                      <a class="orders-inline-link" href="#line-details">Line Details</a>.
+                    </div>
+                  </div>
+
+                  <div class="d-none d-md-block table-responsive">
+                    <table class="table table-sm align-middle mb-0 orders-purchase-detail-table">
+                      <thead>
+                        <tr>
+                          <th>Venue</th>
+                          <th>Count / Par</th>
+                          <th class="text-end">Suggested</th>
+                          <th class="text-end">Actual</th>
+                          <th class="text-end">Over Par</th>
+                          <th>Status</th>
+                          <th>Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for line in summary.contributing_lines %}
+                          <tr>
+                            <td class="fw-semibold">{{ line.venue_name }}</td>
+                            <td class="text-nowrap">{{ line.count_par_text }}</td>
+                            <td class="text-end">{{ line.suggested_order_qty_snapshot }}</td>
+                            <td class="text-end">{{ line.actual_ordered_qty if line.actual_ordered_qty is not none else "-" }}</td>
+                            <td class="text-end">{{ line.over_par_qty_snapshot }}</td>
+                            <td>{{ order_ui.order_status_chip(line.status, line.status_label) }}</td>
+                            <td>
+                              {% if line.notes %}
+                                <div class="orders-purchase-note-preview">{{ line.notes|truncate(120, True) }}</div>
+                              {% else %}
+                                <span class="text-muted small">No venue notes</span>
+                              {% endif %}
+                            </td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div class="d-md-none d-flex flex-column gap-2">
+                    {% for line in summary.contributing_lines %}
+                      <article class="orders-purchase-detail-card">
+                        <div class="d-flex align-items-start justify-content-between gap-2">
+                          <div>
+                            <div class="fw-semibold">{{ line.venue_name }}</div>
+                            <div class="text-muted small">{{ line.count_par_text }}</div>
+                          </div>
+                          {{ order_ui.order_status_chip(line.status, line.status_label) }}
+                        </div>
+                        <div class="orders-purchase-detail-stats">
+                          <span><strong>Suggested:</strong> {{ line.suggested_order_qty_snapshot }}</span>
+                          <span><strong>Actual:</strong> {{ line.actual_ordered_qty if line.actual_ordered_qty is not none else "-" }}</span>
+                          <span><strong>Over Par:</strong> {{ line.over_par_qty_snapshot }}</span>
+                        </div>
+                        <div class="orders-purchase-detail-notes">
+                          {% if line.notes %}
+                            {{ line.notes|truncate(120, True) }}
+                          {% else %}
+                            <span class="text-muted small">No venue notes</span>
+                          {% endif %}
+                        </div>
+                      </article>
+                    {% endfor %}
+                  </div>
+                </div>
+              </details>
+            {% endfor %}
+          </div>
+          <div class="d-none" data-order-purchase-empty-filter>
+            {{ ui.empty_state(
+              "No purchase rows match this quick filter.",
+              body="Adjust the purchase-summary search to show more item rollups.",
+              compact=True
+            ) }}
+          </div>
+        {% else %}
+          {{ ui.empty_state(
+            "No purchase summary rows match the current filters.",
+            body="Adjust the line filters in Line Details to reveal more item rollups for this batch.",
+            compact=True
+          ) }}
+        {% endif %}
+      {% endcall %}
+    </div>
+  </section>
+
+  <section class="orders-support-region">
+    <div class="orders-section-heading orders-section-heading-secondary">
+      <div class="orders-section-kicker">Supporting Reference</div>
+      <h2 class="h6 mb-1">Supporting Breakouts</h2>
+      <div class="text-muted small">Quieter summary views for the same filtered line set used below.</div>
+    </div>
+    <div class="orders-support-grid">
+      {% call admin_ui.disclosure(
+        "By Setup Group",
+        support=setup_group_summary_support,
+        open=False
+      ) %}
+        {% if setup_group_summaries %}
+          <div class="{{ 'admin-scroll-region' if setup_group_summaries|length > 6 else '' }}">
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0 orders-summary-table">
+                <thead>
+                  <tr>
+                    <th>Group</th>
+                    <th class="text-end">Lines</th>
+                    <th class="text-end">Suggested</th>
+                    <th class="text-end">Actual</th>
+                    <th class="text-end">Over Par</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for summary in setup_group_summaries %}
+                    <tr>
+                      <td class="fw-semibold">{{ summary.label }}</td>
+                      <td class="text-end">{{ summary.line_count }}</td>
+                      <td class="text-end">{{ summary.total_suggested_qty }}</td>
+                      <td class="text-end">{{ summary.total_actual_ordered_qty }}</td>
+                      <td class="text-end">{{ summary.over_par_line_count }}</td>
+                      <td>{{ order_ui.summary_status_counts(summary.status_count_items) }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        {% else %}
+          {{ ui.empty_state("No setup-group summary is available for the current filters.", compact=True) }}
+        {% endif %}
+      {% endcall %}
+
+      {% call admin_ui.disclosure(
+        "By Venue",
+        support=venue_summary_support,
+        open=False
+      ) %}
+        {% if venue_summaries %}
+          <div class="{{ 'admin-scroll-region' if venue_summaries|length > 6 else '' }}">
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0 orders-summary-table">
+                <thead>
+                  <tr>
+                    <th>Venue</th>
+                    <th class="text-end">Lines</th>
+                    <th class="text-end">Suggested</th>
+                    <th class="text-end">Actual</th>
+                    <th class="text-end">Over Par</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for summary in venue_summaries %}
+                    <tr>
+                      <td class="fw-semibold">{{ summary.label }}</td>
+                      <td class="text-end">{{ summary.line_count }}</td>
+                      <td class="text-end">{{ summary.total_suggested_qty }}</td>
+                      <td class="text-end">{{ summary.total_actual_ordered_qty }}</td>
+                      <td class="text-end">{{ summary.over_par_line_count }}</td>
+                      <td>{{ order_ui.summary_status_counts(summary.status_count_items) }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        {% else %}
+          {{ ui.empty_state("No venue summary is available for the current filters.", compact=True) }}
+        {% endif %}
+      {% endcall %}
+    </div>
+  </section>
+
+  <section id="line-details" class="card border-0 shadow-sm ui-surface-card orders-lines-card">
+    <div class="orders-lines-shell">
+      <div class="orders-lines-head">
+        <div class="orders-section-heading orders-section-heading-primary">
+          <div class="orders-section-kicker">Operational Editing</div>
+          <h2 class="h5 mb-1">Line Details</h2>
+          <div class="text-muted small">
+            {{ line_rows|length }} visible {{ "line" if line_rows|length == 1 else "lines" }}. Venue-level values stay editable here and remain the only source of truth for status, actual ordered quantity, and notes.
+          </div>
+        </div>
+        <div class="orders-section-actions">
+          <div class="orders-section-note text-muted small">
+            Snapshot values do not change after batch creation.
+          </div>
+          <div class="ui-export-action-group">
+            <a class="btn btn-outline-secondary ui-control-sm" href="{{ line_export_url }}">
+              Export View CSV
+            </a>
+            <a class="btn btn-outline-secondary ui-control-sm" href="{{ full_line_export_url }}">
+              Export Full CSV
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="orders-lines-controls">
+        <form method="get" action="{{ url_for('orders.detail', batch_id=batch.id) }}" class="orders-line-filter-form" id="ordersLineFilterForm">
+          {% call ui.toolbar("ui-toolbar-split orders-lines-toolbar") %}
+            <div class="ui-toolbar-main ui-toolbar-main-2">
+              <div>
+                <label class="form-label" for="orderLineSearch">Search visible lines</label>
+                <input
+                  id="orderLineSearch"
+                  name="q"
+                  class="form-control ui-control"
+                  type="search"
+                  value="{{ line_filters.q }}"
+                  placeholder="Search by venue, item, group, or notes"
+                >
+              </div>
+              <div>
+                <label class="form-label" for="orderLineStatus">Line status</label>
+                <select id="orderLineStatus" name="status" class="form-select ui-control">
+                  <option value="" {{ "selected" if line_filters.status == "all" else "" }}>All statuses</option>
+                  {% for status_key, status_label in status_labels.items() %}
+                    <option value="{{ status_key }}" {{ "selected" if line_filters.status == status_key else "" }}>
+                      {{ status_label }}
+                    </option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+            <div class="ui-toolbar-actions orders-toolbar-actions">
+              <button class="btn btn-aolrc-accent ui-control orders-line-filter-submit" type="submit">Apply</button>
+              <a
+                class="btn btn-outline-secondary ui-control"
+                href="{{ url_for('orders.detail', batch_id=batch.id) }}"
+                id="ordersLineFilterClear"
+              >Clear</a>
+            </div>
+          {% endcall %}
+          <div class="orders-lines-filter-note">
+            These filters narrow the Purchase Summary, Supporting Breakouts, and visible venue lines together.
+          </div>
+        </form>
+
+        {% if current_user.is_admin and line_rows %}
+          <form
+            id="order-bulk-form"
+            method="post"
+            action="{{ url_for('orders.update_line_items_bulk', batch_id=batch.id) }}"
+            class="orders-bulk-toolbar"
+          >
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="bulk_action" value="set_status">
+            <input type="hidden" name="return_q" value="{{ line_filters.q }}">
+            <input type="hidden" name="return_status" value="{{ line_filters.status if line_filters.status != 'all' else '' }}">
+            <div class="orders-bulk-toolbar-main">
+              <div>
+                <div class="fw-semibold">Bulk status update</div>
+                <div class="text-muted small"><span data-order-selected-count>0</span> selected in the current filtered view.</div>
+              </div>
+              <div class="orders-bulk-toolbar-actions">
+                <button type="button" class="btn btn-outline-secondary ui-control-sm" data-order-select-all>
+                  Select all visible
+                </button>
+                <button type="button" class="btn btn-outline-secondary ui-control-sm" data-order-clear-selection>
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div class="orders-bulk-toolbar-form">
+              <div class="orders-bulk-status-field">
+                <label class="form-label mb-1" for="bulkStatus">Status</label>
+                <select id="bulkStatus" name="bulk_status" class="form-select ui-control">
+                  {% for status_key, status_label in status_labels.items() %}
+                    <option value="{{ status_key }}">{{ status_label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="orders-bulk-submit-wrap">
+                <button class="btn btn-aolrc-accent ui-control" type="submit" data-order-bulk-submit disabled>
+                  Apply To Selected Lines
+                </button>
+              </div>
+            </div>
+          </form>
+        {% endif %}
+      </div>
+
+      <div class="orders-lines-body">
+        {% if line_rows %}
+          <div class="d-none d-xl-block table-responsive orders-line-table-region">
+            <table class="table table-sm align-middle orders-line-table">
+              <thead>
+                <tr>
+                  {% if current_user.is_admin %}
+                    <th style="width: 52px;">Select</th>
+                  {% endif %}
+                  <th>Venue</th>
+                  <th>Item</th>
+                  <th>Setup Group</th>
+                  <th>Count / Par</th>
+                  <th class="text-end">Suggested</th>
+                  <th class="text-end">Over Par</th>
+                  <th style="width: 112px;">Actual</th>
+                  <th style="width: 148px;">Status</th>
+                  <th style="width: 200px;">Notes</th>
+                  <th style="width: 108px;">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for line in line_rows %}
+                  <tr>
+                    {% if current_user.is_admin %}
+                      <td>
+                        <input
+                          class="form-check-input"
+                          type="checkbox"
+                          name="line_ids"
+                          value="{{ line.id }}"
+                          form="order-bulk-form"
+                          data-order-line-checkbox
+                        >
+                      </td>
+                    {% endif %}
+                    <td>
+                      <div class="fw-semibold orders-line-table-strong">{{ line.venue_name }}</div>
+                      {% if current_user.is_admin %}
+                        <form
+                          id="order-line-form-{{ line.id }}"
+                          method="post"
+                          action="{{ url_for('orders.update_line_item', batch_id=batch.id, line_id=line.id) }}"
+                          class="d-none"
+                        >
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                          <input type="hidden" name="return_q" value="{{ line_filters.q }}">
+                          <input type="hidden" name="return_status" value="{{ line_filters.status if line_filters.status != 'all' else '' }}">
+                        </form>
+                      {% endif %}
+                    </td>
+                    <td>
+                      <div class="orders-line-item-cell">
+                        <div class="orders-line-item-title-row">
+                          <div class="fw-semibold orders-line-table-strong">{{ line.item_name }}</div>
+                          {% if line.quick_check_url %}
+                            <a
+                              class="orders-line-quick-link"
+                              href="{{ line.quick_check_url }}"
+                              aria-label="Open inventory view for {{ line.item_name }}"
+                              title="Open inventory view"
+                            >
+                              <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
+                            </a>
+                          {% endif %}
+                        </div>
+                      </div>
+                    </td>
+                    <td>{{ line.setup_group_display or "Unassigned" }}</td>
+                    <td class="text-nowrap">{{ line.count_par_text }}</td>
+                    <td class="text-end">{{ line.suggested_order_qty_snapshot }}</td>
+                    <td class="text-end">{{ line.over_par_qty_snapshot }}</td>
+                    {% if current_user.is_admin %}
+                      <td>
+                        <input
+                          form="order-line-form-{{ line.id }}"
+                          name="actual_ordered_qty"
+                          type="number"
+                          min="0"
+                          class="form-control ui-control orders-inline-control"
+                          value="{{ '' if line.actual_ordered_qty is none else line.actual_ordered_qty }}"
+                        >
+                      </td>
+                      <td>
+                        <select
+                          form="order-line-form-{{ line.id }}"
+                          name="line_status"
+                          class="form-select ui-control orders-inline-control"
+                        >
+                          {% for status_key, status_label in status_labels.items() %}
+                            <option value="{{ status_key }}" {{ "selected" if line.status == status_key else "" }}>
+                              {{ status_label }}
+                            </option>
+                          {% endfor %}
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          form="order-line-form-{{ line.id }}"
+                          name="notes"
+                          type="text"
+                          class="form-control ui-control orders-inline-control orders-line-note-input"
+                          placeholder="Optional line notes"
+                          value="{{ line.notes or '' }}"
+                        >
+                      </td>
+                      <td>
+                        <button form="order-line-form-{{ line.id }}" class="btn btn-aolrc-accent ui-control-sm" type="submit">
+                          Save
+                        </button>
+                      </td>
+                    {% else %}
+                      <td>{{ line.actual_ordered_qty if line.actual_ordered_qty is not none else "-" }}</td>
+                      <td>{{ order_ui.order_status_chip(line.status, line.status_label) }}</td>
+                      <td>{{ line.notes or "-" }}</td>
+                      <td>
+                        {% if line.quick_check_url %}
+                          <a class="btn btn-aolrc-primary ui-control-sm" href="{{ line.quick_check_url }}">Open</a>
+                        {% else %}
+                          <span class="text-muted small">No live link</span>
+                        {% endif %}
+                      </td>
+                    {% endif %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="d-xl-none d-flex flex-column gap-3">
+            {% for line in line_rows %}
+              <article class="card border-0 shadow-sm ui-surface-card-secondary orders-line-mobile-card">
+                <div class="card-body">
+                  {% if current_user.is_admin %}
+                    <form
+                      method="post"
+                      action="{{ url_for('orders.update_line_item', batch_id=batch.id, line_id=line.id) }}"
+                      class="d-flex flex-column gap-3"
+                    >
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <input type="hidden" name="return_q" value="{{ line_filters.q }}">
+                      <input type="hidden" name="return_status" value="{{ line_filters.status if line_filters.status != 'all' else '' }}">
+                      <div class="d-flex align-items-start justify-content-between gap-2">
+                        <div class="d-flex align-items-start gap-2">
+                          <input
+                            class="form-check-input mt-1"
+                            type="checkbox"
+                            name="line_ids"
+                            value="{{ line.id }}"
+                            form="order-bulk-form"
+                            data-order-line-checkbox
+                          >
+                          <div>
+                            <div class="fw-semibold">{{ line.item_name }}</div>
+                            <div class="text-muted small">{{ line.venue_name }}</div>
+                          </div>
+                        </div>
+                        {{ order_ui.order_status_chip(line.status, line.status_label) }}
+                      </div>
+                      <div class="text-muted small">{{ line.setup_group_display or "Unassigned setup group" }}</div>
+                      <div class="row g-2">
+                        <div class="col-6">
+                          <div class="text-muted small">Count / Par</div>
+                          <div class="fw-semibold">{{ line.count_par_text }}</div>
+                        </div>
+                        <div class="col-3">
+                          <div class="text-muted small">Suggested</div>
+                          <div class="fw-semibold">{{ line.suggested_order_qty_snapshot }}</div>
+                        </div>
+                        <div class="col-3">
+                          <div class="text-muted small">Over Par</div>
+                          <div class="fw-semibold">{{ line.over_par_qty_snapshot }}</div>
+                        </div>
+                      </div>
+                      <div class="row g-2">
+                        <div class="col-12 col-sm-4">
+                          <label class="form-label mb-1">Actual ordered</label>
+                          <input
+                            name="actual_ordered_qty"
+                            type="number"
+                            min="0"
+                            class="form-control ui-control"
+                            value="{{ '' if line.actual_ordered_qty is none else line.actual_ordered_qty }}"
+                          >
+                        </div>
+                        <div class="col-12 col-sm-4">
+                          <label class="form-label mb-1">Status</label>
+                          <select name="line_status" class="form-select ui-control">
+                            {% for status_key, status_label in status_labels.items() %}
+                              <option value="{{ status_key }}" {{ "selected" if line.status == status_key else "" }}>
+                                {{ status_label }}
+                              </option>
+                            {% endfor %}
+                          </select>
+                        </div>
+                        <div class="col-12 col-sm-4">
+                          {% if line.quick_check_url %}
+                            <label class="form-label mb-1 d-block">&nbsp;</label>
+                            <a class="btn btn-outline-secondary ui-control w-100" href="{{ line.quick_check_url }}">Open Inventory</a>
+                          {% endif %}
+                        </div>
+                      </div>
+                      <div>
+                        <label class="form-label mb-1">Notes</label>
+                        <textarea
+                          name="notes"
+                          rows="2"
+                          class="form-control ui-control-area"
+                          placeholder="Optional line notes"
+                        >{{ line.notes or "" }}</textarea>
+                      </div>
+                      <div class="d-flex justify-content-end">
+                        <button class="btn btn-aolrc-accent ui-control-sm" type="submit">Save Line</button>
+                      </div>
+                    </form>
+                  {% else %}
+                    <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                      <div>
+                        <div class="fw-semibold">{{ line.item_name }}</div>
+                        <div class="text-muted small">{{ line.venue_name }}</div>
+                      </div>
+                      {{ order_ui.order_status_chip(line.status, line.status_label) }}
+                    </div>
+                    <div class="text-muted small mb-3">{{ line.setup_group_display or "Unassigned setup group" }}</div>
+                    <div class="row g-2 mb-3">
+                      <div class="col-6">
+                        <div class="text-muted small">Count / Par</div>
+                        <div class="fw-semibold">{{ line.count_par_text }}</div>
+                      </div>
+                      <div class="col-3">
+                        <div class="text-muted small">Suggested</div>
+                        <div class="fw-semibold">{{ line.suggested_order_qty_snapshot }}</div>
+                      </div>
+                      <div class="col-3">
+                        <div class="text-muted small">Over Par</div>
+                        <div class="fw-semibold">{{ line.over_par_qty_snapshot }}</div>
+                      </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                      <div class="col-6">
+                        <div class="text-muted small">Actual ordered</div>
+                        <div class="fw-semibold">{{ line.actual_ordered_qty if line.actual_ordered_qty is not none else "-" }}</div>
+                      </div>
+                      <div class="col-6">
+                        <div class="text-muted small">Notes</div>
+                        <div>{{ line.notes or "-" }}</div>
+                      </div>
+                    </div>
+                    {% if line.quick_check_url %}
+                      <a class="btn btn-aolrc-primary ui-control-sm" href="{{ line.quick_check_url }}">Open Inventory</a>
+                    {% endif %}
+                  {% endif %}
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          {{ ui.empty_state(
+            "No order lines match the current filters.",
+            body="Adjust the search or status filter to show more lines from this batch.",
+            compact=True
+          ) }}
+        {% endif %}
+      </div>
+    </div>
+  </section>
+</div>

@@ -1,11 +1,10 @@
-from urllib.parse import urljoin, urlparse
-
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import current_user
 from sqlalchemy.orm import selectinload
 
 from app import db
 from app.authz import roles_required
+from app.security import normalize_safe_redirect_path
 from app.models import Item, Venue
 from app.services.inventory_rules import (
     InventoryRuleError,
@@ -23,23 +22,11 @@ venue_settings_bp = Blueprint("venue_settings", __name__, url_prefix="/venues")
 
 
 def normalize_next_path(next_candidate, fallback_path):
-    if not next_candidate:
-        return fallback_path
-
-    host_url = urlparse(request.host_url)
-    target_url = urlparse(urljoin(request.host_url, next_candidate))
-    if target_url.scheme not in {"http", "https"} or target_url.netloc != host_url.netloc:
-        return fallback_path
-
-    current_url = urlparse(urljoin(request.host_url, request.full_path))
-    if target_url.path == current_url.path and target_url.query == current_url.query:
-        return fallback_path
-
-    return f"{target_url.path}?{target_url.query}" if target_url.query else target_url.path
+    return normalize_safe_redirect_path(next_candidate, fallback_path)
 
 
 def describe_back_destination(next_path, venue_id):
-    target_path = urlparse(urljoin(request.host_url, next_path)).path
+    target_path = next_path.split("?", 1)[0]
 
     if target_path == url_for("main.dashboard"):
         return "Dashboard"

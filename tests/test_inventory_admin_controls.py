@@ -20,6 +20,8 @@ def create_direct_item(
     *,
     default_par_level=None,
     stale_threshold_days=None,
+    setup_group_code=None,
+    setup_group_label=None,
     created_at=None,
 ):
     item = Item(
@@ -30,6 +32,8 @@ def create_direct_item(
         active=True,
         default_par_level=default_par_level,
         stale_threshold_days=stale_threshold_days,
+        setup_group_code=setup_group_code,
+        setup_group_label=setup_group_label,
         created_at=created_at or datetime.now(timezone.utc),
     )
     db.session.add(item)
@@ -117,6 +121,209 @@ def test_item_create_assigns_venues_and_defaults(client, app):
     assert [link.venue_id for link in links] == [venue_one_id, venue_two_id]
     assert "item_created" in event_types
     assert "item_tracking_updated" in event_types
+
+
+def test_item_create_saves_builtin_setup_group(client, app):
+    quick_login(client)
+
+    response = client.post(
+        "/admin/items",
+        data={
+            "name": "Meditation Shawls",
+            "tracking_mode": "quantity",
+            "item_category": "consumable",
+            "parent_item_id": "",
+            "setup_group_selection": "01",
+            "active": "1",
+            "unit": "each",
+            "sort_order": "0",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+
+    with app.app_context():
+        item = Item.query.filter_by(name="Meditation Shawls").first()
+
+    assert item is not None
+    assert item.setup_group_code == "01"
+    assert item.setup_group_label == "Yoga/Meditation Materials"
+
+
+def test_item_edit_updates_and_clears_setup_group(client, app):
+    quick_login(client)
+
+    with app.app_context():
+        item = create_direct_item("Setup Group Item")
+        db.session.commit()
+        item_id = item.id
+
+    assign_response = client.post(
+        f"/admin/items/{item_id}/edit",
+        data={
+            "name": "Setup Group Item",
+            "tracking_mode": "quantity",
+            "item_category": "consumable",
+            "parent_item_id": "",
+            "setup_group_selection": "03",
+            "active": "1",
+            "unit": "",
+            "sort_order": "0",
+            "default_par_level": "",
+            "stale_threshold_days": "",
+        },
+        follow_redirects=False,
+    )
+
+    assert assign_response.status_code == 302
+
+    clear_response = client.post(
+        f"/admin/items/{item_id}/edit",
+        data={
+            "name": "Setup Group Item",
+            "tracking_mode": "quantity",
+            "item_category": "consumable",
+            "parent_item_id": "",
+            "setup_group_selection": "",
+            "active": "1",
+            "unit": "",
+            "sort_order": "0",
+            "default_par_level": "",
+            "stale_threshold_days": "",
+        },
+        follow_redirects=False,
+    )
+
+    assert clear_response.status_code == 302
+
+    with app.app_context():
+        item = db.session.get(Item, item_id)
+
+    assert item.setup_group_code is None
+    assert item.setup_group_label is None
+
+
+def test_item_create_custom_setup_group_can_be_reused(client, app):
+    quick_login(client)
+
+    first_response = client.post(
+        "/admin/items",
+        data={
+            "name": "A/V Cart",
+            "tracking_mode": "quantity",
+            "item_category": "durable",
+            "parent_item_id": "",
+            "setup_group_selection": "__custom__",
+            "setup_group_code": "06A",
+            "setup_group_label": "Audio Visual Support",
+            "active": "1",
+            "unit": "each",
+            "sort_order": "0",
+        },
+        follow_redirects=False,
+    )
+
+    assert first_response.status_code == 302
+
+    second_response = client.post(
+        "/admin/items",
+        data={
+            "name": "Extension Cables",
+            "tracking_mode": "quantity",
+            "item_category": "durable",
+            "parent_item_id": "",
+            "setup_group_selection": "06A",
+            "active": "1",
+            "unit": "each",
+            "sort_order": "1",
+        },
+        follow_redirects=False,
+    )
+
+    assert second_response.status_code == 302
+
+    with app.app_context():
+        first_item = Item.query.filter_by(name="A/V Cart").first()
+        second_item = Item.query.filter_by(name="Extension Cables").first()
+
+    assert first_item.setup_group_code == "06A"
+    assert first_item.setup_group_label == "Audio Visual Support"
+    assert second_item.setup_group_code == "06A"
+    assert second_item.setup_group_label == "Audio Visual Support"
+
+
+def test_item_create_rejects_duplicate_custom_setup_group_code(client, app):
+    quick_login(client)
+
+    response = client.post(
+        "/admin/items",
+        data={
+            "name": "Backjacks",
+            "tracking_mode": "quantity",
+            "item_category": "durable",
+            "parent_item_id": "",
+            "setup_group_selection": "__custom__",
+            "setup_group_code": "01",
+            "setup_group_label": "Backjack Support",
+            "active": "1",
+            "unit": "each",
+            "sort_order": "0",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"That setup group code already exists as" in response.data
+    assert b"Item added." not in response.data
+
+    with app.app_context():
+        item = Item.query.filter_by(name="Backjacks").first()
+
+    assert item is None
+
+
+def test_item_edit_rejects_duplicate_custom_setup_group_label(client, app):
+    quick_login(client)
+
+    with app.app_context():
+        create_direct_item(
+            "Existing Group Seed",
+            setup_group_code="06A",
+            setup_group_label="Audio Visual Support",
+        )
+        item = create_direct_item("Backjacks")
+        db.session.commit()
+        item_id = item.id
+
+    response = client.post(
+        f"/admin/items/{item_id}/edit",
+        data={
+            "name": "Backjacks",
+            "tracking_mode": "quantity",
+            "item_category": "durable",
+            "parent_item_id": "",
+            "setup_group_selection": "__custom__",
+            "setup_group_code": "07B",
+            "setup_group_label": "Audio Visual Support",
+            "active": "1",
+            "unit": "each",
+            "sort_order": "0",
+            "default_par_level": "",
+            "stale_threshold_days": "",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"That setup group label already exists as" in response.data
+    assert b"Item updated." not in response.data
+
+    with app.app_context():
+        item = db.session.get(Item, item_id)
+
+    assert item.setup_group_code is None
+    assert item.setup_group_label is None
 
 
 def test_item_edit_preserves_existing_venue_par_overrides_without_override_payload(client, app):

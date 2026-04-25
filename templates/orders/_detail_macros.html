@@ -1,0 +1,27 @@
+{% import "_ui_macros.html" as ui %}
+
+{% macro order_status_chip(status_key, status_label) -%}
+  {% set tone = "secondary" %}
+  {% if status_key == "ordered" %}
+    {% set tone = "warning" %}
+  {% elif status_key == "received" %}
+    {% set tone = "success" %}
+  {% elif status_key == "skipped" %}
+    {% set tone = "muted" %}
+  {% elif status_key == "mixed" %}
+    {% set tone = "neutral" %}
+  {% endif %}
+  {{ ui.chip(status_label, tone=tone, extra_classes="ui-chip-compact") }}
+{%- endmacro %}
+
+{% macro summary_status_counts(items) -%}
+  {% if items %}
+    <div class="orders-summary-status-row">
+      {% for item in items %}
+        <span>{{ item.label }} {{ item.count }}</span>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="small text-muted">No lines in this summary.</div>
+  {% endif %}
+{%- endmacro %}

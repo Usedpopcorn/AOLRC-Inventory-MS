@@ -45,6 +45,14 @@
       <div class="admin-item-cell-title">Count and par based</div>
       <div class="admin-item-cell-support">Handled as a standard quantity supply.</div>
     {% endif %}
+    <div class="admin-item-cell-support">
+      Setup group:
+      {% if item.setup_group_code %}
+        {{ item.setup_group_code }} - {{ item.setup_group_label }}
+      {% else %}
+        Not assigned
+      {% endif %}
+    </div>
     {% if not item.is_group_parent %}
       <div class="admin-item-cell-support">
         Default par:

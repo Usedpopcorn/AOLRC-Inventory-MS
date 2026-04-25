@@ -84,24 +84,46 @@
       </div>
     </form>
     <div class="ui-toolbar-actions admin-item-toolbar-actions">
-      <a
-        id="itemCatalogClear"
-        class="btn btn-outline-secondary ui-control{{ '' if item_catalog.filters.is_filtered else ' d-none' }}"
-        data-item-catalog-clear
-        href="{{ url_for('admin.items') }}"
-      >
-        Clear
-      </a>
-      <button
-        class="btn btn-aolrc-accent ui-control"
-        type="button"
-        data-bs-toggle="collapse"
-        data-bs-target="#addItemCollapse"
-        aria-controls="addItemCollapse"
-        aria-expanded="{{ 'true' if show_add_item_form else 'false' }}"
-      >
-        Add Item
-      </button>
+      <div class="ui-export-action-group">
+        <a
+          id="itemCatalogExportCurrent"
+          class="btn btn-outline-secondary ui-control"
+          href="{{ url_for('admin.export_item_catalog') }}"
+          data-item-catalog-export-base-href="{{ url_for('admin.export_item_catalog') }}"
+          data-item-catalog-export-scope="filtered"
+        >
+          Export View CSV
+        </a>
+        <a
+          id="itemCatalogExportFull"
+          class="btn btn-outline-secondary ui-control"
+          href="{{ url_for('admin.export_item_catalog', scope='full') }}"
+          data-item-catalog-export-base-href="{{ url_for('admin.export_item_catalog') }}"
+          data-item-catalog-export-scope="full"
+        >
+          Export All CSV
+        </a>
+      </div>
+      <div class="ui-toolbar-button-group">
+        <a
+          id="itemCatalogClear"
+          class="btn btn-outline-secondary ui-control{{ '' if item_catalog.filters.is_filtered else ' d-none' }}"
+          data-item-catalog-clear
+          href="{{ url_for('admin.items') }}"
+        >
+          Clear
+        </a>
+        <button
+          class="btn btn-aolrc-accent ui-control"
+          type="button"
+          data-bs-toggle="collapse"
+          data-bs-target="#addItemCollapse"
+          aria-controls="addItemCollapse"
+          aria-expanded="{{ 'true' if show_add_item_form else 'false' }}"
+        >
+          Add Item
+        </button>
+      </div>
     </div>
   {% endcall %}
 
@@ -168,6 +190,43 @@
               <option value="{{ parent.id }}" {% if form_values.parent_item_id == parent.id|string %}selected{% endif %}>{{ parent.name }} (family)</option>
             {% endfor %}
           </select>
+        </div>
+        <div class="col-12 col-sm-6 col-md-4">
+          <label class="form-label" for="item-setup-group-selection">Setup/report group</label>
+          <select id="item-setup-group-selection" class="form-select ui-control" name="setup_group_selection" data-setup-group-selection>
+            <option value="">No setup group</option>
+            {% for option in setup_group_options %}
+              <option value="{{ option.code }}" {% if form_values.setup_group_selection == option.code %}selected{% endif %}>{{ option.display }}</option>
+            {% endfor %}
+            <option value="{{ custom_setup_group_option_value }}" {% if form_values.setup_group_selection == custom_setup_group_option_value %}selected{% endif %}>Custom setup group...</option>
+          </select>
+          <div class="form-text">Separate from parent family. Use this for spreadsheet, reporting, and future export grouping.</div>
+        </div>
+        <div class="col-12 d-none" data-setup-group-custom-fields>
+          <div class="row g-3">
+            <div class="col-12 col-sm-4">
+              <label class="form-label" for="item-setup-group-code">Custom group code</label>
+              <input
+                id="item-setup-group-code"
+                class="form-control ui-control"
+                name="setup_group_code"
+                value="{{ form_values.setup_group_code }}"
+                placeholder="06"
+                maxlength="32"
+              >
+            </div>
+            <div class="col-12 col-sm-8">
+              <label class="form-label" for="item-setup-group-label">Custom group label</label>
+              <input
+                id="item-setup-group-label"
+                class="form-control ui-control"
+                name="setup_group_label"
+                value="{{ form_values.setup_group_label }}"
+                placeholder="Custom setup grouping label"
+                maxlength="120"
+              >
+            </div>
+          </div>
         </div>
         <div class="col-12 col-sm-6 col-md-2">
           <label class="form-label" for="item-sort-order">Sort order</label>
@@ -286,10 +345,12 @@
   </div>
 {% endcall %}
 
-<script>
+<script nonce="{{ csp_nonce() }}">
   (() => {
     const trackingModeEl = document.getElementById("item-tracking-mode");
     const parentSelectEl = document.getElementById("item-parent");
+    const setupGroupSelectionEl = document.getElementById("item-setup-group-selection");
+    const customSetupGroupFieldsEl = document.querySelector("[data-setup-group-custom-fields]");
     const groupParentEl = document.getElementById("item-is-group-parent");
     const summaryTitleEl = document.getElementById("itemFormSummaryTitle");
     const summaryTextEl = document.getElementById("itemFormSummaryText");
@@ -301,6 +362,14 @@
     function selectedParentLabel() {
       const option = parentSelectEl?.selectedOptions?.[0];
       return option && option.value ? option.textContent.replace(/\s+\(family\)\s*$/, "") : "";
+    }
+
+    function syncSetupGroupFields() {
+      if (!setupGroupSelectionEl || !customSetupGroupFieldsEl) return;
+      customSetupGroupFieldsEl.classList.toggle(
+        "d-none",
+        setupGroupSelectionEl.value !== "{{ custom_setup_group_option_value }}"
+      );
     }
 
     function syncItemSummary() {
@@ -353,7 +422,9 @@
     [trackingModeEl, parentSelectEl, groupParentEl].forEach((el) => {
       el?.addEventListener("change", syncItemSummary);
     });
+    setupGroupSelectionEl?.addEventListener("change", syncSetupGroupFields);
     syncItemSummary();
+    syncSetupGroupFields();
   })();
 
   (() => {
@@ -363,6 +434,7 @@
     const structureEl = document.getElementById("itemCatalogStructure");
     const clearEl = document.getElementById("itemCatalogClear");
     const resultsEl = document.getElementById("itemCatalogResults");
+    const exportLinks = Array.from(document.querySelectorAll("[data-item-catalog-export-base-href][data-item-catalog-export-scope]"));
     const syncTargets = Array.from(document.querySelectorAll("[data-item-catalog-sync]"));
     const debounceMs = 180;
     let searchDebounceHandle = null;
@@ -410,6 +482,41 @@
         || (params.get("structure") || "all") !== "all"
       );
       clearEl.classList.toggle("d-none", !isFiltered);
+    }
+
+    function syncExportUrls(params) {
+      if (!exportLinks.length) return;
+
+      exportLinks.forEach((link) => {
+        const baseHref = link.getAttribute("data-item-catalog-export-base-href");
+        if (!baseHref) return;
+
+        const scope = link.getAttribute("data-item-catalog-export-scope") || "filtered";
+        const nextUrl = new URL(baseHref, window.location.origin);
+        nextUrl.searchParams.set("scope", scope);
+
+        if (scope === "filtered") {
+          const query = (params.get("q") || "").trim();
+          const status = (params.get("status") || "all").trim();
+          const structure = (params.get("structure") || "all").trim();
+
+          if (query) nextUrl.searchParams.set("q", query);
+          else nextUrl.searchParams.delete("q");
+
+          if (status && status !== "all") nextUrl.searchParams.set("status", status);
+          else nextUrl.searchParams.delete("status");
+
+          if (structure && structure !== "all") nextUrl.searchParams.set("structure", structure);
+          else nextUrl.searchParams.delete("structure");
+        } else {
+          nextUrl.searchParams.delete("q");
+          nextUrl.searchParams.delete("status");
+          nextUrl.searchParams.delete("structure");
+        }
+
+        nextUrl.searchParams.delete("page");
+        link.href = `${nextUrl.pathname}${nextUrl.search}`;
+      });
     }
 
     function syncUrl(params, { push = false } = {}) {
@@ -461,6 +568,7 @@
         resultsEl.dataset.currentPage = String(currentPage);
         syncHiddenState(currentPage);
         syncClearState(nextParams);
+        syncExportUrls(nextParams);
         syncUrl(nextParams, { push: pushState });
       } catch (error) {
         if (error?.name === "AbortError") return;
@@ -500,7 +608,9 @@
       structureEl.value = currentUrl.searchParams.get("structure") || "all";
       const page = Number(currentUrl.searchParams.get("page") || "1");
       syncHiddenState(Number.isFinite(page) && page > 0 ? page : 1);
-      syncClearState(buildParams({ page: Number.isFinite(page) && page > 0 ? page : 1 }));
+      const params = buildParams({ page: Number.isFinite(page) && page > 0 ? page : 1 });
+      syncClearState(params);
+      syncExportUrls(params);
     }
 
     form.classList.add("is-live");

@@ -52,6 +52,17 @@
       "Open Audit"
     ) }}
     {{ admin_ui.module_summary_card(
+      "Feedback Inbox",
+      none,
+      url_for("admin.feedback_inbox"),
+      "bi-chat-dots",
+      overview.module_summary.feedback.primary_label,
+      overview.module_summary.feedback.primary_value,
+      overview.module_summary.feedback.secondary_label,
+      overview.module_summary.feedback.secondary_value,
+      "Open Inbox"
+    ) }}
+    {{ admin_ui.module_summary_card(
       "History & Archive",
       none,
       url_for("admin.history"),

@@ -11,6 +11,8 @@
     Tracking Setup
   {% elif key == "audit" %}
     User Audit
+  {% elif key == "feedback" %}
+    Feedback Inbox
   {% elif key == "history" %}
     History & Archive
   {% else %}
@@ -40,6 +42,7 @@
     {{ nav_link(active_key, "items", url_for("admin.items"), "bi-box-seam", "Items") }}
     {{ nav_link(active_key, "tracking_setup", url_for("admin.tracking_setup"), "bi-diagram-2", "Tracking Setup") }}
     {{ nav_link(active_key, "audit", url_for("admin.user_audit"), "bi-activity", "User Audit") }}
+    {{ nav_link(active_key, "feedback", url_for("admin.feedback_inbox"), "bi-chat-dots", "Feedback Inbox") }}
     {{ nav_link(active_key, "history", url_for("admin.history"), "bi-clock-history", "History & Archive") }}
   </nav>
 {%- endmacro %}

@@ -202,8 +202,30 @@
                   </div>
                 </div>
                 <div class="ui-toolbar-actions venue-profile-toolbar-actions">
-                  <button type="button" class="btn btn-outline-secondary ui-control" id="venueProfileExpandToggle">Expand all</button>
-                  <button type="button" class="btn btn-outline-secondary ui-control is-inactive" id="venueProfileClearFilters" disabled>Clear</button>
+                  <div class="ui-export-action-group">
+                    <a
+                      id="venueProfileExportCurrent"
+                      class="btn btn-outline-secondary ui-control"
+                      href="{{ venue_inventory_export_base_url }}"
+                      data-export-base-href="{{ venue_inventory_export_base_url }}"
+                      data-export-scope="filtered"
+                    >
+                      Export View CSV
+                    </a>
+                    <a
+                      id="venueProfileExportFull"
+                      class="btn btn-outline-secondary ui-control"
+                      href="{{ venue_inventory_export_base_url }}?scope=full"
+                      data-export-base-href="{{ venue_inventory_export_base_url }}"
+                      data-export-scope="full"
+                    >
+                      Export All CSV
+                    </a>
+                  </div>
+                  <div class="ui-toolbar-button-group">
+                    <button type="button" class="btn btn-outline-secondary ui-control" id="venueProfileExpandToggle">Expand all</button>
+                    <button type="button" class="btn btn-outline-secondary ui-control is-inactive" id="venueProfileClearFilters" disabled>Clear</button>
+                  </div>
                 </div>
               {% endcall %}
 
@@ -266,59 +288,233 @@
     <div class="tab-pane fade {{ 'show active' if active_profile_tab == 'notes' else '' }}" id="venue-profile-notes-pane" role="tabpanel" aria-labelledby="venue-profile-notes-tab">
       <div class="card mb-3 ui-surface-card">
         <div class="card-body">
-          <h2 class="h5 mb-3">Venue Notes</h2>
-          {% if current_user.is_staff %}
-            <form method="post" class="d-flex flex-column gap-2 mb-3">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <input type="hidden" name="action" value="create_note">
-              <input type="hidden" name="next" value="{{ back_url }}">
-              <input type="hidden" name="profile_tab" value="notes">
-              <label for="newNoteTitle" class="form-label mb-0">Add note</label>
-              <input id="newNoteTitle" name="title" class="form-control ui-control" maxlength="160" placeholder="Note title">
-              <textarea id="newNoteBody" name="body" rows="4" class="form-control ui-control-area" placeholder="Write note details..."></textarea>
-              <button class="btn btn-primary ui-control align-self-start" type="submit">Add Note</button>
-            </form>
+          <div class="venue-notes-head">
+            <div>
+              <h2 class="h5 mb-1">Venue Notes</h2>
+              <p class="text-muted mb-0">Keep general venue context and item-specific follow-up in one organized feed.</p>
+            </div>
+          </div>
+          {% if not current_user.is_staff %}
+            {{ ui.state_banner(
+              "Notes are read-only on viewer accounts.",
+              body="Staff and admin accounts can add notes. Viewers can browse existing notes but cannot create, edit, or delete them.",
+              tone="neutral",
+              extra_classes="ui-state-banner-compact mb-3"
+            ) }}
           {% endif %}
 
-          <div class="venue-note-list-shell">
-            {% if note_rows %}
-              <ul class="list-group venue-note-list">
+          <form method="get" id="venueNotesFilterForm">
+            <input type="hidden" name="next" value="{{ back_url }}">
+            <input type="hidden" name="profile_tab" value="notes">
+            <input type="hidden" name="note_page" value="1">
+            <input type="hidden" name="note_kind" value="{{ note_kind_filter }}" id="venueNoteKindInput">
+            {% call ui.toolbar("ui-toolbar-split venue-note-toolbar-shell") %}
+              <div class="ui-toolbar-main ui-toolbar-main-3 venue-note-toolbar-main">
+                <div class="venue-note-filter-field venue-note-search-field">
+                  <label class="form-label" for="venueNoteSearch">Search</label>
+                  <div class="input-group">
+                    <span class="input-group-text venue-note-search-icon" aria-hidden="true">
+                      <i class="bi bi-search"></i>
+                    </span>
+                    <input
+                      id="venueNoteSearch"
+                      name="note_q"
+                      class="form-control ui-control"
+                      type="search"
+                      value="{{ note_search_query }}"
+                      placeholder="Search notes, authors, or tagged items"
+                    >
+                  </div>
+                </div>
+                <div class="venue-note-filter-field">
+                  <label class="form-label" for="venueNoteItemFilter">Tagged item</label>
+                  <select id="venueNoteItemFilter" name="note_item_id" class="form-select ui-control" aria-label="Filter notes by tagged item">
+                    <option value="">All tagged items</option>
+                    {% for option in venue_profile.note_item_options %}
+                      <option value="{{ option.id }}" {% if active_note_item_id == option.id %}selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="venue-note-filter-field venue-note-filter-field-type">
+                  <label class="form-label mb-0">Type</label>
+                  <div class="venue-profile-segmented-filter" role="group" aria-label="Note filters">
+                    <button type="button" class="venue-profile-segmented-filter-btn{{ ' is-active' if note_kind_filter == 'all' else '' }}" data-note-filter="all" aria-pressed="{{ 'true' if note_kind_filter == 'all' else 'false' }}">All</button>
+                    <button type="button" class="venue-profile-segmented-filter-btn{{ ' is-active' if note_kind_filter == 'general' else '' }}" data-note-filter="general" aria-pressed="{{ 'true' if note_kind_filter == 'general' else 'false' }}">General</button>
+                    <button type="button" class="venue-profile-segmented-filter-btn{{ ' is-active' if note_kind_filter == 'tagged' else '' }}" data-note-filter="tagged" aria-pressed="{{ 'true' if note_kind_filter == 'tagged' else 'false' }}">Tagged</button>
+                  </div>
+                </div>
+              </div>
+              <div class="ui-toolbar-actions venue-note-toolbar-actions">
+                <a
+                  class="btn btn-outline-secondary ui-control{{ '' if note_search_query or note_kind_filter != 'all' or active_note_item_id else ' d-none' }}"
+                  id="venueNotesClearFilters"
+                  href="{{ url_for('main.venue_detail', venue_id=venue.id, next=back_url, profile_tab='notes') }}"
+                >
+                  Clear
+                </a>
+                {% if current_user.is_staff %}
+                  <button
+                    class="btn btn-aolrc-accent ui-control venue-note-toggle-btn"
+                    id="venueNoteComposerToggle"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#venueNoteComposerCollapse"
+                    aria-controls="venueNoteComposerCollapse"
+                    aria-expanded="{{ 'true' if note_focus == 'compose' else 'false' }}"
+                  >
+                    Add Note
+                  </button>
+                {% endif %}
+              </div>
+            {% endcall %}
+          </form>
+
+          {% if current_user.is_staff %}
+            <div class="collapse venue-note-composer-collapse{{ ' show' if note_focus == 'compose' else '' }}" id="venueNoteComposerCollapse">
+              {% call ui.form_section("New Note", "Add room context or item-specific follow-up.", "venue-note-composer-panel") %}
+                <form method="post" class="venue-note-composer" id="venueNoteComposer">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="action" value="create_note">
+                  <input type="hidden" name="next" value="{{ back_url }}">
+                  <input type="hidden" name="profile_tab" value="notes">
+                  <input type="hidden" name="note_filter_item_id" value="{{ active_note_item_id or '' }}">
+                  <input type="hidden" name="note_q" value="{{ note_search_query }}">
+                  <input type="hidden" name="note_kind" value="{{ note_kind_filter }}">
+                  <input type="hidden" name="note_page" value="{{ note_pagination.current_page }}">
+                  <input type="hidden" name="note_focus" value="compose">
+                  <div class="venue-note-composer-grid">
+                    <div class="venue-note-composer-field">
+                      <label for="newNoteItem" class="form-label mb-0">Note scope</label>
+                      <select id="newNoteItem" name="item_id" class="form-select ui-control">
+                        <option value="">General venue note</option>
+                        {% for option in venue_profile.note_item_options %}
+                          <option value="{{ option.id }}" {% if active_note_item_id == option.id %}selected{% endif %}>{{ option.label }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="venue-note-composer-field venue-note-composer-field-title">
+                      <label for="newNoteTitle" class="form-label mb-0">Title</label>
+                      <input id="newNoteTitle" name="title" class="form-control ui-control" maxlength="{{ note_title_max_length }}" placeholder="Note title">
+                    </div>
+                  </div>
+                  <textarea id="newNoteBody" name="body" rows="4" class="form-control ui-control-area" maxlength="{{ note_body_max_length }}" placeholder="Write note details..."></textarea>
+                  <div class="text-muted small">
+                    Up to {{ note_title_max_length }} characters for the title and {{ "{:,}".format(note_body_max_length) }} characters for the note body.
+                  </div>
+                  <div class="d-flex justify-content-end">
+                    <button class="btn btn-aolrc-accent ui-control" type="submit">Save Note</button>
+                  </div>
+                </form>
+              {% endcall %}
+            </div>
+          {% endif %}
+
+          <div
+            class="venue-note-list-shell"
+            id="venueNotesListShell"
+            data-note-list-shell
+            data-active-note-item-id="{{ active_note_item_id or '' }}"
+            data-note-kind-filter="{{ note_kind_filter }}"
+            data-note-search-query="{{ note_search_query }}"
+            data-note-focus="{{ note_focus or '' }}"
+          >
+            {% if note_pagination.total_count %}
+              <div class="venue-note-results-meta text-muted small">
+                Showing {{ note_pagination.showing_from }}-{{ note_pagination.showing_to }} of {{ note_pagination.total_count }} note{{ "" if note_pagination.total_count == 1 else "s" }}
+              </div>
+              <ul class="list-group venue-note-list" id="venueNoteList">
                 {% for note in note_rows %}
                   <li class="list-group-item venue-note-row">
-                    <div class="d-flex flex-column gap-1">
+                    <div class="d-flex flex-column gap-2">
                       <div class="d-flex align-items-start justify-content-between gap-2">
-                        <button type="button" class="btn btn-link p-0 text-start venue-note-title-btn" data-bs-toggle="modal" data-bs-target="#viewNoteModal{{ note.id }}">
-                          {{ note.title }}
-                        </button>
-                        <div class="d-inline-flex align-items-center gap-1">
-                          <button type="button" class="icon-btn-plain icon-btn-sm" data-bs-toggle="modal" data-bs-target="#viewNoteModal{{ note.id }}" aria-label="View note {{ note.title }}" title="View">
-                            <i class="bi bi-eye"></i>
+                        <div class="venue-note-main">
+                          <button type="button" class="btn btn-link p-0 text-start venue-note-title-btn" data-bs-toggle="modal" data-bs-target="#viewNoteModal{{ note.id }}">
+                            {{ note.title }}
                           </button>
-                          {% if note.can_manage %}
+                          <div class="venue-note-chip-row">
+                            {{ ui.chip(note.note_kind_label, tone='primary' if note.is_item_note else 'neutral', extra_classes='ui-chip-compact venue-note-type-chip') }}
+                            {% if note.is_item_note %}
+                              {{ ui.chip(note.item_name, tone='secondary', icon_class='bi-box-seam', extra_classes='ui-chip-compact venue-note-item-chip') }}
+                            {% endif %}
+                          </div>
+                        </div>
+                        {% if note.can_manage %}
+                          <div class="d-inline-flex align-items-center gap-1">
                             <button type="button" class="icon-btn-plain icon-btn-sm" data-bs-toggle="modal" data-bs-target="#editNoteModal{{ note.id }}" aria-label="Edit note {{ note.title }}" title="Edit">
                               <i class="bi bi-pencil"></i>
                             </button>
-                            <form method="post" class="d-inline" onsubmit="return confirm('Delete this note? This cannot be undone.');">
+                            <form method="post" class="d-inline" data-confirm-message="Delete this note? This cannot be undone.">
                               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                               <input type="hidden" name="action" value="delete_note">
                               <input type="hidden" name="note_id" value="{{ note.id }}">
                               <input type="hidden" name="next" value="{{ back_url }}">
                               <input type="hidden" name="profile_tab" value="notes">
+                              <input type="hidden" name="note_filter_item_id" value="{{ active_note_item_id or '' }}">
+                              <input type="hidden" name="note_q" value="{{ note_search_query }}">
+                              <input type="hidden" name="note_kind" value="{{ note_kind_filter }}">
+                              <input type="hidden" name="note_page" value="{{ note_pagination.current_page }}">
+                              <input type="hidden" name="note_focus" value="list">
                               <button type="submit" class="icon-btn-plain icon-btn-sm text-danger" aria-label="Delete note {{ note.title }}" title="Delete">
                                 <i class="bi bi-trash"></i>
                               </button>
                             </form>
-                          {% endif %}
-                        </div>
+                          </div>
+                        {% endif %}
                       </div>
-                      <div class="small text-muted">{{ note.display_time_label }}: {{ note.display_time_text }}</div>
+                      <div class="small text-muted">{{ note.display_time_label }}: {{ note.display_time_text }} by {{ note.author_name }}</div>
                     </div>
                   </li>
                 {% endfor %}
               </ul>
-            {% else %}
-              {{ ui.empty_state("No notes added yet.", body="Add a venue note to capture room-specific context or operational reminders.", compact=True) }}
+              {% if note_pagination.total_pages > 1 %}
+                <nav class="admin-pager venue-note-pagination" aria-label="Venue note pages">
+                  <a
+                    class="admin-pager-link{{ ' is-disabled' if not note_pagination.has_prev else '' }}"
+                    href="{{ url_for('main.venue_detail', venue_id=venue.id, next=back_url, profile_tab='notes', note_item_id=active_note_item_id, note_q=note_search_query or None, note_kind=note_kind_filter if note_kind_filter != 'all' else None, note_page=note_pagination.prev_page) if note_pagination.has_prev else '#' }}"
+                    aria-disabled="{{ 'false' if note_pagination.has_prev else 'true' }}"
+                    {% if not note_pagination.has_prev %}tabindex="-1"{% endif %}
+                  >
+                    <i class="bi bi-chevron-left" aria-hidden="true"></i>
+                    <span>Previous</span>
+                  </a>
+                  <div class="admin-pager-status">Page {{ note_pagination.current_page }} of {{ note_pagination.total_pages }}</div>
+                  <a
+                    class="admin-pager-link{{ ' is-disabled' if not note_pagination.has_next else '' }}"
+                    href="{{ url_for('main.venue_detail', venue_id=venue.id, next=back_url, profile_tab='notes', note_item_id=active_note_item_id, note_q=note_search_query or None, note_kind=note_kind_filter if note_kind_filter != 'all' else None, note_page=note_pagination.next_page) if note_pagination.has_next else '#' }}"
+                    aria-disabled="{{ 'false' if note_pagination.has_next else 'true' }}"
+                    {% if not note_pagination.has_next %}tabindex="-1"{% endif %}
+                  >
+                    <span>Next</span>
+                    <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                  </a>
+                </nav>
+              {% endif %}
             {% endif %}
+            <div class="{{ 'd-none' if note_pagination.total_count else '' }}" id="venueNotesEmptyState" aria-live="polite">
+              <div class="ui-empty-state ui-empty-state-compact">
+                <div class="ui-empty-state-icon" aria-hidden="true">
+                  <i class="bi bi-journal-text"></i>
+                </div>
+                <div class="ui-empty-state-copy">
+                  <div class="ui-empty-state-title" id="venueNotesEmptyTitle">
+                    {{ "No notes match these filters." if note_search_query or note_kind_filter != 'all' or active_note_item_id else "No notes added yet." }}
+                  </div>
+                  <div
+                    class="ui-empty-state-body"
+                    id="venueNotesEmptyBody"
+                    data-default-body="{{ 'Add a venue note to capture room-specific context or operational reminders.' if current_user.is_staff else 'Staff or admin accounts can add notes here. Viewer accounts can read notes once they have been added.' }}"
+                  >
+                    {% if note_search_query or note_kind_filter != 'all' or active_note_item_id %}
+                      Clear or adjust the note filters to show more results.
+                    {% elif current_user.is_staff %}
+                      Add a venue note to capture room-specific context or operational reminders.
+                    {% else %}
+                      Staff or admin accounts can add notes here. Viewer accounts can read notes once they have been added.
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -383,6 +579,12 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body">
+            <div class="venue-note-chip-row mb-2">
+              {{ ui.chip(note.note_kind_label, tone='primary' if note.is_item_note else 'neutral', extra_classes='ui-chip-compact venue-note-type-chip') }}
+              {% if note.is_item_note %}
+                {{ ui.chip(note.item_name, tone='secondary', icon_class='bi-box-seam', extra_classes='ui-chip-compact venue-note-item-chip') }}
+              {% endif %}
+            </div>
             <div class="small text-muted mb-2">
               {{ note.display_time_label }}: {{ note.display_time_text }} by {{ note.author_name }}
             </div>
@@ -401,17 +603,29 @@
               <input type="hidden" name="note_id" value="{{ note.id }}">
               <input type="hidden" name="next" value="{{ back_url }}">
               <input type="hidden" name="profile_tab" value="notes">
+              <input type="hidden" name="note_filter_item_id" value="{{ active_note_item_id or '' }}">
+              <input type="hidden" name="note_q" value="{{ note_search_query }}">
+              <input type="hidden" name="note_kind" value="{{ note_kind_filter }}">
+              <input type="hidden" name="note_page" value="{{ note_pagination.current_page }}">
+              <input type="hidden" name="note_focus" value="list">
               <div class="modal-header">
                 <h2 class="modal-title fs-5" id="editNoteModalLabel{{ note.id }}">Edit Note</h2>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
               </div>
               <div class="modal-body d-flex flex-column gap-2">
+                <label class="form-label mb-0" for="editNoteItem{{ note.id }}">Note scope</label>
+                <select id="editNoteItem{{ note.id }}" class="form-select ui-control" name="item_id">
+                  <option value="">General venue note</option>
+                  {% for option in venue_profile.note_item_options %}
+                    <option value="{{ option.id }}" {% if note.item_id == option.id %}selected{% endif %}>{{ option.label }}</option>
+                  {% endfor %}
+                </select>
                 <label class="form-label mb-0" for="editNoteTitle{{ note.id }}">Title</label>
                 <input
                   id="editNoteTitle{{ note.id }}"
                   class="form-control ui-control"
                   name="title"
-                  maxlength="160"
+                  maxlength="{{ note_title_max_length }}"
                   value="{{ note.title }}"
                 >
                 <label class="form-label mb-0" for="editNoteBody{{ note.id }}">Body</label>
@@ -420,11 +634,15 @@
                   class="form-control ui-control-area"
                   name="body"
                   rows="5"
+                  maxlength="{{ note_body_max_length }}"
                 >{{ note.body }}</textarea>
+                <div class="text-muted small">
+                  Up to {{ note_title_max_length }} characters for the title and {{ "{:,}".format(note_body_max_length) }} characters for the note body.
+                </div>
               </div>
               <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary ui-control" data-bs-dismiss="modal">Cancel</button>
-                <button type="submit" class="btn btn-primary ui-control">Save Changes</button>
+                <button type="submit" class="btn btn-aolrc-accent ui-control">Save Changes</button>
               </div>
             </form>
           </div>
@@ -433,7 +651,7 @@
     {% endif %}
   {% endfor %}
 
-  <script>
+  <script nonce="{{ csp_nonce() }}">
     (() => {
       const tabButtons = Array.from(document.querySelectorAll("#venueProfileTabs [data-bs-toggle='tab']"));
       if (!tabButtons.length) return;
@@ -482,5 +700,6 @@
       setActiveTabFromUrl();
     })();
   </script>
-  <script src="{{ url_for('static', filename='js/venue_profile_overview.js') }}"></script>
+  <script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/venue_profile_notes.js') }}"></script>
+  <script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/venue_profile_overview.js') }}"></script>
 {% endblock %}

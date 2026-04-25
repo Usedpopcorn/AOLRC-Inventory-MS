@@ -5,7 +5,7 @@
 
 {% block content %}
 {% if not venue.is_core %}
-  <form method="post" id="deleteVenueForm" onsubmit="return confirm('Delete this venue? This cannot be undone.');">
+  <form method="post" id="deleteVenueForm" data-confirm-message="Delete this venue? This cannot be undone.">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="action" value="delete">
     <input type="hidden" name="next" value="{{ back_url }}">

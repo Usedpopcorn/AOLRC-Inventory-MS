@@ -3,6 +3,24 @@
 {% import "_ui_macros.html" as ui %}
 {% block title %}Dashboard{% endblock %}
 
+{% macro restock_count_chip(row) -%}
+  {% set count_state = row.count_state %}
+  {{ ui.chip(
+    count_state.text,
+    tone=count_state.tone,
+    icon_class=count_state.icon_class,
+    extra_classes="ui-chip-compact restock-count-chip restock-count-chip-" ~ count_state.key
+  ) }}
+{%- endmacro %}
+
+{% macro restock_summary_surface(row, restock_mode) -%}
+  {% if restock_mode == "counts" and row.tracking_mode != "singleton_asset" %}
+    {{ restock_count_chip(row) }}
+  {% else %}
+    {{ ui.status_pill(row.status.key, row.status.text, row.status.icon_class) }}
+  {% endif %}
+{%- endmacro %}
+
 {% block content %}
 {{ ui.page_header(
   title="Dashboard",
@@ -35,7 +53,7 @@
   </li>
 </ul>
 
-<script>
+<script nonce="{{ csp_nonce() }}">
   (() => {
     const getActiveDashboardTab = () => {
       const activeButton = document.querySelector("#dashTabs [data-bs-toggle='tab'].active");
@@ -230,7 +248,7 @@
       </div>
     </div>
 
-    <script>
+    <script nonce="{{ csp_nonce() }}">
       const searchEl = document.getElementById("venueSearch");
       const filterEl = document.getElementById("statusFilter");
       const sortEl = document.getElementById("venueSort");
@@ -373,6 +391,7 @@
       <input type="hidden" name="restock_status_submitted" value="1">
       <input type="hidden" name="restock_item_submitted" value="1">
       <input type="hidden" name="restock_venue_submitted" value="1">
+      <input type="hidden" name="restock_mode" id="restockMode" value="{{ restock_filters.mode }}">
 
       <div class="card mb-3 ui-surface-card-secondary">
         <div class="card-body d-flex flex-column gap-3">
@@ -381,7 +400,7 @@
               <input
                 id="restockSearch"
                 name="restock_search"
-              class="form-control ui-control w-100"
+                class="form-control ui-control w-100 restock-search-field"
                 placeholder="Search..."
                 aria-label="Search restocking results"
                 value="{{ restock_filters.search }}"
@@ -389,7 +408,7 @@
               <select
                 id="restockSort"
                 name="restock_sort"
-              class="form-select ui-control w-100"
+                class="form-select ui-control w-100 restock-sort-field"
                 aria-label="Sort restocking results"
               >
                 <option value="item" {{ 'selected' if restock_filters.sort == 'item' else '' }}>Sort: Item</option>
@@ -397,10 +416,36 @@
                 <option value="status_priority" {{ 'selected' if restock_filters.sort == 'status_priority' else '' }}>Sort: Priority</option>
                 <option value="last_checked" {{ 'selected' if restock_filters.sort == 'last_checked' else '' }}>Sort: Last Checked</option>
               </select>
+              <div class="restock-mode-wrap">
+                <span class="visually-hidden" id="restockModeLabel">Restocking view mode</span>
+                <div class="venue-profile-segmented-filter restock-mode-toggle" role="group" aria-labelledby="restockModeLabel">
+                  <button
+                    type="button"
+                    class="venue-profile-segmented-filter-btn restock-mode-btn{{ ' is-active' if restock_filters.mode == 'status' else '' }}"
+                    data-restock-mode-toggle="status"
+                    aria-pressed="{{ 'true' if restock_filters.mode == 'status' else 'false' }}"
+                  >
+                    Status
+                  </button>
+                  <button
+                    type="button"
+                    class="venue-profile-segmented-filter-btn restock-mode-btn{{ ' is-active' if restock_filters.mode == 'counts' else '' }}"
+                    data-restock-mode-toggle="counts"
+                    aria-pressed="{{ 'true' if restock_filters.mode == 'counts' else 'false' }}"
+                  >
+                    Counts
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div class="restock-action-row">
-              <a href="{{ url_for('main.dashboard', tab='restocking') }}" class="btn btn-danger restock-toolbar-btn restock-reset-btn">
+              <a
+                id="restockResetLink"
+                href="{{ url_for('main.dashboard', tab='restocking', restock_mode='counts' if restock_filters.mode == 'counts' else none) }}"
+                data-base-href="{{ url_for('main.dashboard', tab='restocking') }}"
+                class="btn btn-danger restock-toolbar-btn restock-reset-btn"
+              >
                 <span class="d-sm-none">Reset</span>
                 <span class="d-none d-sm-inline">Reset Filters</span>
               </a>
@@ -645,9 +690,25 @@
               data-item="{{ (row.item_name ~ ' ' ~ (row.parent_name or ''))|lower }}"
               data-item-name="{{ row.item_name|lower }}"
               data-family="{{ (row.parent_name or row.item_name)|lower }}"
+              data-item-id="{{ row.item_id }}"
+              data-venue-id="{{ row.venue_id }}"
               data-venue="{{ row.venue_name|lower }}"
+              data-tracking-mode="{{ row.tracking_mode }}"
               data-status-key="{{ row.status.key }}"
+              data-status-label="{{ row.status.text }}"
+              data-status-icon="{{ row.status.icon_class }}"
               data-status-text="{{ row.status.text|lower }}"
+              data-count-priority-key="{{ row.count_state.key }}"
+              data-count-bucket="{{ row.count_state.bucket }}"
+              data-count-suggested-order="{{ '' if row.count_state.suggested_order_qty is none else row.count_state.suggested_order_qty }}"
+              data-count-over-par="{{ '' if row.count_state.over_par_qty is none else row.count_state.over_par_qty }}"
+              data-count-label="{{ row.count_state.text }}"
+              data-count-text="{{ row.count_state.text|lower }}"
+              data-count-icon="{{ row.count_state.icon_class }}"
+              data-count-tone="{{ row.count_state.tone }}"
+              data-raw-count="{{ '' if row.raw_count is none else row.raw_count }}"
+              data-par-value="{{ '' if row.par_value is none else row.par_value }}"
+              data-action-mode="{{ row.quick_check_mode }}"
               data-latest-ts="{{ row.latest_check_at.timestamp() if row.latest_check_at else '' }}"
             >
               <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
@@ -668,14 +729,9 @@
                     ) }}
                   </div>
                 </div>
-                <span class="status-pill
-                  {{ 'status-good' if row.status.key == 'good' else '' }}
-                  {{ 'status-ok' if row.status.key == 'ok' else '' }}
-                  {{ 'status-low' if row.status.key == 'low' else '' }}
-                  {{ 'status-out' if row.status.key == 'out' else '' }}
-                  {{ 'status-na' if row.status.key == 'not_checked' else '' }}">
-                  <i class="bi {{ row.status.icon_class }}"></i> {{ row.status.text }}
-                </span>
+                <div class="restock-summary-slot" data-restock-summary-slot>
+                  {{ restock_summary_surface(row, restock_filters.mode) }}
+                </div>
               </div>
               <div class="restock-mobile-meta">
                 <div class="restock-mobile-meta-row">
@@ -695,9 +751,10 @@
               </div>
               <a
                 class="btn btn-aolrc-primary restock-mobile-action-btn mt-2"
+                data-restock-action-link
                 data-dashboard-next-link
-                data-base-href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id) }}"
-                href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id, next=request.full_path) }}"
+                data-base-href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id, mode=row.quick_check_mode) }}"
+                href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id, mode=row.quick_check_mode, next=request.full_path) }}"
               >
                 <span class="d-none d-sm-inline">Open Venue Check</span>
                 <span class="d-sm-none">Venue Check</span>
@@ -721,7 +778,7 @@
             <thead>
               <tr>
                 <th>Item</th>
-                <th>Status</th>
+                <th id="restockModeColumnHeader">{{ "Count" if restock_filters.mode == "counts" else "Status" }}</th>
                 <th>Venue</th>
                 <th>Latest Check</th>
                 <th>Actions</th>
@@ -734,9 +791,25 @@
                   data-item="{{ (row.item_name ~ ' ' ~ (row.parent_name or ''))|lower }}"
                   data-item-name="{{ row.item_name|lower }}"
                   data-family="{{ (row.parent_name or row.item_name)|lower }}"
+                  data-item-id="{{ row.item_id }}"
+                  data-venue-id="{{ row.venue_id }}"
                   data-venue="{{ row.venue_name|lower }}"
+                  data-tracking-mode="{{ row.tracking_mode }}"
                   data-status-key="{{ row.status.key }}"
+                  data-status-label="{{ row.status.text }}"
+                  data-status-icon="{{ row.status.icon_class }}"
                   data-status-text="{{ row.status.text|lower }}"
+                  data-count-priority-key="{{ row.count_state.key }}"
+                  data-count-bucket="{{ row.count_state.bucket }}"
+                  data-count-suggested-order="{{ '' if row.count_state.suggested_order_qty is none else row.count_state.suggested_order_qty }}"
+                  data-count-over-par="{{ '' if row.count_state.over_par_qty is none else row.count_state.over_par_qty }}"
+                  data-count-label="{{ row.count_state.text }}"
+                  data-count-text="{{ row.count_state.text|lower }}"
+                  data-count-icon="{{ row.count_state.icon_class }}"
+                  data-count-tone="{{ row.count_state.tone }}"
+                  data-raw-count="{{ '' if row.raw_count is none else row.raw_count }}"
+                  data-par-value="{{ '' if row.par_value is none else row.par_value }}"
+                  data-action-mode="{{ row.quick_check_mode }}"
                   data-latest-ts="{{ row.latest_check_at.timestamp() if row.latest_check_at else '' }}"
                 >
                   <td>
@@ -756,15 +829,8 @@
                       ) }}
                     </div>
                   </td>
-                  <td>
-                    <span class="status-pill
-                      {{ 'status-good' if row.status.key == 'good' else '' }}
-                      {{ 'status-ok' if row.status.key == 'ok' else '' }}
-                      {{ 'status-low' if row.status.key == 'low' else '' }}
-                      {{ 'status-out' if row.status.key == 'out' else '' }}
-                      {{ 'status-na' if row.status.key == 'not_checked' else '' }}">
-                      <i class="bi {{ row.status.icon_class }}"></i> {{ row.status.text }}
-                    </span>
+                  <td data-restock-summary-slot>
+                    {{ restock_summary_surface(row, restock_filters.mode) }}
                   </td>
                   <td>{{ row.venue_name }}</td>
                   <td class="text-nowrap">
@@ -777,9 +843,10 @@
                   <td>
                     <a
                       class="btn btn-aolrc-primary restock-action-btn"
+                      data-restock-action-link
                       data-dashboard-next-link
-                      data-base-href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id) }}"
-                      href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id, next=request.full_path) }}"
+                      data-base-href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id, mode=row.quick_check_mode) }}"
+                      href="{{ url_for('venue_items.quick_check', venue_id=row.venue_id, focus_item_id=row.item_id, mode=row.quick_check_mode, next=request.full_path) }}"
                     >
                       <span class="d-none d-sm-inline">Open Venue Check</span>
                       <span class="d-sm-none">Venue Check</span>
@@ -817,11 +884,17 @@
       </div>
     </div>
 
-    <script>
+    <script nonce="{{ csp_nonce() }}">
       (() => {
         const restockForm = document.getElementById("restockForm");
         const restockSearch = document.getElementById("restockSearch");
         const restockSort = document.getElementById("restockSort");
+        const restockModeInput = document.getElementById("restockMode");
+        const restockModeToggleButtons = Array.from(
+          document.querySelectorAll("[data-restock-mode-toggle]")
+        );
+        const restockResetLink = document.getElementById("restockResetLink");
+        const restockModeColumnHeader = document.getElementById("restockModeColumnHeader");
         const filtersToggle = document.getElementById("restockFiltersToggle");
         const filtersToggleLabel = document.getElementById("restockFiltersToggleLabel");
         const filtersCollapse = document.getElementById("restockFilters");
@@ -851,6 +924,8 @@
         const restockLoadMoreSentinel = document.getElementById("restockLoadMoreSentinel");
         const restockSearchDebounceMs = 200;
         const restockStatusRank = { out: 0, low: 1, ok: 2, good: 3, not_checked: 4 };
+        const restockCountBucketRank = { comparable: 0, no_count: 1, no_par: 2, singleton: 3 };
+        const restockCountPriorityRank = { out: 0, low: 1, ok: 2, good: 3 };
 
         let restockLoadedCount = document.querySelectorAll("#restockTable tbody .restock-table-row").length;
         let restockTotalCount = Number(restockResultCount?.getAttribute("data-total") ?? restockLoadedCount ?? 0);
@@ -886,6 +961,27 @@
           return "status_priority";
         }
 
+        function normalizeRestockMode(rawMode) {
+          return rawMode === "counts" ? "counts" : "status";
+        }
+
+        function getActiveRestockMode() {
+          return normalizeRestockMode(restockModeInput?.value || "status");
+        }
+
+        function setActiveRestockMode(nextMode) {
+          const normalizedMode = normalizeRestockMode(nextMode);
+          if (restockModeInput) {
+            restockModeInput.value = normalizedMode;
+          }
+          restockModeToggleButtons.forEach((button) => {
+            const buttonMode = normalizeRestockMode(button.getAttribute("data-restock-mode-toggle"));
+            const isActive = buttonMode === normalizedMode;
+            button.classList.toggle("is-active", isActive);
+            button.setAttribute("aria-pressed", isActive ? "true" : "false");
+          });
+        }
+
         function hasWordBoundaryPrefix(text, query) {
           if (!query) return false;
           const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -899,6 +995,7 @@
           const searchText = (element.getAttribute("data-item") || "").toLowerCase();
           const venueText = (element.getAttribute("data-venue") || "").toLowerCase();
           const statusText = (element.getAttribute("data-status-text") || "").toLowerCase();
+          const countText = (element.getAttribute("data-count-text") || "").toLowerCase();
 
           if (itemText.startsWith(query)) return 0;
           if (hasWordBoundaryPrefix(itemText, query)) return 1;
@@ -912,12 +1009,27 @@
           if (venueText.includes(query)) return 9;
           if (statusText.startsWith(query)) return 10;
           if (statusText.includes(query)) return 11;
+          if (countText.startsWith(query)) return 12;
+          if (countText.includes(query)) return 13;
           return null;
         }
 
         function getRestockLatestTimestamp(element) {
           const rawValue = Number(element?.getAttribute("data-latest-ts") || "");
           return Number.isFinite(rawValue) ? rawValue : Number.NEGATIVE_INFINITY;
+        }
+
+        function getRestockCountBucket(element) {
+          return element.getAttribute("data-count-bucket") || "singleton";
+        }
+
+        function getRestockCountPriority(element) {
+          return element.getAttribute("data-count-priority-key") || "good";
+        }
+
+        function getRestockCountSuggestedOrder(element) {
+          const rawSuggestedOrder = Number(element.getAttribute("data-count-suggested-order") || "");
+          return Number.isFinite(rawSuggestedOrder) ? rawSuggestedOrder : Number.NEGATIVE_INFINITY;
         }
 
         function compareRestockElements(a, b, sortMode, searchQuery = "") {
@@ -951,6 +1063,21 @@
             return venueA.localeCompare(venueB);
           }
           if (sortMode === "status_priority") {
+            if (getActiveRestockMode() === "counts") {
+              const bucketRankA = restockCountBucketRank[getRestockCountBucket(a)] ?? 99;
+              const bucketRankB = restockCountBucketRank[getRestockCountBucket(b)] ?? 99;
+              if (bucketRankA !== bucketRankB) return bucketRankA - bucketRankB;
+              if (getRestockCountBucket(a) === "comparable" && getRestockCountBucket(b) === "comparable") {
+                const priorityRankA = restockCountPriorityRank[getRestockCountPriority(a)] ?? 99;
+                const priorityRankB = restockCountPriorityRank[getRestockCountPriority(b)] ?? 99;
+                if (priorityRankA !== priorityRankB) return priorityRankA - priorityRankB;
+                const suggestedOrderA = getRestockCountSuggestedOrder(a);
+                const suggestedOrderB = getRestockCountSuggestedOrder(b);
+                if (suggestedOrderA !== suggestedOrderB) return suggestedOrderB - suggestedOrderA;
+              }
+              if (venueA !== venueB) return venueA.localeCompare(venueB);
+              return familyA.localeCompare(familyB) || itemA.localeCompare(itemB);
+            }
             const rankA = restockStatusRank[statusA] ?? 99;
             const rankB = restockStatusRank[statusB] ?? 99;
             if (rankA !== rankB) return rankA - rankB;
@@ -972,18 +1099,145 @@
           });
         }
 
+        function clearRestockQueryParams(searchParams) {
+          [
+            "restock_search",
+            "restock_sort",
+            "restock_mode",
+            "restock_status_submitted",
+            "restock_item_submitted",
+            "restock_venue_submitted",
+            "restock_status",
+            "restock_item_id",
+            "restock_venue_id",
+            "offset",
+            "limit",
+            "next",
+          ].forEach((key) => searchParams.delete(key));
+        }
+
+        function appendAppliedCheckboxValues(url, selector) {
+          document.querySelectorAll(selector).forEach((input) => {
+            if (!input.defaultChecked) return;
+            url.searchParams.append(input.name, input.value);
+          });
+        }
+
+        function appendAppliedRestockFilters(url) {
+          url.searchParams.set("restock_status_submitted", "1");
+          url.searchParams.set("restock_item_submitted", "1");
+          url.searchParams.set("restock_venue_submitted", "1");
+          appendAppliedCheckboxValues(url, '#restockForm input[name="restock_status"]');
+          appendAppliedCheckboxValues(url, '#restockForm input[name="restock_item_id"]');
+          appendAppliedCheckboxValues(url, '#restockForm input[name="restock_venue_id"]');
+        }
+
+        function syncRestockResetUrl() {
+          if (!restockResetLink) return;
+          const baseHref = restockResetLink.getAttribute("data-base-href");
+          if (!baseHref) return;
+          const nextUrl = new URL(baseHref, window.location.origin);
+          if (getActiveRestockMode() === "counts") {
+            nextUrl.searchParams.set("restock_mode", "counts");
+          } else {
+            nextUrl.searchParams.delete("restock_mode");
+          }
+          restockResetLink.href = `${nextUrl.pathname}${nextUrl.search}`;
+        }
+
         function syncRestockSearchSortUrl() {
           const nextUrl = new URL(window.location.href);
+          clearRestockQueryParams(nextUrl.searchParams);
           nextUrl.searchParams.set("tab", "restocking");
+          appendAppliedRestockFilters(nextUrl);
 
           const nextSearch = (restockSearch?.value || "").trim();
           if (nextSearch) nextUrl.searchParams.set("restock_search", nextSearch);
-          else nextUrl.searchParams.delete("restock_search");
 
           const nextSort = normalizeRestockSortMode(restockSort?.value || "status_priority");
           nextUrl.searchParams.set("restock_sort", nextSort);
+          if (getActiveRestockMode() === "counts") {
+            nextUrl.searchParams.set("restock_mode", "counts");
+          }
 
           window.history.replaceState({}, "", nextUrl);
+          window.syncDashboardActionUrls?.();
+        }
+
+        function buildRestockStatusPill(statusKey, statusLabel, statusIcon) {
+          const statusSpan = document.createElement("span");
+          statusSpan.className = `status-pill ${getStatusClass(statusKey)}`;
+          const icon = document.createElement("i");
+          icon.className = `bi ${statusIcon || ""}`;
+          statusSpan.appendChild(icon);
+          statusSpan.append(` ${statusLabel || ""}`);
+          return statusSpan;
+        }
+
+        function buildRestockCountChip(countKey, countLabel, countIcon, countTone) {
+          const chip = document.createElement("span");
+          chip.className = `ui-chip ui-chip-${countTone || "neutral"} ui-chip-compact restock-count-chip restock-count-chip-${countKey || "good"}`;
+          const icon = document.createElement("i");
+          icon.className = `bi ${countIcon || ""}`;
+          chip.appendChild(icon);
+          const label = document.createElement("span");
+          label.textContent = countLabel || "";
+          chip.appendChild(label);
+          return chip;
+        }
+
+        function buildRestockSummaryNode(element) {
+          const trackingMode = element.getAttribute("data-tracking-mode") || "quantity";
+          if (getActiveRestockMode() === "counts" && trackingMode !== "singleton_asset") {
+            return buildRestockCountChip(
+              element.getAttribute("data-count-priority-key"),
+              element.getAttribute("data-count-label"),
+              element.getAttribute("data-count-icon"),
+              element.getAttribute("data-count-tone")
+            );
+          }
+          return buildRestockStatusPill(
+            element.getAttribute("data-status-key"),
+            element.getAttribute("data-status-label"),
+            element.getAttribute("data-status-icon")
+          );
+        }
+
+        function updateRestockSummarySlot(element) {
+          const slot = element.querySelector("[data-restock-summary-slot]");
+          if (!slot) return;
+          slot.replaceChildren(buildRestockSummaryNode(element));
+        }
+
+        function getRestockActionModeForElement(element) {
+          const trackingMode = element.getAttribute("data-tracking-mode") || "quantity";
+          return getActiveRestockMode() === "counts" && trackingMode !== "singleton_asset"
+            ? "raw_counts"
+            : "status";
+        }
+
+        function updateRestockActionLink(element) {
+          const actionLink = element.querySelector("[data-restock-action-link]");
+          if (!actionLink) return;
+          const baseHref = actionLink.getAttribute("data-base-href") || actionLink.href;
+          const actionUrl = new URL(baseHref, window.location.origin);
+          actionUrl.searchParams.set("mode", getRestockActionModeForElement(element));
+          const cleanBaseHref = `${actionUrl.pathname}${actionUrl.search}`;
+          actionLink.setAttribute("data-base-href", cleanBaseHref);
+          actionLink.href = cleanBaseHref;
+          element.setAttribute("data-action-mode", getRestockActionModeForElement(element));
+        }
+
+        function updateRestockModePresentation() {
+          setActiveRestockMode(getActiveRestockMode());
+          if (restockModeColumnHeader) {
+            restockModeColumnHeader.textContent = getActiveRestockMode() === "counts" ? "Count" : "Status";
+          }
+          [...getRestockTableRows(), ...getRestockMobileCards()].forEach((element) => {
+            updateRestockSummarySlot(element);
+            updateRestockActionLink(element);
+          });
+          syncRestockResetUrl();
           window.syncDashboardActionUrls?.();
         }
 
@@ -1089,28 +1343,57 @@
           return wrap;
         }
 
+        function applyRestockDataAttributes(element, row) {
+          element.setAttribute("data-item", `${row.item_name || ""} ${row.parent_name || ""}`.trim().toLowerCase());
+          element.setAttribute("data-item-name", (row.item_name || "").toLowerCase());
+          element.setAttribute("data-family", (row.parent_name || row.item_name || "").toLowerCase());
+          element.setAttribute("data-item-id", row.item_id ?? "");
+          element.setAttribute("data-venue-id", row.venue_id ?? "");
+          element.setAttribute("data-venue", (row.venue_name || "").toLowerCase());
+          element.setAttribute("data-tracking-mode", row.tracking_mode || "quantity");
+          element.setAttribute("data-status-key", row.status?.key || "not_checked");
+          element.setAttribute("data-status-label", row.status?.text || "Not Checked");
+          element.setAttribute("data-status-icon", row.status?.icon_class || "bi-dash-circle");
+          element.setAttribute("data-status-text", (row.status?.text || "").toLowerCase());
+          element.setAttribute("data-count-priority-key", row.count_state?.key || "no_count");
+          element.setAttribute("data-count-bucket", row.count_state?.bucket || "no_count");
+          element.setAttribute(
+            "data-count-suggested-order",
+            row.count_state?.suggested_order_qty == null ? "" : String(row.count_state.suggested_order_qty)
+          );
+          element.setAttribute(
+            "data-count-over-par",
+            row.count_state?.over_par_qty == null ? "" : String(row.count_state.over_par_qty)
+          );
+          element.setAttribute("data-count-label", row.count_state?.text || "");
+          element.setAttribute("data-count-text", (row.count_state?.text || "").toLowerCase());
+          element.setAttribute("data-count-icon", row.count_state?.icon_class || "bi-dash-circle");
+          element.setAttribute("data-count-tone", row.count_state?.tone || "neutral");
+          element.setAttribute("data-raw-count", row.raw_count == null ? "" : String(row.raw_count));
+          element.setAttribute("data-par-value", row.par_value == null ? "" : String(row.par_value));
+          element.setAttribute("data-action-mode", row.quick_check_mode || "status");
+          element.setAttribute("data-latest-ts", row.latest_check_missing ? "" : String(row.latest_check_ts || ""));
+        }
+
+        function populateRestockActionLink(actionLink, quickCheckUrl) {
+          actionLink.setAttribute("data-restock-action-link", "");
+          actionLink.setAttribute("data-dashboard-next-link", "");
+          const actionBaseUrl = new URL(quickCheckUrl, window.location.origin);
+          actionBaseUrl.searchParams.delete("next");
+          actionLink.setAttribute("data-base-href", `${actionBaseUrl.pathname}${actionBaseUrl.search}`);
+          actionLink.href = quickCheckUrl;
+        }
+
         function createRestockTableRow(row) {
           const tr = document.createElement("tr");
           tr.className = "restock-table-row";
-          tr.setAttribute("data-item", `${row.item_name || ""} ${row.parent_name || ""}`.trim().toLowerCase());
-          tr.setAttribute("data-item-name", (row.item_name || "").toLowerCase());
-          tr.setAttribute("data-family", (row.parent_name || row.item_name || "").toLowerCase());
-          tr.setAttribute("data-venue", (row.venue_name || "").toLowerCase());
-          tr.setAttribute("data-status-key", row.status?.key || "not_checked");
-          tr.setAttribute("data-status-text", (row.status?.text || "").toLowerCase());
-          tr.setAttribute("data-latest-ts", row.latest_check_missing ? "" : String(row.latest_check_ts || ""));
+          applyRestockDataAttributes(tr, row);
 
           const itemTd = document.createElement("td");
           itemTd.appendChild(createInventoryItemBlock(row));
 
           const statusTd = document.createElement("td");
-          const statusSpan = document.createElement("span");
-          statusSpan.className = `status-pill ${getStatusClass(row.status?.key)}`;
-          const icon = document.createElement("i");
-          icon.className = `bi ${row.status?.icon_class || ""}`;
-          statusSpan.appendChild(icon);
-          statusSpan.append(` ${row.status?.text || ""}`);
-          statusTd.appendChild(statusSpan);
+          statusTd.setAttribute("data-restock-summary-slot", "");
 
           const venueTd = document.createElement("td");
           venueTd.textContent = row.venue_name;
@@ -1129,11 +1412,7 @@
           const actionTd = document.createElement("td");
           const actionLink = document.createElement("a");
           actionLink.className = "btn btn-aolrc-primary restock-action-btn";
-          actionLink.setAttribute("data-dashboard-next-link", "");
-          const actionBaseUrl = new URL(row.quick_check_url, window.location.origin);
-          actionBaseUrl.searchParams.delete("next");
-          actionLink.setAttribute("data-base-href", `${actionBaseUrl.pathname}${actionBaseUrl.search}`);
-          actionLink.href = row.quick_check_url;
+          populateRestockActionLink(actionLink, row.quick_check_url);
           actionLink.innerHTML = '<span class="d-none d-sm-inline">Open Venue Check</span><span class="d-sm-none">Venue Check</span>';
           actionTd.appendChild(actionLink);
 
@@ -1142,19 +1421,15 @@
           tr.appendChild(venueTd);
           tr.appendChild(latestTd);
           tr.appendChild(actionTd);
+          updateRestockSummarySlot(tr);
+          updateRestockActionLink(tr);
           return tr;
         }
 
         function createRestockMobileCard(row) {
           const article = document.createElement("article");
           article.className = "restock-mobile-card";
-          article.setAttribute("data-item", `${row.item_name || ""} ${row.parent_name || ""}`.trim().toLowerCase());
-          article.setAttribute("data-item-name", (row.item_name || "").toLowerCase());
-          article.setAttribute("data-family", (row.parent_name || row.item_name || "").toLowerCase());
-          article.setAttribute("data-venue", (row.venue_name || "").toLowerCase());
-          article.setAttribute("data-status-key", row.status?.key || "not_checked");
-          article.setAttribute("data-status-text", (row.status?.text || "").toLowerCase());
-          article.setAttribute("data-latest-ts", row.latest_check_missing ? "" : String(row.latest_check_ts || ""));
+          applyRestockDataAttributes(article, row);
 
           const topRow = document.createElement("div");
           topRow.className = "d-flex align-items-start justify-content-between gap-2 mb-2";
@@ -1164,13 +1439,10 @@
           itemName.appendChild(createInventoryItemBlock(row));
           topRow.appendChild(itemName);
 
-          const statusSpan = document.createElement("span");
-          statusSpan.className = `status-pill ${getStatusClass(row.status?.key)}`;
-          const icon = document.createElement("i");
-          icon.className = `bi ${row.status?.icon_class || ""}`;
-          statusSpan.appendChild(icon);
-          statusSpan.append(` ${row.status?.text || ""}`);
-          topRow.appendChild(statusSpan);
+          const summarySlot = document.createElement("div");
+          summarySlot.className = "restock-summary-slot";
+          summarySlot.setAttribute("data-restock-summary-slot", "");
+          topRow.appendChild(summarySlot);
           article.appendChild(topRow);
 
           const metaWrap = document.createElement("div");
@@ -1210,13 +1482,11 @@
 
           const actionLink = document.createElement("a");
           actionLink.className = "btn btn-aolrc-primary restock-mobile-action-btn mt-2";
-          actionLink.setAttribute("data-dashboard-next-link", "");
-          const actionBaseUrl = new URL(row.quick_check_url, window.location.origin);
-          actionBaseUrl.searchParams.delete("next");
-          actionLink.setAttribute("data-base-href", `${actionBaseUrl.pathname}${actionBaseUrl.search}`);
-          actionLink.href = row.quick_check_url;
+          populateRestockActionLink(actionLink, row.quick_check_url);
           actionLink.innerHTML = '<span class="d-none d-sm-inline">Open Venue Check</span><span class="d-sm-none">Venue Check</span>';
           article.appendChild(actionLink);
+          updateRestockSummarySlot(article);
+          updateRestockActionLink(article);
           return article;
         }
 
@@ -1234,12 +1504,17 @@
 
         function buildRestockLoadUrl(offset) {
           const url = new URL(restockApiUrl, window.location.origin);
-          if (restockForm) {
-            const formData = new FormData(restockForm);
-            formData.forEach((value, key) => {
-              url.searchParams.append(key, value.toString());
-            });
+          url.searchParams.set("tab", "restocking");
+          appendAppliedRestockFilters(url);
+          const nextSearch = (restockSearch?.value || "").trim();
+          if (nextSearch) {
+            url.searchParams.set("restock_search", nextSearch);
           }
+          url.searchParams.set(
+            "restock_sort",
+            normalizeRestockSortMode(restockSort?.value || "status_priority")
+          );
+          url.searchParams.set("restock_mode", getActiveRestockMode());
           url.searchParams.set("offset", String(offset));
           url.searchParams.set("limit", String(restockPageSize));
           url.searchParams.set("next", `${window.location.pathname}${window.location.search}`);
@@ -1396,6 +1671,7 @@
           restockSort.addEventListener("change", () => {
             applyRestockLiveView();
             syncRestockSearchSortUrl();
+            updateRestockModePresentation();
             queueRestockRefresh(true);
           });
         }
@@ -1415,9 +1691,21 @@
           });
         }
 
+        restockModeToggleButtons.forEach((button) => {
+          button.addEventListener("click", () => {
+            const requestedMode = normalizeRestockMode(button.getAttribute("data-restock-mode-toggle"));
+            if (requestedMode === getActiveRestockMode()) return;
+            setActiveRestockMode(requestedMode);
+            syncRestockSearchSortUrl();
+            updateRestockModePresentation();
+            applyRestockLiveView();
+            queueRestockRefresh(true);
+          });
+        });
+
         updateRestockResultCount();
         updateRestockLoadMoreUi();
-        window.syncDashboardActionUrls?.();
+        updateRestockModePresentation();
         applyRestockLiveView();
 
         function setFiltersToggleLabel(isOpen) {
@@ -1874,7 +2162,7 @@
       </div>
     </div>
 
-    <script>
+    <script nonce="{{ csp_nonce() }}">
       (() => {
         const activityForm = document.getElementById("activityForm");
         const activitySearch = document.getElementById("activitySearch");

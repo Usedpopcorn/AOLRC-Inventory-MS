@@ -1,13 +1,22 @@
-import os
+import hashlib
 from datetime import timedelta
-from urllib.parse import urljoin, urlparse
 
-from flask import Blueprint, current_app, flash, redirect, render_template, request, session, url_for
+from flask import (
+    Blueprint,
+    current_app,
+    flash,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 from flask_login import current_user, login_required, login_user, logout_user
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import AUTH_SESSION_VERSION_SESSION_KEY, db
 from app.models import User
+from app.security import get_client_ip, is_safe_redirect_target
 from app.services.account_security import (
     AccountManagementError,
     build_dev_password_link_message,
@@ -19,7 +28,9 @@ from app.services.account_security import (
     utcnow,
     validate_new_password,
 )
+from app.services.feedback import FEEDBACK_REVIEW_SESSION_KEY
 from app.services.inventory_status import ensure_utc
+from app.services.rate_limits import rate_limiter
 
 auth_bp = Blueprint("auth", __name__)
 DEV_QUICK_LOGIN_EMAILS = {
@@ -33,14 +44,8 @@ DEV_QUICK_LOGIN_ROLE_MAP = {
     "staff": "staff",
     "user": "viewer",
 }
-
-
-def _is_safe_redirect_target(target):
-    if not target:
-        return False
-    host_url = urlparse(request.host_url)
-    redirect_url = urlparse(urljoin(request.host_url, target))
-    return redirect_url.scheme in {"http", "https"} and host_url.netloc == redirect_url.netloc
+GENERIC_LOGIN_FAILURE_MESSAGE = "Invalid credentials or account unavailable."
+AUTH_THROTTLE_MESSAGE = "Too many attempts. Please wait a few minutes and try again."
 
 
 def _is_dev_quick_login_enabled():
@@ -81,7 +86,11 @@ def _resolve_quick_login_user(quick_role):
     if fallback_email:
         existing = User.query.filter_by(email=fallback_email).first()
         if existing:
-            if existing.active and not existing.force_password_change and not _is_user_locked(existing):
+            if (
+                existing.active
+                and not existing.force_password_change
+                and not _is_user_locked(existing)
+            ):
                 return existing
             return None
         user = User(
@@ -107,6 +116,12 @@ def _record_failed_login(user):
     if user.failed_login_attempts >= max_attempts:
         user.locked_until = utcnow() + timedelta(minutes=lockout_minutes)
         user.failed_login_attempts = 0
+        _log_auth_security_event(
+            "login_lockout",
+            email=user.email,
+            user_id=user.id,
+            details={"locked_until": ensure_utc(user.locked_until).isoformat()},
+        )
     db.session.commit()
 
 
@@ -131,21 +146,173 @@ def _render_login(email="", status_code=200):
     )
 
 
+def _log_auth_security_event(
+    event_type,
+    *,
+    email=None,
+    user_id=None,
+    ip_address=None,
+    details=None,
+):
+    metadata = details or {}
+    current_app.logger.warning(
+        "auth_security event=%s email=%s user_id=%s ip=%s details=%s",
+        event_type,
+        (email or "").strip().lower() or "-",
+        user_id if user_id is not None else "-",
+        ip_address or get_client_ip(),
+        metadata,
+    )
+
+
+def _throttle_key(value, *, fallback):
+    normalized = (value or "").strip().lower()
+    return normalized or fallback
+
+
+def _peek_rate_limit(bucket, key, *, limit, window_seconds):
+    return rate_limiter.peek(bucket, key, limit=limit, window_seconds=window_seconds)
+
+
+def _record_rate_limit(bucket, key, *, limit, window_seconds):
+    return rate_limiter.record(bucket, key, limit=limit, window_seconds=window_seconds)
+
+
+def _clear_rate_limit(bucket, key):
+    rate_limiter.clear(bucket, key)
+
+
+def _peek_login_throttle(email, ip_address):
+    config = current_app.config
+    email_key = _throttle_key(email, fallback="blank-email")
+    ip_key = _throttle_key(ip_address, fallback="unknown-ip")
+    decisions = [
+        _peek_rate_limit(
+            "login-account",
+            email_key,
+            limit=config["AUTH_LOGIN_ACCOUNT_THROTTLE_LIMIT"],
+            window_seconds=config["AUTH_LOGIN_THROTTLE_WINDOW_SECONDS"],
+        ),
+        _peek_rate_limit(
+            "login-ip",
+            ip_key,
+            limit=config["AUTH_LOGIN_IP_THROTTLE_LIMIT"],
+            window_seconds=config["AUTH_LOGIN_THROTTLE_WINDOW_SECONDS"],
+        ),
+    ]
+    limited_decisions = [decision for decision in decisions if decision.limited]
+    if not limited_decisions:
+        return None
+    return max(limited_decisions, key=lambda decision: decision.retry_after_seconds)
+
+
+def _record_login_failure(email, ip_address):
+    config = current_app.config
+    email_key = _throttle_key(email, fallback="blank-email")
+    ip_key = _throttle_key(ip_address, fallback="unknown-ip")
+    decisions = [
+        _record_rate_limit(
+            "login-account",
+            email_key,
+            limit=config["AUTH_LOGIN_ACCOUNT_THROTTLE_LIMIT"],
+            window_seconds=config["AUTH_LOGIN_THROTTLE_WINDOW_SECONDS"],
+        ),
+        _record_rate_limit(
+            "login-ip",
+            ip_key,
+            limit=config["AUTH_LOGIN_IP_THROTTLE_LIMIT"],
+            window_seconds=config["AUTH_LOGIN_THROTTLE_WINDOW_SECONDS"],
+        ),
+    ]
+    limited_decisions = [decision for decision in decisions if decision.limited]
+    if not limited_decisions:
+        return None
+    return max(limited_decisions, key=lambda decision: decision.retry_after_seconds)
+
+
+def _clear_login_failures(email, ip_address):
+    email_key = _throttle_key(email, fallback="blank-email")
+    ip_key = _throttle_key(ip_address, fallback="unknown-ip")
+    _clear_rate_limit("login-account", email_key)
+    _clear_rate_limit("login-ip", ip_key)
+
+
+def _record_password_request_attempt(email, ip_address):
+    config = current_app.config
+    email_key = _throttle_key(email, fallback="blank-email")
+    ip_key = _throttle_key(ip_address, fallback="unknown-ip")
+    decisions = [
+        _record_rate_limit(
+            "forgot-password-account",
+            email_key,
+            limit=config["AUTH_PASSWORD_REQUEST_ACCOUNT_THROTTLE_LIMIT"],
+            window_seconds=config["AUTH_PASSWORD_REQUEST_THROTTLE_WINDOW_SECONDS"],
+        ),
+        _record_rate_limit(
+            "forgot-password-ip",
+            ip_key,
+            limit=config["AUTH_PASSWORD_REQUEST_IP_THROTTLE_LIMIT"],
+            window_seconds=config["AUTH_PASSWORD_REQUEST_THROTTLE_WINDOW_SECONDS"],
+        ),
+    ]
+    limited_decisions = [decision for decision in decisions if decision.limited]
+    if not limited_decisions:
+        return None
+    return max(limited_decisions, key=lambda decision: decision.retry_after_seconds)
+
+
+def _record_password_reset_attempt(account_key, ip_address):
+    config = current_app.config
+    normalized_account_key = _throttle_key(account_key, fallback="unknown-account")
+    ip_key = _throttle_key(ip_address, fallback="unknown-ip")
+    decisions = [
+        _record_rate_limit(
+            "reset-password-account",
+            normalized_account_key,
+            limit=config["AUTH_PASSWORD_RESET_ACCOUNT_THROTTLE_LIMIT"],
+            window_seconds=config["AUTH_PASSWORD_RESET_THROTTLE_WINDOW_SECONDS"],
+        ),
+        _record_rate_limit(
+            "reset-password-ip",
+            ip_key,
+            limit=config["AUTH_PASSWORD_RESET_IP_THROTTLE_LIMIT"],
+            window_seconds=config["AUTH_PASSWORD_RESET_THROTTLE_WINDOW_SECONDS"],
+        ),
+    ]
+    limited_decisions = [decision for decision in decisions if decision.limited]
+    if not limited_decisions:
+        return None
+    return max(limited_decisions, key=lambda decision: decision.retry_after_seconds)
+
+
+def _clear_password_reset_attempts(account_key, ip_address):
+    normalized_account_key = _throttle_key(account_key, fallback="unknown-account")
+    ip_key = _throttle_key(ip_address, fallback="unknown-ip")
+    _clear_rate_limit("reset-password-account", normalized_account_key)
+    _clear_rate_limit("reset-password-ip", ip_key)
+
+
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("main.dashboard"))
 
     if request.method == "POST":
+        ip_address = get_client_ip()
         quick_role = (request.form.get("quick_login_role") or "").strip().lower()
         if _is_dev_quick_login_enabled() and quick_role in DEV_QUICK_LOGIN_EMAILS:
             user = _resolve_quick_login_user(quick_role)
-            if user and user.active and not user.force_password_change and not _is_user_locked(user):
+            if (
+                user
+                and user.active
+                and not user.force_password_change
+                and not _is_user_locked(user)
+            ):
                 register_successful_login(user)
                 db.session.commit()
                 _finish_login(user)
                 next_url = request.args.get("next") or request.form.get("next")
-                if _is_safe_redirect_target(next_url):
+                if is_safe_redirect_target(next_url):
                     return redirect(next_url)
                 return redirect(url_for("main.dashboard"))
             flash(f"Quick login failed for {quick_role}. Verify test users exist.", "error")
@@ -153,42 +320,82 @@ def login():
 
         email = (request.form.get("email") or "").strip().lower()
         password = request.form.get("password") or ""
-
         user = User.query.filter_by(email=email).first()
         now = utcnow()
-        if user and _is_user_locked(user, now):
-            locked_until = ensure_utc(user.locked_until)
-            minutes_remaining = max(
-                1,
-                int((locked_until - ensure_utc(now)).total_seconds() // 60) + 1,
+        password_matches = bool(user and check_password_hash(user.password_hash, password))
+        throttle_decision = _peek_login_throttle(email, ip_address)
+        if throttle_decision is not None and not password_matches:
+            _log_auth_security_event(
+                "login_throttled",
+                email=email,
+                ip_address=ip_address,
+                details={"retry_after_seconds": throttle_decision.retry_after_seconds},
             )
-            flash(
-                f"Too many failed attempts. Try again in about {minutes_remaining} minute(s).",
-                "error",
-            )
+            flash(AUTH_THROTTLE_MESSAGE, "error")
             return _render_login(email=email, status_code=429)
 
-        if user is None or not check_password_hash(user.password_hash, password):
-            if user:
+        if not password_matches:
+            throttle_decision = _record_login_failure(email, ip_address)
+            if throttle_decision is not None:
+                _log_auth_security_event(
+                    "login_throttled",
+                    email=email,
+                    user_id=getattr(user, "id", None),
+                    ip_address=ip_address,
+                    details={"retry_after_seconds": throttle_decision.retry_after_seconds},
+                )
+                flash(AUTH_THROTTLE_MESSAGE, "error")
+                return _render_login(email=email, status_code=429)
+            if (
+                user
+                and user.active
+                and not user.force_password_change
+                and not _is_user_locked(user, now)
+            ):
                 _record_failed_login(user)
-            flash("Invalid email or password.", "error")
+            _log_auth_security_event(
+                "login_failed",
+                email=email,
+                user_id=getattr(user, "id", None),
+                ip_address=ip_address,
+            )
+            flash(GENERIC_LOGIN_FAILURE_MESSAGE, "error")
             return _render_login(email=email, status_code=401)
 
-        if not user.active:
-            flash("Your account is inactive. Contact an admin.", "error")
-            return _render_login(email=email, status_code=403)
+        if _is_user_locked(user, now):
+            _record_login_failure(email, ip_address)
+            _log_auth_security_event(
+                "login_denied",
+                email=email,
+                user_id=user.id,
+                ip_address=ip_address,
+                details={"reason": "locked"},
+            )
+            flash(GENERIC_LOGIN_FAILURE_MESSAGE, "error")
+            return _render_login(email=email, status_code=401)
 
-        if user.force_password_change:
-            flash("Use your password setup link or contact an admin to finish setting your password.", "error")
-            return _render_login(email=email, status_code=403)
+        if not user.active or user.force_password_change:
+            _record_login_failure(email, ip_address)
+            _log_auth_security_event(
+                "login_denied",
+                email=email,
+                user_id=user.id,
+                ip_address=ip_address,
+                details={
+                    "reason": "inactive" if not user.active else "password_setup_required",
+                },
+            )
+            flash(GENERIC_LOGIN_FAILURE_MESSAGE, "error")
+            return _render_login(email=email, status_code=401)
 
+        _clear_login_failures(email, ip_address)
         _reset_login_failure_state(user)
         register_successful_login(user)
         db.session.commit()
         _finish_login(user)
 
         next_url = request.args.get("next") or request.form.get("next")
-        if _is_safe_redirect_target(next_url):
+        if is_safe_redirect_target(next_url):
             return redirect(next_url)
         return redirect(url_for("main.dashboard"))
 
@@ -198,6 +405,7 @@ def login():
 @auth_bp.post("/logout")
 def logout():
     session.pop(AUTH_SESSION_VERSION_SESSION_KEY, None)
+    session.pop(FEEDBACK_REVIEW_SESSION_KEY, None)
     logout_user()
     flash("Signed out.", "success")
     return redirect(url_for("auth.login"))
@@ -210,7 +418,29 @@ def forgot_password():
 
     if request.method == "POST":
         email = (request.form.get("email") or "").strip().lower()
+        ip_address = get_client_ip()
+        throttle_decision = _record_password_request_attempt(email, ip_address)
+        if throttle_decision is not None:
+            _log_auth_security_event(
+                "password_request_throttled",
+                email=email,
+                ip_address=ip_address,
+                details={"retry_after_seconds": throttle_decision.retry_after_seconds},
+            )
+            flash(
+                "If an account matches that email, password reset instructions are ready.",
+                "success",
+            )
+            return redirect(url_for("auth.login"))
+
         user, issued_link = request_password_link_for_email(email)
+        _log_auth_security_event(
+            "password_request_submitted",
+            email=email,
+            user_id=getattr(user, "id", None),
+            ip_address=ip_address,
+            details={"issued": bool(issued_link)},
+        )
         flash(
             "If an account matches that email, password reset instructions are ready.",
             "success",
@@ -226,13 +456,44 @@ def forgot_password():
 def reset_password(token):
     token_record = None
     token_error = None
+    ip_address = get_client_ip()
     try:
         token_record = resolve_password_action_token(token)
     except AccountManagementError as exc:
         token_error = str(exc)
 
     if request.method == "POST":
+        account_key = getattr(getattr(token_record, "user", None), "email", None) or (
+            f"token:{hashlib.sha256((token or '').encode('utf-8')).hexdigest()[:12]}"
+        )
+        throttle_decision = _record_password_reset_attempt(account_key, ip_address)
+        if throttle_decision is not None:
+            _log_auth_security_event(
+                "password_reset_throttled",
+                email=getattr(getattr(token_record, "user", None), "email", None),
+                user_id=getattr(getattr(token_record, "user", None), "id", None),
+                ip_address=ip_address,
+                details={"retry_after_seconds": throttle_decision.retry_after_seconds},
+            )
+            flash(AUTH_THROTTLE_MESSAGE, "error")
+            return (
+                render_template(
+                    "auth/reset_password.html",
+                    token=token,
+                    token_record=token_record,
+                    token_error=token_error,
+                    purpose=(token_record.purpose if token_record else None),
+                ),
+                429,
+            )
+
         if token_error:
+            _log_auth_security_event(
+                "password_reset_denied",
+                email=None,
+                ip_address=ip_address,
+                details={"reason": token_error},
+            )
             flash(token_error, "error")
             return redirect(url_for("auth.forgot_password"))
 
@@ -246,7 +507,21 @@ def reset_password(token):
             )
         except AccountManagementError as exc:
             token_error = str(exc)
+            _log_auth_security_event(
+                "password_reset_failed",
+                email=getattr(getattr(token_record, "user", None), "email", None),
+                user_id=getattr(getattr(token_record, "user", None), "id", None),
+                ip_address=ip_address,
+                details={"reason": token_error},
+            )
         else:
+            _clear_password_reset_attempts(account_key, ip_address)
+            _log_auth_security_event(
+                "password_reset_completed",
+                email=getattr(getattr(token_record, "user", None), "email", None),
+                user_id=getattr(getattr(token_record, "user", None), "id", None),
+                ip_address=ip_address,
+            )
             flash("Password updated. You can now sign in.", "success")
             return redirect(url_for("auth.login"))
 
@@ -310,6 +585,7 @@ def change_password():
 
     change_password_for_user(user=current_user, new_password=new_password)
     session.pop(AUTH_SESSION_VERSION_SESSION_KEY, None)
+    session.pop(FEEDBACK_REVIEW_SESSION_KEY, None)
     logout_user()
     flash("Password updated. Please sign in again.", "success")
     return redirect(url_for("auth.login"))

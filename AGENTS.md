@@ -20,6 +20,8 @@ Use this file as the entry point for UI and general repo navigation.
 - Run `.\scripts\dev_shell.ps1` first in a Windows PowerShell session when `rg`, `python`, `pytest`, `ruff`, or `pre-commit` resolve incorrectly.
 - Run `.\scripts\bootstrap_dev.ps1` if `.venv` does not exist yet.
 - Keep repo-local tooling in `.tools/`; it is intentionally ignored by git.
+- Feature branches must use the local SQLite `DATABASE_URL`; the shared Postgres/Supabase database is reserved for `main`.
+- Recreate Docker containers after changing `.env`, because `env_file` changes do not update an already-created container's `DATABASE_URL`.
 
 ## UI Source Of Truth
 

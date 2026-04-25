@@ -1,8 +1,8 @@
 {% import "_item_macros.html" as item_ui %}
 {% import "_ui_macros.html" as ui %}
 
-{% macro state_badge(label, tone="neutral", icon_class=None, inline=False, extra_classes="", extra_attrs="") -%}
-  <span class="inventory-state-chip supply-audit-state-badge{{ ' supply-audit-state-inline' if inline else '' }} inventory-state-chip-{{ tone }}{{ ' ' ~ extra_classes if extra_classes else '' }}"{% if extra_attrs %} {{ extra_attrs|safe }}{% endif %}>
+{% macro state_badge(label, tone="neutral", icon_class=None, inline=False, extra_classes="") -%}
+  <span class="inventory-state-chip supply-audit-state-badge{{ ' supply-audit-state-inline' if inline else '' }} inventory-state-chip-{{ tone }}{{ ' ' ~ extra_classes if extra_classes else '' }}">
     {% if icon_class %}
       <i class="bi {{ icon_class }}" aria-hidden="true"></i>
     {% endif %}
@@ -152,6 +152,27 @@
   </span>
 {%- endmacro %}
 
+{% macro supply_item_note_link(row, note_focus="list", extra_classes="") -%}
+  {% set note_href = url_for('supplies.index', note_item_id=row.id, note_focus=note_focus) %}
+  {% set modal_base_href = url_for('supplies.note_modal', item_id=row.id) %}
+  {% set note_label = row.notes_count ~ ' note' ~ ('' if row.notes_count == 1 else 's') %}
+  <a
+    class="icon-btn-plain icon-btn-sm venue-profile-row-note-action supply-item-note-action-btn{{ ' ' ~ extra_classes if extra_classes else '' }}"
+    data-supply-note-item-id="{{ row.id }}"
+    data-supply-item-name="{{ row.name }}"
+    data-supply-note-focus="{{ note_focus }}"
+    data-supply-note-base-url="{{ modal_base_href }}"
+    data-supply-note-url="{{ url_for('supplies.note_modal', item_id=row.id, note_focus=note_focus) }}"
+    data-supply-note-can-manage="{{ 'true' if current_user.is_staff else 'false' }}"
+    {% if row.notes_count %}data-note-count="{{ row.notes_count }}"{% endif %}
+    href="{{ note_href }}"
+    aria-label="{{ ('View ' ~ note_label ~ ' for ' ~ row.name) if row.has_notes else ('Add note for ' ~ row.name) }}"
+    title="{{ note_label|capitalize if row.has_notes else 'Add note' }}"
+  >
+    <i class="bi {{ 'bi-journal-text' if row.has_notes else 'bi-journal-plus' }}" aria-hidden="true"></i>
+  </a>
+{%- endmacro %}
+
 {% macro desktop_item_row(row, detail_id, detail_row_id, request, nested=False, hidden=False) -%}
   <tr
     class="supply-audit-row supply-audit-row-clickable supply-audit-row-{{ row.attention_level }}{{ ' supply-audit-row-child' if nested else '' }}"
@@ -172,26 +193,33 @@
     {{ 'hidden' if hidden else '' }}
   >
     <td>
-      <button
-        class="supply-item-toggle{{ ' supply-item-toggle-child' if nested else '' }}"
-        type="button"
-        data-bs-toggle="collapse"
-        data-bs-target="#{{ detail_id }}"
-        aria-expanded="false"
-        aria-controls="{{ detail_id }}"
-      >
-        <span class="supply-item-toggle-main">
-          {{ item_ui.item_heading(
-            row.name,
-            parent_name=row.parent_name if not nested else none,
-            compact=True
-          ) }}
-          <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>
-        </span>
-        {% if row.desktop_issue_summary != "Fully counted" %}
-          {{ issue_summary(row.attention_level, row.desktop_issue_summary) }}
+      <div class="supply-item-cell-shell">
+        <button
+          class="supply-item-toggle{{ ' supply-item-toggle-child' if nested else '' }}"
+          type="button"
+          data-bs-toggle="collapse"
+          data-bs-target="#{{ detail_id }}"
+          aria-expanded="false"
+          aria-controls="{{ detail_id }}"
+        >
+          <span class="supply-item-toggle-main">
+            {{ item_ui.item_heading(
+              row.name,
+              parent_name=row.parent_name if not nested else none,
+              compact=True
+            ) }}
+            <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>
+          </span>
+          {% if row.desktop_issue_summary != "Fully counted" %}
+            {{ issue_summary(row.attention_level, row.desktop_issue_summary) }}
+          {% endif %}
+        </button>
+        {% if row.has_notes %}
+          {{ supply_item_note_link(row, extra_classes="supply-item-note-affordance") }}
+        {% elif current_user.is_staff %}
+          {{ supply_item_note_link(row, note_focus="compose", extra_classes="supply-item-note-affordance") }}
         {% endif %}
-      </button>
+      </div>
     </td>
     <td class="supply-model-cell{{ ' supply-model-cell-child' if nested else '' }}">
       {{ item_ui.structure_badges(
@@ -347,6 +375,15 @@
     data-attention-level="{{ row.attention_level }}"
     {{ 'hidden' if hidden else '' }}
   >
+    {% if row.has_notes %}
+      <div class="supply-mobile-card-note-action-wrap">
+        {{ supply_item_note_link(row, extra_classes="supply-mobile-card-note-link") }}
+      </div>
+    {% elif current_user.is_staff %}
+      <div class="supply-mobile-card-note-action-wrap">
+        {{ supply_item_note_link(row, note_focus="compose", extra_classes="supply-mobile-card-note-link") }}
+      </div>
+    {% endif %}
     <button
       class="supply-mobile-card-toggle{{ ' supply-mobile-card-toggle-child' if nested else '' }}"
       type="button"
@@ -689,6 +726,33 @@
   </a>
 {%- endmacro %}
 
+{% macro venue_profile_item_note_link(row, note_focus="list", icon_only=False) -%}
+  {% set base_href = url_for('main.venue_detail', venue_id=row.venue_id, profile_tab='notes', note_item_id=row.id, note_focus=note_focus) %}
+  {% set href = url_for('main.venue_detail', venue_id=row.venue_id, profile_tab='notes', note_item_id=row.id, note_focus=note_focus, next=request.full_path) %}
+  {% if icon_only %}
+    <a
+      class="icon-btn-plain icon-btn-sm venue-profile-row-note-action"
+      data-venue-profile-base-href="{{ base_href }}"
+      href="{{ href }}"
+      aria-label="Add note for {{ row.name }}"
+      title="Add note"
+    >
+      <i class="bi bi-journal-plus"></i>
+    </a>
+  {% else %}
+    <a
+      class="inventory-item-badge inventory-item-badge-note venue-profile-item-note-link"
+      data-venue-profile-base-href="{{ base_href }}"
+      href="{{ href }}"
+      aria-label="View {{ row.notes_count }} note{{ '' if row.notes_count == 1 else 's' }} for {{ row.name }}"
+      title="View notes"
+    >
+      <i class="bi bi-journal-text" aria-hidden="true"></i>
+      <span>{{ row.notes_count }} note{{ '' if row.notes_count == 1 else 's' }}</span>
+    </a>
+  {% endif %}
+{%- endmacro %}
+
 {% macro venue_profile_inventory_row_actions(row, mobile=False) -%}
   <div class="venue-profile-row-actions{{ ' venue-profile-row-actions-mobile' if mobile else '' }}">
     {{ venue_profile_inventory_action_link(
@@ -700,6 +764,7 @@
     {% if row.secondary_action_label %}
       {{ venue_profile_inventory_action_link(row, row.secondary_action_label, row.secondary_action_mode, tone="secondary") }}
     {% endif %}
+    {{ venue_profile_item_note_link(row, note_focus="compose", icon_only=True) }}
   </div>
 {%- endmacro %}
 
@@ -800,6 +865,9 @@
                 show_kind=not nested,
                 compact=True
               ) }}
+              {% if row.has_notes %}
+                {{ venue_profile_item_note_link(row) }}
+              {% endif %}
             </div>
           </div>
           <div class="venue-profile-inventory-status">
@@ -955,6 +1023,9 @@
               show_kind=not nested,
               compact=True
             ) }}
+            {% if row.has_notes %}
+              {{ venue_profile_item_note_link(row) }}
+            {% endif %}
           </div>
         </div>
         <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>

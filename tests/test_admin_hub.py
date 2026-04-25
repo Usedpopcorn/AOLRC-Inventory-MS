@@ -62,6 +62,7 @@ def test_admin_hub_routes_accessible_for_admin(client):
         "/admin/items",
         "/admin/tracking-setup",
         "/admin/audit/users",
+        "/admin/feedback",
         "/admin/history",
     ):
         response = client.get(path)
@@ -85,6 +86,7 @@ def test_admin_hub_routes_redirect_unauthenticated(client):
         "/admin/items",
         "/admin/tracking-setup",
         "/admin/audit/users",
+        "/admin/feedback",
         "/admin/history",
     ):
         response = client.get(path, follow_redirects=False)
@@ -101,6 +103,7 @@ def test_admin_hub_routes_block_non_admin_users(client):
             "/admin/inventory-rules",
             "/admin/tracking-setup",
             "/admin/audit/users",
+            "/admin/feedback",
             "/admin/history",
             "/admin/items",
         ):

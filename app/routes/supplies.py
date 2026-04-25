@@ -1,24 +1,57 @@
 from datetime import datetime, timedelta, timezone
 from math import ceil
 
-from flask import Blueprint, render_template, request
-from sqlalchemy import and_
+from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask_login import current_user
+from sqlalchemy import and_, func
 from sqlalchemy.orm import aliased
 
 from app import db
 from app.authz import roles_required
-from app.models import Check, CheckLine, Item, Venue, VenueItem, VenueItemCount
-from app.services.inventory_status import (
-    derive_singleton_count_from_status as shared_derive_singleton_count,
-    ensure_utc as shared_ensure_utc,
-    is_signal_stale as shared_is_signal_stale,
-    normalize_singleton_status as shared_normalize_singleton_status,
+from app.models import Item, SupplyNote, User, Venue, VenueItem, VenueItemCount
+from app.services.csv_exports import (
+    EXPORT_SCOPE_FILTERED,
+    EXPORT_SCOPE_FULL,
+    build_csv_response,
+    build_dated_csv_filename,
+    normalize_export_scope,
+    sanitize_csv_cell,
 )
 from app.services.inventory_rules import (
     get_default_stale_threshold_days,
     resolve_effective_par_level,
     resolve_effective_stale_threshold_days,
 )
+from app.services.inventory_signals import (
+    build_latest_count_signal_map,
+    build_latest_status_signal_map,
+)
+from app.services.inventory_status import (
+    derive_singleton_count_from_status as shared_derive_singleton_count,
+)
+from app.services.inventory_status import (
+    ensure_utc as shared_ensure_utc,
+)
+from app.services.inventory_status import (
+    is_signal_stale as shared_is_signal_stale,
+)
+from app.services.inventory_status import (
+    normalize_singleton_status as shared_normalize_singleton_status,
+)
+from app.services.inventory_status import (
+    normalize_status,
+    restock_status_meta_for_item,
+)
+from app.services.notes import (
+    NOTE_BODY_MAX_LENGTH,
+    NOTE_TITLE_MAX_LENGTH,
+    SUPPLY_NOTES_PAGE_SIZE,
+    build_pagination,
+    normalize_note_page,
+    validate_note_fields,
+)
+from app.services.restocking import build_restock_count_state
+from app.services.spreadsheet_compat import format_setup_group_display
 
 supplies_bp = Blueprint("supplies", __name__)
 
@@ -31,6 +64,27 @@ SUPPLY_QUICK_FILTER_OPTIONS = {
     "durable",
     "singleton_asset",
 }
+SUPPLY_NOTE_FOCUS_OPTIONS = {"list", "compose"}
+SUPPLIES_AUDIT_EXPORT_HEADERS = (
+    "Venue Name",
+    "Item Name",
+    "Setup Group Code",
+    "Setup Group Label",
+    "Tracking Mode",
+    "Category",
+    "Current Count",
+    "Effective Par",
+    "Suggested Order Qty",
+    "Over Par Qty",
+    "Current Quick Status / Last Saved Status",
+    "Last Updated",
+    "Checked By",
+    "Effective Stale Threshold",
+    "Is Stale",
+    "Note Count",
+)
+
+
 def normalize_singleton_status_key(value):
     return shared_normalize_singleton_status(value)
 
@@ -151,6 +205,212 @@ def normalize_quick_filters(values):
         if key in SUPPLY_QUICK_FILTER_OPTIONS and key not in normalized:
             normalized.append(key)
     return normalized
+
+
+def normalize_supply_note_focus(value):
+    normalized = (value or "").strip().lower()
+    if normalized in SUPPLY_NOTE_FOCUS_OPTIONS:
+        return normalized
+    return None
+
+
+def normalize_supply_note_item_id(raw_value, valid_item_ids):
+    raw_text = (raw_value or "").strip()
+    if not raw_text or not raw_text.isdigit():
+        return None
+    item_id = int(raw_text)
+    if item_id not in valid_item_ids:
+        return None
+    return item_id
+
+
+def build_supply_filter_state(source):
+    return {
+        "q": (source.get("q") or "").strip(),
+        "item_type": normalize_item_type(source.get("item_type")),
+        "coverage": normalize_coverage(source.get("coverage")),
+        "sort": normalize_sort(source.get("sort")),
+        "quick_filters": normalize_quick_filters(source.getlist("quick_filter")),
+    }
+
+
+def build_supply_redirect_response(filters, *, note_item_id=None, note_focus=None):
+    route_params = {}
+    if filters["q"]:
+        route_params["q"] = filters["q"]
+    if filters["item_type"] != "all":
+        route_params["item_type"] = filters["item_type"]
+    if filters["coverage"] != "all":
+        route_params["coverage"] = filters["coverage"]
+    if filters["sort"] != "par_ratio_asc":
+        route_params["sort"] = filters["sort"]
+    if filters["quick_filters"]:
+        route_params["quick_filter"] = filters["quick_filters"]
+    if note_item_id is not None:
+        route_params["note_item_id"] = note_item_id
+    normalized_focus = normalize_supply_note_focus(note_focus)
+    if normalized_focus:
+        route_params["note_focus"] = normalized_focus
+    return redirect(url_for("supplies.index", **route_params))
+
+
+def format_supply_note_timestamp(value):
+    normalized = ensure_utc(value)
+    if normalized is None:
+        return "Unknown time"
+    return normalized.strftime("%Y-%m-%d %I:%M %p")
+
+
+def get_supply_note_item(item_id):
+    if item_id is None:
+        return None
+    return (
+        db.session.query(Item.id, Item.name)
+        .filter(
+            Item.id == item_id,
+            Item.active == True,
+            Item.is_group_parent == False,
+        )
+        .one_or_none()
+    )
+
+
+def build_supply_note_rows(item_id, page=1):
+    note_query = (
+        db.session.query(
+            SupplyNote,
+            User.display_name.label("author_display_name"),
+            User.email.label("author_email"),
+        )
+        .outerjoin(User, User.id == SupplyNote.author_user_id)
+        .filter(SupplyNote.item_id == item_id)
+    )
+    note_total_count = note_query.order_by(None).count()
+    note_pagination = build_pagination(note_total_count, page, SUPPLY_NOTES_PAGE_SIZE)
+    note_query_rows = (
+        note_query.order_by(SupplyNote.updated_at.desc(), SupplyNote.id.desc())
+        .offset(note_pagination["offset"])
+        .limit(note_pagination["page_size"])
+        .all()
+    )
+
+    note_rows = []
+    for note, author_display_name, author_email in note_query_rows:
+        created_at = ensure_utc(note.created_at)
+        updated_at = ensure_utc(note.updated_at)
+        is_edited = bool(
+            created_at
+            and updated_at
+            and (updated_at - created_at) > timedelta(seconds=1)
+        )
+        effective_at = updated_at if is_edited else created_at
+        note_rows.append(
+            {
+                "id": note.id,
+                "title": note.title,
+                "body": note.body,
+                "author_name": (author_display_name or "").strip() or (author_email or "Unknown user"),
+                "display_time_label": "Edited" if is_edited else "Created",
+                "display_time_text": format_supply_note_timestamp(effective_at),
+                "can_manage": current_user.is_admin
+                or (current_user.role == "staff" and note.author_user_id == current_user.id),
+            }
+        )
+
+    return note_rows, note_pagination
+
+
+def build_supply_note_modal_context(
+    item_id,
+    *,
+    note_focus="list",
+    feedback=None,
+    editor_state=None,
+    note_page=1,
+    expanded_note_id=None,
+):
+    active_note_item = get_supply_note_item(item_id)
+    if active_note_item is None:
+        return None
+
+    normalized_focus = normalize_supply_note_focus(note_focus) or "list"
+    normalized_editor_state = {
+        "mode": "create",
+        "note_id": "",
+        "title": "",
+        "body": "",
+    }
+    if editor_state:
+        normalized_editor_state.update(
+            {
+                "mode": editor_state.get("mode") or "create",
+                "note_id": str(editor_state.get("note_id") or ""),
+                "title": editor_state.get("title") or "",
+                "body": editor_state.get("body") or "",
+            }
+        )
+    if normalized_editor_state["mode"] == "edit":
+        normalized_focus = "compose"
+
+    supply_note_rows, note_pagination = build_supply_note_rows(active_note_item.id, note_page)
+    return {
+        "active_note_item": active_note_item,
+        "supply_note_rows": supply_note_rows,
+        "note_pagination": note_pagination,
+        "note_focus": normalized_focus,
+        "feedback": feedback,
+        "editor_state": normalized_editor_state,
+        "expanded_note_id": expanded_note_id,
+        "note_title_max_length": NOTE_TITLE_MAX_LENGTH,
+        "note_body_max_length": NOTE_BODY_MAX_LENGTH,
+    }
+
+
+def render_supply_note_modal_content(
+    item_id,
+    *,
+    note_focus="list",
+    feedback=None,
+    editor_state=None,
+    note_page=1,
+    expanded_note_id=None,
+    status_code=200,
+):
+    context = build_supply_note_modal_context(
+        item_id,
+        note_focus=note_focus,
+        feedback=feedback,
+        editor_state=editor_state,
+        note_page=note_page,
+        expanded_note_id=expanded_note_id,
+    )
+    if context is None:
+        return (
+            render_template(
+                "supplies/_notes_modal_content.html",
+                active_note_item=None,
+                supply_note_rows=[],
+                note_pagination=build_pagination(0, 1, SUPPLY_NOTES_PAGE_SIZE),
+                note_focus="list",
+                feedback=feedback
+                or {
+                    "tone": "error",
+                    "title": "Supply item not found.",
+                    "body": "Select an active supply item to view notes.",
+                },
+                editor_state={
+                    "mode": "create",
+                    "note_id": "",
+                    "title": "",
+                    "body": "",
+                },
+                expanded_note_id=None,
+                note_title_max_length=NOTE_TITLE_MAX_LENGTH,
+                note_body_max_length=NOTE_BODY_MAX_LENGTH,
+            ),
+            status_code,
+        )
+    return render_template("supplies/_notes_modal_content.html", **context), status_code
 
 
 def build_par_progress(total_raw_count, total_par_count):
@@ -346,6 +606,21 @@ def build_attention_level(row, updated_label):
     return "healthy"
 
 
+def resolve_supply_last_actor_label(*, tracking_mode, latest_status_meta, latest_count_meta):
+    status_updated_at = ensure_utc((latest_status_meta or {}).get("updated_at"))
+    count_updated_at = ensure_utc((latest_count_meta or {}).get("updated_at"))
+    status_actor_label = (latest_status_meta or {}).get("actor_label", "")
+    count_actor_label = (latest_count_meta or {}).get("actor_label", "")
+
+    if tracking_mode == "singleton_asset":
+        return status_actor_label or count_actor_label or ""
+    if count_updated_at and (not status_updated_at or count_updated_at >= status_updated_at):
+        return count_actor_label or status_actor_label or ""
+    if status_updated_at:
+        return status_actor_label or count_actor_label or ""
+    return count_actor_label or status_actor_label or ""
+
+
 def coverage_meta_for_row(row):
     if row["tracked_venue_count"] == 0:
         return {
@@ -388,6 +663,8 @@ def build_supply_audit_rows():
             Item.name,
             Item.item_type,
             Item.item_category,
+            Item.setup_group_code.label("setup_group_code"),
+            Item.setup_group_label.label("setup_group_label"),
             Item.tracking_mode,
             Item.parent_item_id,
             parent_alias.name.label("parent_name"),
@@ -406,6 +683,9 @@ def build_supply_audit_rows():
             "name": item.name,
             "item_type": item.item_type,
             "item_category": item.item_category or item.item_type,
+            "setup_group_code": item.setup_group_code,
+            "setup_group_label": item.setup_group_label,
+            "setup_group_display": format_setup_group_display(item.setup_group_code, item.setup_group_label),
             "tracking_mode": item.tracking_mode or "quantity",
             "default_par_level": item.default_par_level,
             "item_stale_threshold_days": item.item_stale_threshold_days,
@@ -424,49 +704,33 @@ def build_supply_audit_rows():
             "par_venue_count": 0,
             "last_count_updated_at": None,
             "minimum_stale_threshold_days": None,
+            "notes_count": 0,
+            "has_notes": False,
             "venue_rows": [],
         }
         for item in active_items
     }
 
-    singleton_status_rows = (
-        db.session.query(
-            Check.venue_id.label("venue_id"),
-            CheckLine.item_id.label("item_id"),
-            CheckLine.status.label("status"),
-            Check.created_at.label("updated_at"),
+    if items_by_id:
+        note_count_rows = (
+            db.session.query(
+                SupplyNote.item_id.label("item_id"),
+                func.count(SupplyNote.id).label("note_count"),
+            )
+            .filter(SupplyNote.item_id.in_(list(items_by_id.keys())))
+            .group_by(SupplyNote.item_id)
+            .all()
         )
-        .select_from(Check)
-        .join(CheckLine, CheckLine.check_id == Check.id)
-        .join(Item, Item.id == CheckLine.item_id)
-        .join(
-            VenueItem,
-            and_(
-                VenueItem.venue_id == Check.venue_id,
-                VenueItem.item_id == CheckLine.item_id,
-            ),
-        )
-        .join(Venue, Venue.id == Check.venue_id)
-        .filter(
-            VenueItem.active == True,
-            Item.active == True,
-            Item.is_group_parent == False,
-            Item.tracking_mode == "singleton_asset",
-            Venue.active == True,
-        )
-        .order_by(Venue.id.asc(), Item.id.asc(), Check.created_at.desc())
-        .all()
-    )
+        for note_count_row in note_count_rows:
+            item_row = items_by_id.get(note_count_row.item_id)
+            if item_row is None:
+                continue
+            item_row["notes_count"] = note_count_row.note_count
+            item_row["has_notes"] = note_count_row.note_count > 0
 
-    latest_singleton_status_by_venue_item = {}
-    for status_row in singleton_status_rows:
-        key = (status_row.venue_id, status_row.item_id)
-        if key in latest_singleton_status_by_venue_item:
-            continue
-        latest_singleton_status_by_venue_item[key] = {
-            "status": normalize_singleton_status_key(status_row.status),
-            "updated_at": ensure_utc(status_row.updated_at),
-        }
+    item_ids = list(items_by_id.keys())
+    latest_status_by_venue_item = build_latest_status_signal_map(item_ids=item_ids)
+    latest_count_by_venue_item = build_latest_count_signal_map(item_ids=item_ids)
 
     query_rows = (
         db.session.query(
@@ -508,7 +772,8 @@ def build_supply_audit_rows():
     for row in query_rows:
         item_row = items_by_id[row.item_id]
         is_singleton = item_row["tracking_mode"] == "singleton_asset"
-        singleton_status_meta = latest_singleton_status_by_venue_item.get((row.venue_id, row.item_id))
+        latest_status_meta = latest_status_by_venue_item.get((row.venue_id, row.item_id))
+        latest_count_meta = latest_count_by_venue_item.get((row.venue_id, row.item_id))
         singleton_status = "not_checked"
         updated_at = ensure_utc(row.updated_at)
         effective_raw_count = row.raw_count
@@ -521,16 +786,39 @@ def build_supply_audit_rows():
             venue_stale_threshold_days=row.venue_stale_threshold_days,
             global_stale_threshold_days=global_stale_threshold_days,
         )
+        status_key = normalize_status((latest_status_meta or {}).get("status"))
+
+        if latest_count_meta and latest_count_meta.get("updated_at"):
+            updated_at = latest_count_meta["updated_at"]
 
         if is_singleton:
-            if singleton_status_meta:
-                singleton_status = singleton_status_meta["status"]
-                updated_at = singleton_status_meta["updated_at"] or updated_at
+            if latest_status_meta:
+                singleton_status = normalize_singleton_status_key(latest_status_meta["status"])
+                updated_at = latest_status_meta["updated_at"] or updated_at
             else:
                 singleton_status = normalize_singleton_status_key(
                     "good" if row.raw_count and row.raw_count > 0 else ("out" if row.raw_count == 0 else "not_checked")
                 )
             effective_raw_count = derive_singleton_count_from_status(singleton_status)
+            status_key = singleton_status
+
+        count_state = build_restock_count_state(
+            tracking_mode=item_row["tracking_mode"],
+            raw_count=effective_raw_count,
+            par_value=effective_par.value,
+            status_key=status_key,
+        )
+        status_label = restock_status_meta_for_item(status_key, item_row["tracking_mode"])["text"]
+        last_actor_label = resolve_supply_last_actor_label(
+            tracking_mode=item_row["tracking_mode"],
+            latest_status_meta=latest_status_meta,
+            latest_count_meta=latest_count_meta,
+        )
+        venue_is_stale = (
+            is_supply_update_stale(updated_at, stale_threshold=effective_stale_threshold.value)
+            if effective_raw_count is not None
+            else False
+        )
 
         item_row["tracked_venue_count"] += 1
 
@@ -550,10 +838,6 @@ def build_supply_audit_rows():
         else:
             item_row["counted_venue_count"] += 1
             item_row["total_raw_count"] += effective_raw_count
-            venue_is_stale = is_supply_update_stale(
-                updated_at,
-                stale_threshold=effective_stale_threshold.value,
-            )
             if venue_is_stale:
                 item_row["stale_update_venue_count"] += 1
             if is_singleton:
@@ -581,16 +865,18 @@ def build_supply_audit_rows():
                 "status_key": singleton_status if is_singleton else None,
                 "raw_count_text": "Not Counted" if effective_raw_count is None else str(effective_raw_count),
                 "is_missing": effective_raw_count is None,
-                "is_stale": (
-                    is_supply_update_stale(updated_at, stale_threshold=effective_stale_threshold.value)
-                    if effective_raw_count is not None
-                    else False
-                ),
+                "is_stale": venue_is_stale,
                 "par_count": effective_par.value,
                 "par_count_text": "Not Set" if effective_par.value is None else str(effective_par.value),
+                "suggested_order_qty": count_state.get("suggested_order_qty"),
+                "over_par_qty": count_state.get("over_par_qty"),
+                "current_status_label": status_label,
+                "checked_by": last_actor_label,
+                "last_updated_at": updated_at,
                 "par_source": effective_par.source,
                 "stale_threshold_days": effective_stale_threshold.value,
                 "stale_threshold_source": effective_stale_threshold.source,
+                "note_count": item_row["notes_count"],
                 "updated_at_text": (
                     "No checks yet"
                     if is_singleton and updated_at is None
@@ -937,18 +1223,344 @@ def supply_sort_key(row, sort_key):
     )
 
 
-@supplies_bp.route("/supplies")
+def build_supplies_audit_export_rows(rows):
+    export_rows = []
+    for item_row in rows:
+        sorted_venue_rows = sorted(
+            item_row.get("venue_rows", []),
+            key=lambda venue_row: (
+                (venue_row.get("venue_name") or "").lower(),
+                int(venue_row.get("venue_id") or 0),
+            ),
+        )
+        for venue_row in sorted_venue_rows:
+            export_rows.append(
+                {
+                    "Venue Name": sanitize_csv_cell(venue_row.get("venue_name") or ""),
+                    "Item Name": sanitize_csv_cell(item_row.get("name") or ""),
+                    "Setup Group Code": sanitize_csv_cell(item_row.get("setup_group_code") or ""),
+                    "Setup Group Label": sanitize_csv_cell(item_row.get("setup_group_label") or ""),
+                    "Tracking Mode": sanitize_csv_cell(item_row.get("tracking_mode_label") or ""),
+                    "Category": sanitize_csv_cell(item_row.get("item_category") or ""),
+                    "Current Count": (
+                        ""
+                        if venue_row.get("raw_count") is None
+                        else venue_row.get("raw_count")
+                    ),
+                    "Effective Par": (
+                        ""
+                        if venue_row.get("par_count") is None
+                        else venue_row.get("par_count")
+                    ),
+                    "Suggested Order Qty": (
+                        ""
+                        if venue_row.get("suggested_order_qty") is None
+                        else int(venue_row.get("suggested_order_qty") or 0)
+                    ),
+                    "Over Par Qty": (
+                        ""
+                        if venue_row.get("over_par_qty") is None
+                        else int(venue_row.get("over_par_qty") or 0)
+                    ),
+                    "Current Quick Status / Last Saved Status": sanitize_csv_cell(
+                        venue_row.get("current_status_label") or ""
+                    ),
+                    "Last Updated": sanitize_csv_cell(venue_row.get("updated_at_text") or ""),
+                    "Checked By": sanitize_csv_cell(venue_row.get("checked_by") or ""),
+                    "Effective Stale Threshold": venue_row.get("stale_threshold_days") or "",
+                    "Is Stale": "Yes" if venue_row.get("is_stale") else "No",
+                    "Note Count": int(venue_row.get("note_count") or 0),
+                }
+            )
+    return export_rows
+
+
+def build_supplies_export_filename(*, scope):
+    tokens = []
+    if scope == EXPORT_SCOPE_FILTERED:
+        tokens.append("filtered")
+    return build_dated_csv_filename("supplies_audit", *tokens)
+
+
+@supplies_bp.route("/supplies/notes/modal", methods=["GET", "POST"])
+@roles_required("viewer", "staff", "admin")
+def note_modal():
+    note_page = normalize_note_page(
+        request.args.get("note_page") or request.form.get("note_page")
+    )
+    if request.method == "GET":
+        raw_item_id = (request.args.get("item_id") or "").strip()
+        item_id = int(raw_item_id) if raw_item_id.isdigit() else None
+        item_exists = get_supply_note_item(item_id) is not None
+        return render_supply_note_modal_content(
+            item_id,
+            note_focus=request.args.get("note_focus"),
+            note_page=note_page,
+            status_code=200 if item_exists else 404,
+        )
+
+    action = (request.form.get("action") or "").strip().lower()
+    raw_item_id = (request.form.get("item_id") or "").strip()
+    item_id = int(raw_item_id) if raw_item_id.isdigit() else None
+
+    if action in {"create_note", "edit_note", "delete_note"} and not current_user.is_staff:
+        return render_supply_note_modal_content(
+            item_id,
+            note_focus="list",
+            note_page=note_page,
+            feedback={
+                "tone": "error",
+                "title": "Only staff and admins can manage notes.",
+                "body": "Viewer accounts can read notes but cannot create, edit, or delete them.",
+            },
+            status_code=403,
+        )
+
+    if action == "create_note":
+        active_note_item = get_supply_note_item(item_id)
+        title = (request.form.get("title") or "").strip()
+        body = (request.form.get("body") or "").strip()
+
+        if active_note_item is None:
+            return render_supply_note_modal_content(
+                item_id,
+                note_focus="compose",
+                note_page=note_page,
+                feedback={
+                    "tone": "error",
+                    "title": "Select an active supply item before adding a note.",
+                    "body": None,
+                },
+                editor_state={"mode": "create", "title": title, "body": body},
+                status_code=400,
+            )
+        validation_error = validate_note_fields(title, body)
+        if validation_error:
+            return render_supply_note_modal_content(
+                active_note_item.id,
+                note_focus="compose",
+                note_page=note_page,
+                feedback={"tone": "error", "title": validation_error, "body": None},
+                editor_state={"mode": "create", "title": title, "body": body},
+                status_code=400,
+            )
+
+        new_note = SupplyNote(
+            item_id=active_note_item.id,
+            author_user_id=current_user.id,
+            title=title,
+            body=body,
+        )
+        db.session.add(new_note)
+        db.session.commit()
+        return render_supply_note_modal_content(
+            active_note_item.id,
+            note_focus="list",
+            note_page=1,
+            feedback={"tone": "success", "title": "Note added.", "body": None},
+            expanded_note_id=new_note.id,
+        )
+
+    if action in {"edit_note", "delete_note"}:
+        note = None
+        note_id_raw = (request.form.get("note_id") or "").strip()
+        if note_id_raw.isdigit():
+            note = db.session.get(SupplyNote, int(note_id_raw))
+
+        note_item_id = note.item_id if note is not None else item_id
+        active_note_item = get_supply_note_item(note_item_id)
+        if note is None or active_note_item is None or note.item_id != active_note_item.id:
+            return render_supply_note_modal_content(
+                note_item_id,
+                note_focus="list",
+                note_page=note_page,
+                feedback={"tone": "error", "title": "Note not found for this supply item.", "body": None},
+                status_code=404,
+            )
+
+        can_manage_note = current_user.is_admin or (
+            current_user.role == "staff" and note.author_user_id == current_user.id
+        )
+        if not can_manage_note:
+            return render_supply_note_modal_content(
+                active_note_item.id,
+                note_focus="list",
+                note_page=note_page,
+                feedback={
+                    "tone": "error",
+                    "title": "You can only edit or delete your own notes.",
+                    "body": None,
+                },
+                status_code=403,
+            )
+
+        if action == "edit_note":
+            title = (request.form.get("title") or "").strip()
+            body = (request.form.get("body") or "").strip()
+            validation_error = validate_note_fields(title, body)
+            if validation_error:
+                return render_supply_note_modal_content(
+                    active_note_item.id,
+                    note_focus="compose",
+                    note_page=note_page,
+                    feedback={"tone": "error", "title": validation_error, "body": None},
+                    editor_state={
+                        "mode": "edit",
+                        "note_id": note.id,
+                        "title": title,
+                        "body": body,
+                    },
+                    status_code=400,
+                )
+            note.title = title
+            note.body = body
+            db.session.commit()
+            return render_supply_note_modal_content(
+                active_note_item.id,
+                note_focus="list",
+                note_page=1,
+                feedback={"tone": "success", "title": "Note updated.", "body": None},
+                expanded_note_id=note.id,
+            )
+
+        db.session.delete(note)
+        db.session.commit()
+        return render_supply_note_modal_content(
+            active_note_item.id,
+            note_focus="list",
+            note_page=note_page,
+            feedback={"tone": "success", "title": "Note deleted.", "body": None},
+        )
+
+    return render_supply_note_modal_content(
+        item_id,
+        note_focus="list",
+        note_page=note_page,
+        feedback={"tone": "error", "title": "Unsupported note action.", "body": None},
+        status_code=400,
+    )
+
+
+@supplies_bp.route("/supplies", methods=["GET", "POST"])
 @roles_required("viewer", "staff", "admin")
 def index():
-    filters = {
-        "q": (request.args.get("q") or "").strip(),
-        "item_type": normalize_item_type(request.args.get("item_type")),
-        "coverage": normalize_coverage(request.args.get("coverage")),
-        "sort": normalize_sort(request.args.get("sort")),
-        "quick_filters": normalize_quick_filters(request.args.getlist("quick_filter")),
-    }
-
+    filters = build_supply_filter_state(request.values)
     all_supply_rows = build_supply_audit_rows()
+    all_supply_rows_by_id = {row["id"]: row for row in all_supply_rows}
+    valid_note_item_ids = set(all_supply_rows_by_id)
+    active_note_item_id = normalize_supply_note_item_id(
+        request.values.get("note_item_id"),
+        valid_note_item_ids,
+    )
+    note_focus = normalize_supply_note_focus(request.values.get("note_focus"))
+    if active_note_item_id is None:
+        note_focus = None
+    elif note_focus is None:
+        note_focus = "list"
+
+    if request.method == "POST":
+        action = (request.form.get("action") or "").strip().lower()
+        if action in {"create_note", "edit_note", "delete_note"} and not current_user.is_staff:
+            flash("Only staff and admins can manage notes.", "error")
+            return build_supply_redirect_response(
+                filters,
+                note_item_id=active_note_item_id,
+                note_focus="list" if active_note_item_id is not None else None,
+            )
+
+        if action == "create_note":
+            note_item_raw = request.form.get("item_id", "")
+            note_item_id = normalize_supply_note_item_id(note_item_raw, valid_note_item_ids)
+            title = (request.form.get("title") or "").strip()
+            body = (request.form.get("body") or "").strip()
+
+            if note_item_id is None:
+                flash("Select an active supply item before adding a note.", "error")
+                return build_supply_redirect_response(
+                    filters,
+                    note_item_id=active_note_item_id,
+                    note_focus="compose",
+                )
+            validation_error = validate_note_fields(title, body)
+            if validation_error:
+                flash(validation_error, "error")
+                return build_supply_redirect_response(
+                    filters,
+                    note_item_id=note_item_id,
+                    note_focus="compose",
+                )
+
+            db.session.add(
+                SupplyNote(
+                    item_id=note_item_id,
+                    author_user_id=current_user.id,
+                    title=title,
+                    body=body,
+                )
+            )
+            db.session.commit()
+            flash("Note added.", "success")
+            return build_supply_redirect_response(
+                filters,
+                note_item_id=note_item_id,
+                note_focus="list",
+            )
+
+        if action in {"edit_note", "delete_note"}:
+            note = None
+            note_id_raw = (request.form.get("note_id") or "").strip()
+            if note_id_raw.isdigit():
+                note = db.session.get(SupplyNote, int(note_id_raw))
+            if note is None or note.item_id not in valid_note_item_ids:
+                flash("Note not found for this supply item.", "error")
+                return build_supply_redirect_response(
+                    filters,
+                    note_item_id=active_note_item_id,
+                    note_focus="list" if active_note_item_id is not None else None,
+                )
+
+            can_manage_note = current_user.is_admin or (
+                current_user.role == "staff" and note.author_user_id == current_user.id
+            )
+            if not can_manage_note:
+                flash("You can only edit or delete your own notes.", "error")
+                return build_supply_redirect_response(
+                    filters,
+                    note_item_id=active_note_item_id or note.item_id,
+                    note_focus="list",
+                )
+
+            if action == "edit_note":
+                title = (request.form.get("title") or "").strip()
+                body = (request.form.get("body") or "").strip()
+                validation_error = validate_note_fields(title, body)
+                if validation_error:
+                    flash(validation_error, "error")
+                    return build_supply_redirect_response(
+                        filters,
+                        note_item_id=note.item_id,
+                        note_focus="list",
+                    )
+                note.title = title
+                note.body = body
+                db.session.commit()
+                flash("Note updated.", "success")
+                return build_supply_redirect_response(
+                    filters,
+                    note_item_id=note.item_id,
+                    note_focus="list",
+                )
+
+            redirect_note_item_id = note.item_id
+            db.session.delete(note)
+            db.session.commit()
+            flash("Note deleted.", "success")
+            return build_supply_redirect_response(
+                filters,
+                note_item_id=redirect_note_item_id,
+                note_focus="list",
+            )
+
     summary = build_supply_summary(all_supply_rows)
     filtered_rows = filter_supply_rows(
         all_supply_rows,
@@ -966,6 +1578,43 @@ def index():
         filters=filters,
         supply_rows=filtered_rows,
         supply_groups=supply_groups,
+        supplies_export_base_url=url_for("supplies.export_supplies_audit"),
         total_supply_items=len(all_supply_rows),
         filtered_supply_items=len(filtered_rows),
+        active_note_item_id=active_note_item_id,
+        note_focus=note_focus,
     )
+
+
+@supplies_bp.get("/supplies/export.csv")
+@roles_required("viewer", "staff", "admin")
+def export_supplies_audit():
+    filters = build_supply_filter_state(request.args)
+    scope = normalize_export_scope(request.args.get("scope"), default=EXPORT_SCOPE_FILTERED)
+    all_supply_rows = build_supply_audit_rows()
+
+    if scope == EXPORT_SCOPE_FULL:
+        export_filters = {
+            "q": "",
+            "item_type": "all",
+            "coverage": "all",
+            "sort": filters["sort"],
+            "quick_filters": [],
+        }
+    else:
+        export_filters = filters
+
+    export_rows = filter_supply_rows(
+        all_supply_rows,
+        export_filters["q"],
+        export_filters["item_type"],
+        export_filters["coverage"],
+        export_filters["quick_filters"],
+    )
+    export_rows = sorted(
+        export_rows,
+        key=lambda row: supply_sort_key(row, export_filters["sort"]),
+    )
+    csv_rows = build_supplies_audit_export_rows(export_rows)
+    filename = build_supplies_export_filename(scope=scope)
+    return build_csv_response(SUPPLIES_AUDIT_EXPORT_HEADERS, csv_rows, filename)

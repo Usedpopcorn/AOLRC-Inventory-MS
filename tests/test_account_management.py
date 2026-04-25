@@ -1,6 +1,7 @@
 import re
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from werkzeug.security import generate_password_hash
 
 from app import db
@@ -10,6 +11,7 @@ from app.services.account_security import (
     create_managed_user,
     set_user_active_state,
     update_managed_user,
+    validate_new_password,
 )
 from app.services.admin_hub import build_admin_history_view_model
 
@@ -61,7 +63,7 @@ def extract_reset_path(response_text):
     return f"/reset-password/{match.group(1)}"
 
 
-def login_with_password(client, email, password, *, next_path=None):
+def login_with_password(client, email, password, *, next_path=None, remote_addr=None):
     return client.post(
         "/login",
         data={
@@ -69,8 +71,47 @@ def login_with_password(client, email, password, *, next_path=None):
             "password": password,
             "next": next_path or "",
         },
+        environ_overrides={"REMOTE_ADDR": remote_addr} if remote_addr else None,
         follow_redirects=False,
     )
+
+
+def test_validate_new_password_requires_special_character(app):
+    with app.app_context():
+        expected_error = (
+            "Password must be at least 8 characters and include at least 1 special character."
+        )
+        with pytest.raises(
+            AccountManagementError,
+            match=expected_error,
+        ):
+            validate_new_password("password", "password")
+
+        assert validate_new_password("passw0rd!", "passw0rd!") == "passw0rd!"
+
+
+def test_password_link_logging_omits_raw_url_and_token(caplog, app):
+    with app.app_context():
+        admin = create_user(
+            email="security-admin@example.com",
+            role="admin",
+            display_name="Security Admin",
+        )
+        db.session.commit()
+
+        with app.test_request_context(base_url="http://localhost"):
+            with caplog.at_level("INFO"):
+                _user, issued_link = create_managed_user(
+                    actor=admin,
+                    email="security-target@example.com",
+                    display_name="Security Target",
+                    role="viewer",
+                )
+
+    logged_messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert issued_link.raw_token not in logged_messages
+    assert issued_link.url not in logged_messages
+    assert "token_fingerprint=" in logged_messages
 
 
 def test_admin_can_create_user_from_users_page(client, app):
@@ -419,8 +460,8 @@ def test_admin_created_user_lifecycle_tracks_logins_and_account_events(app):
 
     with app.test_client() as blocked_client:
         blocked_login = login_with_password(blocked_client, "chain@example.com", "chain-password-1")
-        assert blocked_login.status_code == 403
-        assert b"Your account is inactive. Contact an admin." in blocked_login.data
+        assert blocked_login.status_code == 401
+        assert b"Invalid credentials or account unavailable." in blocked_login.data
 
     with app.test_client() as admin_client:
         quick_login(admin_client, "admin")
@@ -577,6 +618,13 @@ def test_deactivation_invalidates_existing_setup_link_until_admin_reissues(app):
 
 
 def test_lockout_unlock_and_login_chain_tracks_state_and_activity(app):
+    app.config["AUTH_LOGIN_ACCOUNT_THROTTLE_LIMIT"] = (
+        app.config["AUTH_MAX_FAILED_LOGIN_ATTEMPTS"] + 2
+    )
+    app.config["AUTH_LOGIN_IP_THROTTLE_LIMIT"] = (
+        app.config["AUTH_MAX_FAILED_LOGIN_ATTEMPTS"] + 4
+    )
+
     with app.app_context():
         user = create_user(
             email="lock-chain@example.com",
@@ -596,15 +644,15 @@ def test_lockout_unlock_and_login_chain_tracks_state_and_activity(app):
                 "wrong-password",
             )
             assert invalid_response.status_code == 401
-            assert b"Invalid email or password." in invalid_response.data
+            assert b"Invalid credentials or account unavailable." in invalid_response.data
 
         locked_response = login_with_password(
             user_client,
             "lock-chain@example.com",
             "lock-password-1",
         )
-        assert locked_response.status_code == 429
-        assert b"Too many failed attempts." in locked_response.data
+        assert locked_response.status_code == 401
+        assert b"Invalid credentials or account unavailable." in locked_response.data
 
     with app.app_context():
         locked_user = db.session.get(User, user_id)
@@ -854,6 +902,128 @@ def test_account_password_change_invalidates_prior_reset_links_and_logs_event(ap
         ).count() == 1
 
 
+def test_login_throttle_blocks_repeated_failed_attempts_without_leaking_account_state(app):
+    app.config["AUTH_LOGIN_ACCOUNT_THROTTLE_LIMIT"] = 2
+    app.config["AUTH_LOGIN_IP_THROTTLE_LIMIT"] = 5
+
+    with app.app_context():
+        create_user(
+            email="throttle@example.com",
+            password="Throttle!1",
+            display_name="Throttle User",
+        )
+        db.session.commit()
+
+    with app.test_client() as user_client:
+        first_response = login_with_password(
+            user_client,
+            "throttle@example.com",
+            "wrong-password",
+            remote_addr="198.51.100.20",
+        )
+        second_response = login_with_password(
+            user_client,
+            "throttle@example.com",
+            "wrong-password",
+            remote_addr="198.51.100.20",
+        )
+        recovered_response = login_with_password(
+            user_client,
+            "throttle@example.com",
+            "Throttle!1",
+            remote_addr="198.51.100.20",
+        )
+
+    assert first_response.status_code == 401
+    assert b"Invalid credentials or account unavailable." in first_response.data
+    assert second_response.status_code == 429
+    assert b"Too many attempts. Please wait a few minutes and try again." in second_response.data
+    assert recovered_response.status_code == 302
+    assert recovered_response.headers["Location"].endswith("/dashboard")
+
+
+def test_forgot_password_throttle_stays_generic_for_existing_accounts(app):
+    app.config["AUTH_PASSWORD_REQUEST_ACCOUNT_THROTTLE_LIMIT"] = 2
+    app.config["AUTH_PASSWORD_REQUEST_IP_THROTTLE_LIMIT"] = 4
+
+    with app.app_context():
+        create_user(
+            email="forgot-throttle@example.com",
+            password="Forgot!1",
+            display_name="Forgot Throttle",
+        )
+        db.session.commit()
+
+    with app.test_client() as anon_client:
+        first_response = anon_client.post(
+            "/forgot-password",
+            data={"email": "forgot-throttle@example.com"},
+            environ_overrides={"REMOTE_ADDR": "198.51.100.30"},
+            follow_redirects=True,
+        )
+        second_response = anon_client.post(
+            "/forgot-password",
+            data={"email": "forgot-throttle@example.com"},
+            environ_overrides={"REMOTE_ADDR": "198.51.100.30"},
+            follow_redirects=True,
+        )
+
+    assert first_response.status_code == 200
+    assert FORGOT_PASSWORD_FLASH in first_response.data
+    assert b"/reset-password/" in first_response.data
+    assert second_response.status_code == 200
+    assert FORGOT_PASSWORD_FLASH in second_response.data
+    assert b"/reset-password/" not in second_response.data
+
+
+def test_reset_password_throttle_blocks_repeated_invalid_posts(app):
+    app.config["AUTH_PASSWORD_RESET_ACCOUNT_THROTTLE_LIMIT"] = 2
+    app.config["AUTH_PASSWORD_RESET_IP_THROTTLE_LIMIT"] = 4
+
+    with app.app_context():
+        create_user(
+            email="reset-throttle@example.com",
+            password="Reset!1",
+            display_name="Reset Throttle",
+        )
+        db.session.commit()
+
+    with app.test_client() as anon_client:
+        request_response = anon_client.post(
+            "/forgot-password",
+            data={"email": "reset-throttle@example.com"},
+            environ_overrides={"REMOTE_ADDR": "198.51.100.40"},
+            follow_redirects=True,
+        )
+        reset_path = extract_reset_path(request_response.get_data(as_text=True))
+
+        first_response = anon_client.post(
+            reset_path,
+            data={
+                "new_password": "password",
+                "confirm_password": "password",
+            },
+            environ_overrides={"REMOTE_ADDR": "198.51.100.40"},
+            follow_redirects=True,
+        )
+        second_response = anon_client.post(
+            reset_path,
+            data={
+                "new_password": "password",
+                "confirm_password": "password",
+            },
+            environ_overrides={"REMOTE_ADDR": "198.51.100.40"},
+            follow_redirects=False,
+        )
+
+    assert first_response.status_code == 200
+    assert (
+        b"Password must be at least 8 characters and include at least 1 special character."
+        in first_response.data
+    )
+    assert second_response.status_code == 429
+
+
 def test_expired_password_link_is_rejected(client, app):
     with app.app_context():
         create_user(
@@ -1005,6 +1175,9 @@ def test_login_page_emits_security_headers(client):
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
     assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
     assert "object-src 'none'" in response.headers["Content-Security-Policy"]
+    assert "script-src 'self' 'nonce-" in response.headers["Content-Security-Policy"]
+    assert "script-src 'self' 'unsafe-inline'" not in response.headers["Content-Security-Policy"]
+    assert b'<script nonce="' in response.data
 
 
 def test_dev_quick_login_can_be_disabled_by_config(client, app):
@@ -1013,4 +1186,4 @@ def test_dev_quick_login_can_be_disabled_by_config(client, app):
     response = quick_login(client, "admin")
 
     assert response.status_code == 401
-    assert b"Invalid email or password." in response.data
+    assert b"Invalid credentials or account unavailable." in response.data

@@ -20,6 +20,7 @@ from app.models import (
     VenueNote,
 )
 from app.services.account_security import describe_account_event
+from app.services.feedback import build_feedback_summary_counts
 from app.services.inventory_rules import describe_inventory_admin_event
 from app.services.inventory_status import ensure_utc, normalize_status
 
@@ -90,6 +91,7 @@ def is_user_locked(user, now=None):
 def build_admin_overview_view_model():
     user_summary = build_user_summary_counts()
     item_summary = build_item_summary_counts()
+    feedback_summary = build_feedback_summary_counts()
     locked_rows = build_locked_user_rows(limit=6)
     operational_rows = _build_recent_operational_activity_rows(limit=RECENT_ACTIVITY_LIMIT)
     system_change_rows = _build_recent_system_change_rows(limit=RECENT_ACTIVITY_LIMIT)
@@ -128,6 +130,13 @@ def build_admin_overview_view_model():
                 "secondary_value": system_change_rows[0]["changed_at_text"] if system_change_rows else "No updates",
                 "secondary_label": "Latest update",
                 "note": system_change_rows[0]["title"] if system_change_rows else "No retained system updates yet.",
+            },
+            "feedback": {
+                "primary_value": feedback_summary["total_submissions"],
+                "primary_label": "Total submissions",
+                "secondary_value": feedback_summary["bug_report_count"],
+                "secondary_label": "Bug reports",
+                "note": "Open the inbox with the review PIN.",
             },
         },
     }
@@ -641,15 +650,17 @@ def _build_recent_note_update_rows(limit=8):
             Venue.name.label("venue_name"),
             User.display_name.label("author_display_name"),
             User.email.label("author_email"),
+            Item.name.label("item_name"),
         )
         .join(Venue, Venue.id == VenueNote.venue_id)
         .outerjoin(User, User.id == VenueNote.author_user_id)
+        .outerjoin(Item, Item.id == VenueNote.item_id)
         .order_by(VenueNote.updated_at.desc(), VenueNote.id.desc())
         .limit(limit)
         .all()
     )
     rows = []
-    for note, venue_name, author_display_name, author_email in query_rows:
+    for note, venue_name, author_display_name, author_email, item_name in query_rows:
         created_at = ensure_utc(note.created_at)
         updated_at = ensure_utc(note.updated_at)
         is_edited = bool(
@@ -658,10 +669,15 @@ def _build_recent_note_update_rows(limit=8):
             and (updated_at - created_at) > timedelta(seconds=1)
         )
         effective_at = updated_at if updated_at else created_at
+        is_item_note = note.item_id is not None
         rows.append(
             {
-                "title": f"{'Edited' if is_edited else 'Added'} venue note for {venue_name}",
-                "detail": f"{note.title} - {build_user_display_name(author_display_name, author_email)}",
+                "title": f"{'Edited' if is_edited else 'Added'} {'item' if is_item_note else 'venue'} note for {venue_name}",
+                "detail": (
+                    f'{(item_name or "Tracked item")} - {note.title} - {build_user_display_name(author_display_name, author_email)}'
+                    if is_item_note
+                    else f"{note.title} - {build_user_display_name(author_display_name, author_email)}"
+                ),
                 "changed_at": effective_at,
                 "changed_at_text": format_admin_timestamp(effective_at),
             }
@@ -766,9 +782,11 @@ def _build_recent_user_activity_rows(limit=RECENT_HISTORY_LIMIT):
             Venue.name.label("venue_name"),
             User.display_name.label("actor_display_name"),
             User.email.label("actor_email"),
+            Item.name.label("item_name"),
         )
         .join(Venue, Venue.id == VenueNote.venue_id)
         .join(User, User.id == VenueNote.author_user_id)
+        .outerjoin(Item, Item.id == VenueNote.item_id)
         .order_by(VenueNote.updated_at.desc(), VenueNote.id.desc())
         .limit(limit * 2)
         .all()
@@ -797,7 +815,7 @@ def _build_recent_user_activity_rows(limit=RECENT_HISTORY_LIMIT):
                 "changed_at_text": format_admin_timestamp(row.changed_at),
             }
         )
-    for note, venue_name, actor_display_name, actor_email in note_rows:
+    for note, venue_name, actor_display_name, actor_email, item_name in note_rows:
         created_at = ensure_utc(note.created_at)
         updated_at = ensure_utc(note.updated_at)
         is_edited = bool(
@@ -806,10 +824,23 @@ def _build_recent_user_activity_rows(limit=RECENT_HISTORY_LIMIT):
             and (updated_at - created_at) > timedelta(seconds=1)
         )
         effective_at = updated_at if updated_at else created_at
+        is_item_note = note.item_id is not None
         merged_rows.append(
             {
-                "title": "Edited venue note" if is_edited else "Added venue note",
-                "detail": f"{venue_name} - {note.title}",
+                "title": (
+                    "Edited item note"
+                    if is_edited and is_item_note
+                    else "Added item note"
+                    if is_item_note
+                    else "Edited venue note"
+                    if is_edited
+                    else "Added venue note"
+                ),
+                "detail": (
+                    f'{venue_name} - {(item_name or "Tracked item")} - {note.title}'
+                    if is_item_note
+                    else f"{venue_name} - {note.title}"
+                ),
                 "actor_name": build_user_display_name(actor_display_name, actor_email),
                 "icon_class": "bi-journal-text",
                 "changed_at": effective_at,

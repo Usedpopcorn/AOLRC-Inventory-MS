@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
+
 from flask import Blueprint, render_template, request, redirect, url_for, flash
-from urllib.parse import urljoin, urlparse
 from flask_login import current_user
 from sqlalchemy.orm import selectinload
 from app import db
 from app.authz import roles_required
+from app.security import normalize_safe_redirect_path
 from app.models import (
     Venue,
     Item,
@@ -63,23 +64,11 @@ def sync_singleton_compat_count(existing_counts, venue_id, item_id, status):
 
 
 def normalize_next_path(next_candidate, fallback_path):
-    if not next_candidate:
-        return fallback_path
-
-    host_url = urlparse(request.host_url)
-    target_url = urlparse(urljoin(request.host_url, next_candidate))
-    if target_url.scheme not in {"http", "https"} or target_url.netloc != host_url.netloc:
-        return fallback_path
-
-    current_url = urlparse(urljoin(request.host_url, request.full_path))
-    if target_url.path == current_url.path and target_url.query == current_url.query:
-        return fallback_path
-
-    return f"{target_url.path}?{target_url.query}" if target_url.query else target_url.path
+    return normalize_safe_redirect_path(next_candidate, fallback_path)
 
 
 def describe_back_destination(next_path, venue_id):
-    target_path = urlparse(urljoin(request.host_url, next_path)).path
+    target_path = next_path.split("?", 1)[0]
 
     if target_path == url_for("main.dashboard"):
         return "Dashboard"
@@ -395,7 +384,10 @@ def quick_check(venue_id):
     venue = Venue.query.get_or_404(venue_id)
 
     next_url = normalize_next_path(request.values.get("next"), url_for("main.venues"))
-    entered_from_profile = urlparse(next_url).path == url_for("main.venue_detail", venue_id=venue.id)
+    entered_from_profile = next_url.split("?", 1)[0] == url_for(
+        "main.venue_detail",
+        venue_id=venue.id,
+    )
 
     # Items tracked in this venue (active mappings, active items)
     tracked_rows = (

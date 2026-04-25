@@ -58,6 +58,10 @@
             is_group_parent=item.is_group_parent
           ) }}
         </div>
+        <div class="text-muted small mt-2">
+          Setup/report group:
+          {{ form_values.setup_group_code ~ " - " ~ form_values.setup_group_label if form_values.setup_group_code else "Not assigned" }}
+        </div>
       </div>
   {% endcall %}
   {% call ui.form_section("Edit Fields") %}
@@ -106,6 +110,45 @@
             <option value="{{ parent.id }}" {% if form_values.parent_item_id == parent.id|string %}selected{% endif %}>{{ parent.name }} (family)</option>
           {% endfor %}
         </select>
+      </div>
+      <div class="col-12 col-sm-6 col-md-4">
+        <label class="form-label d-flex align-items-center" for="item-setup-group-selection">
+          <span>Setup/report group</span>
+          {{ help_tip("Spreadsheet-style grouping for setup, reporting, and later exports. This does not affect parent/child family relationships.") }}
+        </label>
+        <select id="item-setup-group-selection" class="form-select ui-control" name="setup_group_selection" data-setup-group-selection>
+          <option value="">No setup group</option>
+          {% for option in setup_group_options %}
+            <option value="{{ option.code }}" {% if form_values.setup_group_selection == option.code %}selected{% endif %}>{{ option.display }}</option>
+          {% endfor %}
+          <option value="{{ custom_setup_group_option_value }}" {% if form_values.setup_group_selection == custom_setup_group_option_value %}selected{% endif %}>Custom setup group...</option>
+        </select>
+      </div>
+      <div class="col-12 d-none" data-setup-group-custom-fields>
+        <div class="row g-3">
+          <div class="col-12 col-sm-4">
+            <label class="form-label" for="item-setup-group-code">Custom group code</label>
+            <input
+              id="item-setup-group-code"
+              class="form-control ui-control"
+              name="setup_group_code"
+              value="{{ form_values.setup_group_code }}"
+              placeholder="06"
+              maxlength="32"
+            >
+          </div>
+          <div class="col-12 col-sm-8">
+            <label class="form-label" for="item-setup-group-label">Custom group label</label>
+            <input
+              id="item-setup-group-label"
+              class="form-control ui-control"
+              name="setup_group_label"
+              value="{{ form_values.setup_group_label }}"
+              placeholder="Custom setup grouping label"
+              maxlength="120"
+            >
+          </div>
+        </div>
       </div>
       <div class="col-12 col-sm-6 col-md-2">
         <label class="form-label" for="item-sort-order">Sort order</label>
@@ -254,7 +297,7 @@
     </div>
   {% endif %}
 {% endcall %}
-<script>
+<script nonce="{{ csp_nonce() }}">
   (() => {
     function initHelperTooltips() {
       if (!window.bootstrap?.Tooltip) return;
@@ -271,6 +314,8 @@
 
     const trackingModeEl = document.getElementById("item-tracking-mode");
     const parentSelectEl = document.getElementById("item-parent");
+    const setupGroupSelectionEl = document.getElementById("item-setup-group-selection");
+    const customSetupGroupFieldsEl = document.querySelector("[data-setup-group-custom-fields]");
     const groupParentEl = document.getElementById("item-is-group-parent");
     const summaryTitleEl = document.getElementById("itemFormSummaryTitle");
     const summaryTextEl = document.getElementById("itemFormSummaryText");
@@ -282,6 +327,14 @@
     function selectedParentLabel() {
       const option = parentSelectEl?.selectedOptions?.[0];
       return option && option.value ? option.textContent.replace(/\s+\(family\)\s*$/, "") : "";
+    }
+
+    function syncSetupGroupFields() {
+      if (!setupGroupSelectionEl || !customSetupGroupFieldsEl) return;
+      customSetupGroupFieldsEl.classList.toggle(
+        "d-none",
+        setupGroupSelectionEl.value !== "{{ custom_setup_group_option_value }}"
+      );
     }
 
     function syncItemSummary() {
@@ -334,7 +387,9 @@
     [trackingModeEl, parentSelectEl, groupParentEl].forEach((el) => {
       el?.addEventListener("change", syncItemSummary);
     });
+    setupGroupSelectionEl?.addEventListener("change", syncSetupGroupFields);
     syncItemSummary();
+    syncSetupGroupFields();
   })();
 </script>
 {% endblock %}

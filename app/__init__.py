@@ -1,7 +1,7 @@
 import os
+import subprocess
 import click
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse
 
 from flask import Flask, flash, jsonify, redirect, request, session, url_for
 from flask_wtf.csrf import CSRFError, CSRFProtect
@@ -12,6 +12,7 @@ from werkzeug.security import generate_password_hash
 from dotenv import load_dotenv
 
 from .config import Config, DEFAULT_SECRET_KEY, is_development_environment
+from .security import get_csp_nonce, is_safe_redirect_target
 
 db = SQLAlchemy()
 migrate = Migrate()
@@ -53,6 +54,48 @@ def handle_unauthorized():
     if wants_json_response():
         return jsonify({"error": "authentication required", "code": "unauthenticated"}), 401
     return redirect(url_for("auth.login", next=request.url))
+
+
+def _current_git_branch():
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    try:
+        completed = subprocess.run(
+            ["git", "branch", "--show-current"],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+        )
+    except OSError:
+        return None
+
+    if completed.returncode != 0:
+        return None
+    branch_name = (completed.stdout or "").strip()
+    if not branch_name or branch_name == "HEAD":
+        return None
+    return branch_name
+
+
+def _is_sqlite_database_url(value):
+    return (value or "").strip().lower().startswith("sqlite:")
+
+
+def _enforce_development_database_branch_policy(database_url):
+    if not is_development_environment():
+        return
+
+    current_branch = _current_git_branch()
+    if not current_branch or current_branch.lower() == "main":
+        return
+    if _is_sqlite_database_url(database_url):
+        return
+
+    raise RuntimeError(
+        f"Current branch '{current_branch}' is configured with a non-SQLite DATABASE_URL. "
+        "Feature branches must use local SQLite instead of the shared Postgres database. "
+        "Update .env and recreate the Docker container so it picks up the branch-local SQLite setting."
+    )
 
 
 def _save_user(email, password, role, display_name=None):
@@ -111,6 +154,7 @@ def create_app():
     app.config.from_object(Config)
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", app.config["SECRET_KEY"])
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", app.config["SQLALCHEMY_DATABASE_URI"])
+    _enforce_development_database_branch_policy(app.config["SQLALCHEMY_DATABASE_URI"])
     if (
         app.config["SECRET_KEY"] == DEFAULT_SECRET_KEY
         and not app.debug
@@ -136,6 +180,10 @@ def create_app():
     csrf.init_app(app)
     login_manager.init_app(app)
 
+    @app.context_processor
+    def inject_security_template_helpers():
+        return {"csp_nonce": get_csp_nonce}
+
     from .routes.main import main_bp
     app.register_blueprint(main_bp)
 
@@ -154,6 +202,12 @@ def create_app():
     from .routes.supplies import supplies_bp
     app.register_blueprint(supplies_bp)
 
+    from .routes.orders import orders_bp
+    app.register_blueprint(orders_bp)
+
+    from .routes.feedback import feedback_bp
+    app.register_blueprint(feedback_bp)
+
     from . import models  # ensures models are registered for migrations
 
     @app.get("/healthz")
@@ -164,16 +218,13 @@ def create_app():
     def handle_csrf_error(error):
         flash("Your form session expired. Please try again.", "error")
         referrer = request.referrer or ""
-        host = request.host_url or ""
-        if referrer:
-            referrer_host = urlparse(referrer).netloc
-            current_host = urlparse(host).netloc
-            if referrer_host == current_host:
-                return redirect(referrer)
+        if referrer and is_safe_redirect_target(referrer):
+            return redirect(referrer)
         return redirect(url_for("auth.login"))
 
     @app.after_request
     def apply_security_headers(response):
+        script_nonce = get_csp_nonce()
         response.headers.setdefault(
             "Content-Security-Policy",
             "; ".join(
@@ -183,10 +234,10 @@ def create_app():
                     "frame-ancestors 'none'",
                     "object-src 'none'",
                     "img-src 'self' data:",
-                    "font-src 'self' data: https://cdn.jsdelivr.net",
-                    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
-                    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
-                ]
+                    "font-src 'self' data: https://cdn.jsdelivr.net https://fonts.gstatic.com",
+                    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
+                    f"script-src 'self' 'nonce-{script_nonce}' https://cdn.jsdelivr.net",
+                    ]
             ),
         )
         response.headers.setdefault("X-Frame-Options", "DENY")

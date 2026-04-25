@@ -3,26 +3,29 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+import string
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urljoin
+
 from flask import current_app, url_for
 from sqlalchemy.orm import Query
 from werkzeug.security import generate_password_hash
 
 from app import db
 from app.models import (
-    AccountAuditEvent,
     PASSWORD_ACTION_PURPOSES,
+    VALID_ROLES,
+    AccountAuditEvent,
     PasswordActionToken,
     User,
-    VALID_ROLES,
     normalize_role,
 )
+from app.security import build_external_url
 from app.services.inventory_status import ensure_utc
 
 PASSWORD_SETUP_PURPOSE = "password_setup"
 PASSWORD_RESET_PURPOSE = "password_reset"
+PASSWORD_SPECIAL_CHARACTERS = frozenset(string.punctuation)
 
 ACCOUNT_EVENT_META = {
     "user_created": {"label": "User Created", "icon_class": "bi-person-plus"},
@@ -105,8 +108,14 @@ def validate_new_password(new_password, confirm_password=None):
     if confirm_password is not None and password != (confirm_password or ""):
         raise AccountManagementError("Password and confirmation do not match.")
     min_length = current_app.config["AUTH_PASSWORD_MIN_LENGTH"]
+    complexity_error = (
+        "Password must be at least "
+        f"{min_length} characters and include at least 1 special character."
+    )
     if len(password) < min_length:
-        raise AccountManagementError(f"Password must be at least {min_length} characters.")
+        raise AccountManagementError(complexity_error)
+    if not any(character in PASSWORD_SPECIAL_CHARACTERS for character in password):
+        raise AccountManagementError(complexity_error)
     return password
 
 
@@ -169,7 +178,12 @@ def describe_account_event(event, *, actor_name=None, target_name=None):
         {"label": "Account Event", "icon_class": "bi-clock-history"},
     )
     details = deserialize_event_details(event.details_json)
-    target_email = event.target_email or details.get("target_email") or target_name or "Unknown account"
+    target_email = (
+        event.target_email
+        or details.get("target_email")
+        or target_name
+        or "Unknown account"
+    )
 
     if event.event_type == "user_created":
         title = "Created user account"
@@ -197,13 +211,20 @@ def describe_account_event(event, *, actor_name=None, target_name=None):
         detail = f"{target_email} | Cleared lockout state"
     elif event.event_type == "password_setup_initiated":
         title = "Issued password setup link"
-        detail = f"{target_email} | Expires {format_account_timestamp(_coerce_datetime(details.get('expires_at')))}"
+        expires_at = format_account_timestamp(_coerce_datetime(details.get("expires_at")))
+        detail = f"{target_email} | Expires {expires_at}"
     elif event.event_type == "password_reset_initiated":
         title = "Issued password reset link"
-        detail = f"{target_email} | Expires {format_account_timestamp(_coerce_datetime(details.get('expires_at')))}"
+        expires_at = format_account_timestamp(_coerce_datetime(details.get("expires_at")))
+        detail = f"{target_email} | Expires {expires_at}"
     elif event.event_type == "password_reset_completed":
         title = "Completed password update"
-        detail = f"{target_email} | Via {'setup' if details.get('purpose') == PASSWORD_SETUP_PURPOSE else 'reset'} flow"
+        flow_name = (
+            "setup"
+            if details.get("purpose") == PASSWORD_SETUP_PURPOSE
+            else "reset"
+        )
+        detail = f"{target_email} | Via {flow_name} flow"
     elif event.event_type == "password_changed":
         title = "Changed account password"
         detail = target_email
@@ -483,10 +504,7 @@ def build_dev_password_link_message(user, issued_link):
 
 def build_password_action_url(raw_token):
     relative_path = url_for("auth.reset_password", token=raw_token)
-    base_url = (current_app.config.get("APP_BASE_URL") or "").strip()
-    if base_url:
-        return urljoin(f"{base_url.rstrip('/')}/", relative_path.lstrip("/"))
-    return url_for("auth.reset_password", token=raw_token, _external=True)
+    return build_external_url(relative_path)
 
 
 def _issue_password_link(*, actor, user, purpose):
@@ -526,10 +544,11 @@ def _issue_password_link(*, actor, user, purpose):
         expires_at=expires_at,
     )
     current_app.logger.info(
-        "%s password link issued for %s: %s",
+        "%s password link issued for %s (expires=%s, token_fingerprint=%s)",
         "Setup" if purpose == PASSWORD_SETUP_PURPOSE else "Reset",
         user.email,
-        issued_link.url,
+        expires_at.isoformat(),
+        token_record.token_hash[:12],
     )
     return issued_link
 
@@ -552,7 +571,7 @@ def _query_user_for_update(user_id) -> Query:
 
 
 def _active_admin_ids():
-    query = User.query.filter(User.role == "admin", User.active == True).order_by(User.id.asc())
+    query = User.query.filter(User.role == "admin", User.active).order_by(User.id.asc())
     if db.session.get_bind().dialect.name != "sqlite":
         query = query.with_for_update()
     return [user.id for user in query.all()]
@@ -568,7 +587,11 @@ def _enforce_user_admin_safeguards(*, actor, target, new_role, new_active):
     target_will_be_active = bool(new_active)
     if target.role == "admin" and target.active:
         active_admin_ids = _active_admin_ids()
-        if target.id in active_admin_ids and (not target_will_be_admin or not target_will_be_active) and len(active_admin_ids) <= 1:
+        if (
+            target.id in active_admin_ids
+            and (not target_will_be_admin or not target_will_be_active)
+            and len(active_admin_ids) <= 1
+        ):
             raise AccountManagementError("At least one active admin account must remain.")
 
 

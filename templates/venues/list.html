@@ -84,6 +84,14 @@
                     <i class="bi bi-clock-history"></i> {{ row.freshness.text }}
                   </div>
                 </div>
+                {% if row.attention %}
+                  {{ ui.chip(
+                    row.attention.label,
+                    tone=row.attention.tone,
+                    icon_class=row.attention.icon_class,
+                    extra_classes='venue-attention-pill'
+                  ) }}
+                {% endif %}
                 {{ ui.chip(
                   row.notes_count ~ ' note' ~ ('' if row.notes_count == 1 else 's'),
                   tone='neutral',
@@ -112,8 +120,26 @@
               </div>
               <div class="venue-directory-summary-card venue-directory-summary-card-count">
                 <div class="venue-directory-count-stack">
-                  <span class="venue-directory-count-number">{{ row.total_tracked }}</span>
-                  <span class="venue-directory-count-label">Tracked item{{ "" if row.total_tracked == 1 else "s" }}</span>
+                  <span class="venue-directory-count-number">
+                    <span class="venue-directory-count-current">{{ row.current_total_count }}</span>
+                    <span class="venue-directory-count-par">
+                      {% if row.total_par_count is not none %}
+                        / {{ row.total_par_count }}
+                      {% else %}
+                        / --
+                      {% endif %}
+                    </span>
+                  </span>
+                  <span class="venue-directory-count-label">
+                    {% if row.total_par_count is not none %}
+                      Current total / par
+                    {% else %}
+                      Current total (par not set)
+                    {% endif %}
+                  </span>
+                  <span class="venue-directory-count-support">
+                    {{ row.total_tracked }} tracked item{{ "" if row.total_tracked == 1 else "s" }}
+                  </span>
                 </div>
               </div>
             </div>
@@ -130,7 +156,7 @@
     </div>
   </div>
 
-  <script>
+  <script nonce="{{ csp_nonce() }}">
     (() => {
       const searchEl = document.getElementById("venueSearch");
       const statusEl = document.getElementById("statusFilter");

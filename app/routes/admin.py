@@ -1,21 +1,33 @@
-from urllib.parse import urljoin, urlparse
+import hmac
 
-from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, jsonify
+from flask import (
+    Blueprint,
+    current_app,
+    flash,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 from flask_login import current_user
+from sqlalchemy.orm import selectinload
+
 from app import db
 from app.authz import roles_required
 from app.models import (
-    InventoryPolicy,
+    ITEM_CATEGORY_OPTIONS,
+    ITEM_TRACKING_MODES,
+    VALID_ROLES,
     Item,
     User,
-    VALID_ROLES,
-    VenueItem,
     Venue,
-    ITEM_TRACKING_MODES,
-    ITEM_CATEGORY_OPTIONS,
-    normalize_tracking_mode,
+    VenueItem,
     normalize_item_category,
+    normalize_tracking_mode,
 )
+from app.security import is_safe_redirect_target
 from app.services.account_security import (
     AccountManagementError,
     build_dev_password_link_message,
@@ -26,17 +38,27 @@ from app.services.account_security import (
     update_managed_user,
 )
 from app.services.admin_hub import (
-    build_admin_user_detail_view_model,
     build_admin_history_view_model,
     build_admin_overview_view_model,
     build_admin_user_audit_view_model,
+    build_admin_user_detail_view_model,
     build_admin_user_list_view_model,
+)
+from app.services.csv_exports import (
+    EXPORT_SCOPE_FILTERED,
+    build_csv_response,
+    build_dated_csv_filename,
+    normalize_export_scope,
+    sanitize_csv_cell,
+)
+from app.services.feedback import (
+    FEEDBACK_REVIEW_SESSION_KEY,
+    build_feedback_inbox_view_model,
 )
 from app.services.inventory_rules import (
     ITEM_HARD_DELETE_WINDOW_DAYS,
     InventoryRuleError,
     build_item_delete_guard,
-    copy_venue_tracking_setup,
     ensure_inventory_policy,
     find_similar_items,
     get_default_stale_threshold_days,
@@ -47,9 +69,14 @@ from app.services.inventory_rules import (
     resolve_effective_par_level,
     resolve_effective_stale_threshold_days,
     sync_item_venue_assignments,
-    sync_venue_tracked_items,
 )
-from sqlalchemy.orm import selectinload
+from app.services.spreadsheet_compat import (
+    CUSTOM_SETUP_GROUP_OPTION_VALUE,
+    SpreadsheetCompatibilityError,
+    format_setup_group_display,
+    get_distinct_setup_groups,
+    resolve_setup_group_selection,
+)
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -79,19 +106,43 @@ ITEM_CATEGORY_FORM_OPTIONS = [
     ("other", "Other"),
 ]
 ITEM_CATALOG_PER_PAGE = 50
+ITEM_CATALOG_EXPORT_HEADERS = (
+    "Item Name",
+    "Active",
+    "Tracking Mode",
+    "Category",
+    "Parent Item",
+    "Setup Group Code",
+    "Setup Group Label",
+    "Default Par",
+    "Item Stale Override",
+    "Created At",
+)
+FEEDBACK_TYPE_FILTER_OPTIONS = [
+    ("all", "All submissions"),
+    ("feedback", "Feedback"),
+    ("bug_report", "Bug reports"),
+]
 
 
-def _is_safe_local_redirect(target):
-    if not target:
+def _is_feedback_review_pin_configured():
+    return bool((current_app.config.get("FEEDBACK_REVIEW_PIN") or "").strip())
+
+
+def _clear_feedback_review_pin_session():
+    session.pop(FEEDBACK_REVIEW_SESSION_KEY, None)
+
+
+def _is_feedback_inbox_unlocked():
+    try:
+        return int(session.get(FEEDBACK_REVIEW_SESSION_KEY, 0) or 0) == int(current_user.id)
+    except (TypeError, ValueError):
         return False
-    host_url = urlparse(request.host_url)
-    redirect_url = urlparse(urljoin(request.host_url, target))
-    return redirect_url.scheme in {"http", "https"} and host_url.netloc == redirect_url.netloc
 
 
 def _user_return_target(default_endpoint="admin.users", **default_values):
     next_path = request.form.get("next") or request.args.get("next")
-    if _is_safe_local_redirect(next_path):
+    if is_safe_redirect_target(next_path):
         return next_path
     return url_for(default_endpoint, **default_values)
 
@@ -146,6 +197,9 @@ def build_item_form_values(item=None):
             "item_category": "consumable",
             "item_type": "consumable",
             "parent_item_id": "",
+            "setup_group_selection": "",
+            "setup_group_code": "",
+            "setup_group_label": "",
             "is_group_parent": False,
             "active": True,
             "unit": "",
@@ -168,6 +222,9 @@ def build_item_form_values(item=None):
         "item_category": normalize_item_category(item.item_category or item.item_type),
         "item_type": item.item_type,
         "parent_item_id": str(item.parent_item_id or ""),
+        "setup_group_selection": item.setup_group_code or "",
+        "setup_group_code": item.setup_group_code or "",
+        "setup_group_label": item.setup_group_label or "",
         "is_group_parent": bool(item.is_group_parent),
         "active": bool(item.active),
         "unit": item.unit or "",
@@ -281,6 +338,9 @@ def item_matches_catalog_filters(item, filters):
         item.name or "",
         item.parent_item.name if item.parent_item else "",
         item.unit or "",
+        item.setup_group_code or "",
+        item.setup_group_label or "",
+        format_setup_group_display(item.setup_group_code, item.setup_group_label) or "",
         normalize_item_category(item.item_category or item.item_type).replace("_", " "),
         "family organizer" if item.is_group_parent else "",
         "family member" if item.parent_item_id is not None else "",
@@ -354,6 +414,40 @@ def build_item_catalog_view_model(all_items, catalog_filters):
             "query_args": build_item_catalog_query_args(catalog_filters),
         },
     }
+
+
+def build_item_catalog_export_rows(item_rows):
+    rows = []
+    for item, _depth in item_rows:
+        tracking_mode = "Singleton Asset" if item.is_singleton_asset else "Quantity"
+        rows.append(
+            {
+                "Item Name": sanitize_csv_cell(item.name or ""),
+                "Active": "Yes" if item.active else "No",
+                "Tracking Mode": tracking_mode,
+                "Category": sanitize_csv_cell(
+                    normalize_item_category(item.item_category or item.item_type)
+                ),
+                "Parent Item": sanitize_csv_cell(item.parent_item.name if item.parent_item else ""),
+                "Setup Group Code": sanitize_csv_cell(item.setup_group_code or ""),
+                "Setup Group Label": sanitize_csv_cell(item.setup_group_label or ""),
+                "Default Par": "" if item.default_par_level is None else item.default_par_level,
+                "Item Stale Override": (
+                    "" if item.stale_threshold_days is None else item.stale_threshold_days
+                ),
+                "Created At": (
+                    item.created_at.strftime("%Y-%m-%d") if item.created_at else ""
+                ),
+            }
+        )
+    return rows
+
+
+def build_item_catalog_export_filename(*, scope):
+    tokens = []
+    if scope == EXPORT_SCOPE_FILTERED:
+        tokens.append("filtered")
+    return build_dated_csv_filename("item_catalog", *tokens)
 
 
 def fetch_parent_options(exclude_item_id=None):
@@ -457,6 +551,9 @@ def parse_item_payload(existing_item=None):
     tracking_mode = normalize_tracking_mode(request.form.get("tracking_mode"))
     item_category = normalize_item_category(request.form.get("item_category"))
     parent_item_id = parse_parent_item_id(request.form.get("parent_item_id"))
+    setup_group_selection = (request.form.get("setup_group_selection") or "").strip()
+    custom_setup_group_code = request.form.get("setup_group_code")
+    custom_setup_group_label = request.form.get("setup_group_label")
     is_group_parent = to_bool_field(request.form.get("is_group_parent"))
     active = to_bool_field(request.form.get("active"))
     unit = (request.form.get("unit") or "").strip() or None
@@ -487,6 +584,18 @@ def parse_item_payload(existing_item=None):
         stale_threshold_error = str(exc)
     else:
         stale_threshold_error = None
+    try:
+        setup_group_code, setup_group_label = resolve_setup_group_selection(
+            selection_value=setup_group_selection,
+            custom_code=custom_setup_group_code,
+            custom_label=custom_setup_group_label,
+        )
+    except SpreadsheetCompatibilityError as exc:
+        setup_group_code = custom_setup_group_code
+        setup_group_label = custom_setup_group_label
+        setup_group_error = str(exc)
+    else:
+        setup_group_error = None
 
     form_values = {
         "name": name,
@@ -494,6 +603,9 @@ def parse_item_payload(existing_item=None):
         "item_category": item_category,
         "item_type": normalize_legacy_item_type(item_category),
         "parent_item_id": "" if parent_item_id in (None, "invalid") else str(parent_item_id),
+        "setup_group_selection": setup_group_selection,
+        "setup_group_code": setup_group_code or (custom_setup_group_code or "").strip(),
+        "setup_group_label": setup_group_label or (custom_setup_group_label or "").strip(),
         "is_group_parent": is_group_parent,
         "active": active,
         "unit": unit or "",
@@ -512,6 +624,8 @@ def parse_item_payload(existing_item=None):
         errors.append(default_par_error)
     if stale_threshold_error:
         errors.append(stale_threshold_error)
+    if setup_group_error:
+        errors.append(setup_group_error)
 
     name_changed = existing_item is None or existing_item.name.strip() != name
 
@@ -577,6 +691,10 @@ def parse_item_payload(existing_item=None):
         "default_par_level": default_par_level if isinstance(default_par_level, int) or default_par_level is None else None,
         "stale_threshold_days": (
             stale_threshold_days if isinstance(stale_threshold_days, int) or stale_threshold_days is None else None
+        ),
+        "setup_group_code": setup_group_code if isinstance(setup_group_code, str) or setup_group_code is None else None,
+        "setup_group_label": (
+            setup_group_label if isinstance(setup_group_label, str) or setup_group_label is None else None
         ),
         "selected_venue_ids": selected_venue_ids,
     }
@@ -843,6 +961,50 @@ def user_audit():
     )
 
 
+@admin_bp.get("/feedback")
+@roles_required("admin")
+def feedback_inbox():
+    pin_configured = _is_feedback_review_pin_configured()
+    if not pin_configured:
+        _clear_feedback_review_pin_session()
+    review_unlocked = pin_configured and _is_feedback_inbox_unlocked()
+    feedback_inbox_view = None
+    if review_unlocked:
+        feedback_inbox_view = build_feedback_inbox_view_model(
+            search=request.args.get("q"),
+            submission_type=request.args.get("type"),
+            page=request.args.get("page"),
+        )
+    return render_template(
+        "admin/feedback.html",
+        admin_page_key="feedback",
+        feedback_inbox=feedback_inbox_view,
+        feedback_review_unlocked=review_unlocked,
+        feedback_pin_configured=pin_configured,
+        feedback_type_options=FEEDBACK_TYPE_FILTER_OPTIONS,
+    )
+
+
+@admin_bp.post("/feedback/pin")
+@roles_required("admin")
+def unlock_feedback_inbox():
+    configured_pin = (current_app.config.get("FEEDBACK_REVIEW_PIN") or "").strip()
+    if not configured_pin:
+        _clear_feedback_review_pin_session()
+        flash("Set FEEDBACK_REVIEW_PIN before opening the feedback inbox.", "error")
+        return redirect(url_for("admin.feedback_inbox"))
+
+    submitted_pin = (request.form.get("review_pin") or "").strip()
+    if not submitted_pin or not hmac.compare_digest(submitted_pin, configured_pin):
+        _clear_feedback_review_pin_session()
+        flash("Review PIN is incorrect.", "error")
+        return redirect(url_for("admin.feedback_inbox"))
+
+    session[FEEDBACK_REVIEW_SESSION_KEY] = int(current_user.id)
+    flash("Feedback inbox unlocked for this session.", "success")
+    return redirect(url_for("admin.feedback_inbox"))
+
+
 @admin_bp.get("/history")
 @roles_required("admin")
 def history():
@@ -861,6 +1023,7 @@ def items():
     similar_name_matches = []
     available_venues = fetch_active_venues()
     global_stale_threshold_days = get_default_stale_threshold_days()
+    setup_group_options = get_distinct_setup_groups()
     catalog_filters = parse_item_catalog_filters(request.form if request.method == "POST" else request.args)
 
     if request.method == "POST":
@@ -885,6 +1048,8 @@ def items():
                 sort_order=payload["sort_order"],
                 default_par_level=payload["default_par_level"],
                 stale_threshold_days=payload["stale_threshold_days"],
+                setup_group_code=payload["setup_group_code"],
+                setup_group_label=payload["setup_group_label"],
             )
             db.session.add(item)
             db.session.flush()
@@ -901,6 +1066,7 @@ def items():
                 details={
                     "default_par_level": item.default_par_level,
                     "stale_threshold_days": item.stale_threshold_days,
+                    "setup_group": format_setup_group_display(item.setup_group_code, item.setup_group_label),
                     "assigned_venue_count": len(payload["selected_venue_ids"]),
                 },
             )
@@ -951,9 +1117,33 @@ def items():
         form_values=form_values,
         show_add_item_form=show_add_item_form,
         available_venues=available_venues,
+        setup_group_options=setup_group_options,
+        custom_setup_group_option_value=CUSTOM_SETUP_GROUP_OPTION_VALUE,
         similar_name_matches=similar_name_matches,
         global_stale_threshold_days=global_stale_threshold_days,
     )
+
+
+@admin_bp.get("/items/export.csv")
+@roles_required("admin")
+def export_item_catalog():
+    catalog_filters = parse_item_catalog_filters(request.args)
+    scope = normalize_export_scope(request.args.get("scope"), default=EXPORT_SCOPE_FILTERED)
+    all_items = (
+        Item.query.options(selectinload(Item.parent_item), selectinload(Item.child_items))
+        .order_by(Item.sort_order.asc(), Item.name.asc(), Item.id.asc())
+        .all()
+    )
+
+    export_items = all_items
+    if scope == EXPORT_SCOPE_FILTERED:
+        export_items = [
+            item for item in all_items if item_matches_catalog_filters(item, catalog_filters)
+        ]
+
+    csv_rows = build_item_catalog_export_rows(build_item_rows(export_items))
+    filename = build_item_catalog_export_filename(scope=scope)
+    return build_csv_response(ITEM_CATALOG_EXPORT_HEADERS, csv_rows, filename)
 
 
 @admin_bp.route("/items/<int:item_id>/edit", methods=["GET", "POST"])
@@ -968,6 +1158,7 @@ def edit_item(item_id):
     similar_name_matches = []
     available_venues = fetch_active_venues()
     global_stale_threshold_days = get_default_stale_threshold_days()
+    setup_group_options = get_distinct_setup_groups()
 
     if request.method == "POST":
         payload, form_values, errors, similar_name_matches = parse_item_payload(existing_item=item)
@@ -999,6 +1190,11 @@ def edit_item(item_id):
                 changed_fields.append("default par")
             if item.stale_threshold_days != payload["stale_threshold_days"]:
                 changed_fields.append("stale threshold")
+            if (
+                (item.setup_group_code or None) != payload["setup_group_code"]
+                or (item.setup_group_label or None) != payload["setup_group_label"]
+            ):
+                changed_fields.append("setup group")
 
             item.name = payload["name"]
             item.item_type = payload["item_type"]
@@ -1011,6 +1207,8 @@ def edit_item(item_id):
             item.sort_order = payload["sort_order"]
             item.default_par_level = payload["default_par_level"]
             item.stale_threshold_days = payload["stale_threshold_days"]
+            item.setup_group_code = payload["setup_group_code"]
+            item.setup_group_label = payload["setup_group_label"]
             assignment_summary = sync_item_venue_assignments(
                 item=item,
                 selected_venue_ids=payload["selected_venue_ids"],
@@ -1048,6 +1246,8 @@ def edit_item(item_id):
         parent_options=parent_options,
         tracking_mode_options=TRACKING_MODE_OPTIONS,
         item_category_options=ITEM_CATEGORY_FORM_OPTIONS,
+        setup_group_options=setup_group_options,
+        custom_setup_group_option_value=CUSTOM_SETUP_GROUP_OPTION_VALUE,
         form_values=form_values,
         available_venues=available_venues,
         similar_name_matches=similar_name_matches,
