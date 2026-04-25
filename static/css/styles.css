@@ -5157,13 +5157,16 @@ body.restock-filters-open {
 
 .quick-check-layout .quick-check-status-summary {
   min-width: 0;
-  display: grid;
-  gap: 0.14rem;
-  align-content: center;
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: calc(var(--ui-control-height) + 1.08rem);
+  padding-bottom: 1.08rem;
 }
 
 .quick-check-layout .quick-check-status-current {
   min-width: 0;
+  width: 100%;
   display: inline-flex;
   flex-wrap: nowrap;
   align-items: center;
@@ -5180,9 +5183,26 @@ body.restock-filters-open {
   color: var(--bs-secondary-color);
 }
 
+.quick-check-layout .quick-check-saved-label {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  line-height: 1;
+}
+
 .quick-check-layout .quick-check-current-status-pill {
   min-width: 0;
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.quick-check-layout .quick-check-status-note {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-end: 0;
+  max-width: 100%;
 }
 
 .quick-check-layout .quick-check-status-note,
@@ -5305,7 +5325,18 @@ body.restock-filters-open {
   display: flex;
   flex-direction: column;
   justify-content: end;
-  max-width: 220px;
+  min-width: 0;
+  max-width: 260px;
+}
+
+.quick-check-layout .quick-check-mode-toggle {
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.quick-check-layout .quick-check-mode-btn {
+  min-width: 116px;
+  justify-content: center;
 }
 
 .quick-check-layout .count-input {
@@ -5321,6 +5352,117 @@ body.restock-filters-open {
 
 .quick-check-layout .quick-check-controls {
   gap: var(--ui-space-3);
+}
+
+.quick-check-unsaved-slot {
+  min-height: 3.1rem;
+}
+
+.quick-check-unsaved-banner {
+  min-height: 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ui-space-3);
+  padding: 0.45rem 0.78rem;
+  border: 1px solid rgba(132, 96, 140, 0.1);
+  border-radius: 0.8rem;
+  background: linear-gradient(180deg, rgba(252, 250, 253, 0.96) 0%, var(--ui-surface-secondary) 100%);
+  box-shadow: var(--ui-shadow-soft), var(--ui-inset-highlight);
+}
+
+.quick-check-unsaved-banner.is-empty {
+  border-color: rgba(132, 96, 140, 0.08);
+}
+
+.quick-check-unsaved-banner:not(.is-empty) {
+  border-color: rgba(216, 156, 53, 0.24);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 245, 224, 0.98) 100%);
+}
+
+.quick-check-unsaved-banner-copy {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.62rem;
+}
+
+.quick-check-unsaved-banner-icon {
+  width: 1.85rem;
+  height: 1.85rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(132, 96, 140, 0.1);
+  color: var(--aolrc-purple);
+  font-size: 0.9rem;
+}
+
+.quick-check-unsaved-banner:not(.is-empty) .quick-check-unsaved-banner-icon {
+  background: rgba(248, 173, 38, 0.16);
+  color: #8a5e00;
+}
+
+.quick-check-unsaved-banner-text {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.38rem;
+  white-space: nowrap;
+}
+
+.quick-check-unsaved-banner-title {
+  font-weight: 700;
+  color: #324256;
+}
+
+.quick-check-unsaved-banner-body {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgba(48, 55, 66, 0.72);
+}
+
+.quick-check-unsaved-list {
+  margin: 0.15rem 0 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.24rem;
+}
+
+.quick-check-unsaved-list li {
+  color: #405167;
+}
+
+.quick-check-unsaved-modal-content {
+  border-radius: 1rem;
+  border: 1px solid var(--ui-border-subtle);
+  box-shadow: var(--ui-shadow-soft), var(--ui-inset-highlight);
+}
+
+.quick-check-unsaved-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.quick-check-unsaved-modal-cancel {
+  margin-right: auto;
+}
+
+.quick-check-unsaved-modal-actions .btn {
+  min-width: 11.25rem;
+}
+
+.quick-check-unsaved-list-modal {
+  max-height: min(42vh, 16rem);
+  overflow-y: auto;
+  padding-top: 0.55rem;
+  padding-right: 0.35rem;
+  border-top: 1px solid rgba(132, 96, 140, 0.12);
 }
 
 .quick-check-layout .quick-check-column-header {
@@ -5366,6 +5508,53 @@ body.restock-filters-open {
   .quick-check-layout .quick-check-status-surface,
   .quick-check-layout .quick-check-count-surface {
     padding: 0.72rem 0.8rem;
+  }
+
+  .quick-check-layout .quick-check-status-summary {
+    min-height: calc(var(--ui-control-height) + 1.2rem);
+  }
+
+  .quick-check-layout .mode-select-wrap {
+    max-width: 100%;
+  }
+
+  .quick-check-layout .quick-check-mode-toggle {
+    justify-content: stretch;
+  }
+
+  .quick-check-layout .quick-check-mode-btn {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .quick-check-unsaved-slot {
+    min-height: 4rem;
+  }
+
+  .quick-check-unsaved-banner {
+    min-height: 3.9rem;
+    align-items: flex-start;
+    padding: 0.55rem 0.78rem;
+  }
+
+  .quick-check-unsaved-banner-text {
+    flex-wrap: wrap;
+    white-space: normal;
+    gap: 0.18rem 0.38rem;
+  }
+
+  .quick-check-unsaved-modal-actions .btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .quick-check-unsaved-modal-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .quick-check-unsaved-modal-cancel {
+    margin-right: 0;
   }
 }
 

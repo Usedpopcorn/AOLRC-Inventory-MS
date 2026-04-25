@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlparse
 
 from app import db
 from app.models import (
@@ -164,6 +165,13 @@ def test_quick_check_get_shows_saved_status_chip_and_blank_pending_selection(cli
     assert "Review the saved status on each row" in body
     assert "Current saved status" not in body
     assert "Update status" in body
+    assert 'data-mode-toggle="status"' in body
+    assert 'data-mode-toggle="raw_counts"' in body
+    assert 'id="quickCheckUnsavedBanner"' in body
+    assert 'id="quickCheckUnsavedModal"' in body
+    assert "No pending changes" in body
+    assert "Continue Without Saving" in body
+    assert "Save and Continue" not in body
     assert "quick-check-current-status-pill" in body
     assert f'data-item-id="{item_id}"' in body
     assert 'data-current-status="low"' in body
@@ -352,6 +360,73 @@ def test_quick_check_status_post_requires_at_least_one_selection(client, app):
         check_count = Check.query.filter_by(venue_id=venue_id).count()
 
     assert check_count == 0
+
+
+def test_quick_check_status_post_redirects_to_requested_mode_after_save(client, app):
+    quick_login(client, "staff")
+
+    with app.app_context():
+        venue = Venue(name="Maple Grove", active=True)
+        db.session.add(venue)
+        db.session.flush()
+        item = create_tracked_item(venue, "Mugs")
+        add_status_check(
+            venue,
+            [(item, "good")],
+            created_at=datetime.now(timezone.utc) - timedelta(days=2),
+        )
+        db.session.commit()
+        venue_id = venue.id
+        item_id = item.id
+
+    response = client.post(
+        f"/venues/{venue_id}/check",
+        data={
+            "check_mode": "status",
+            "after_save_mode": "raw_counts",
+            f"status_{item_id}": "ok",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    location = urlparse(response.headers["Location"])
+    query = parse_qs(location.query)
+    assert location.path == f"/venues/{venue_id}/check"
+    assert query["mode"] == ["raw_counts"]
+
+
+def test_quick_check_raw_counts_post_redirects_to_requested_next_after_save(client, app):
+    quick_login(client, "staff")
+
+    with app.app_context():
+        venue = Venue(name="Oak Retreat", active=True)
+        db.session.add(venue)
+        db.session.flush()
+        item = create_tracked_item(venue, "Napkins")
+        add_count_session(
+            venue,
+            [(item, 10)],
+            created_at=datetime.now(timezone.utc) - timedelta(days=2),
+        )
+        db.session.commit()
+        venue_id = venue.id
+        item_id = item.id
+
+    response = client.post(
+        f"/venues/{venue_id}/check",
+        data={
+            "check_mode": "raw_counts",
+            "after_save_next": "/venues",
+            f"count_{item_id}": "12",
+            f"status_{item_id}": "",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    location = urlparse(response.headers["Location"])
+    assert location.path == "/venues"
 
 
 def test_quick_check_singleton_recheck_updates_compat_count_only_for_selected_asset(client, app):

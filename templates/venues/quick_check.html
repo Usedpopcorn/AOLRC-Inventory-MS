@@ -28,6 +28,7 @@
     class="quick-check-row quick-check-entry-row supply-status-row inventory-row-shell{{ ' quick-check-row-child' if nested else '' }}"
     data-name="{{ (it.name ~ ' ' ~ (it.parent_item.name if it.parent_item else ''))|lower }}"
     data-item-name="{{ it.name|lower }}"
+    data-item-label="{{ it.name }}"
     data-family-name="{{ (it.parent_item.name if it.parent_item else it.name)|lower }}"
     data-display-name="{{ it.name|lower }}"
     data-item-id="{{ it.id }}"
@@ -191,6 +192,27 @@
 <form method="post" id="quick-check-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="next" value="{{ next_url }}">
+  <input type="hidden" name="after_save_mode" id="after_save_mode" value="">
+  <input type="hidden" name="after_save_next" id="after_save_next" value="">
+  <div class="quick-check-unsaved-slot mb-3" aria-live="polite" aria-atomic="true">
+    <div
+      id="quickCheckUnsavedBanner"
+      class="quick-check-unsaved-banner is-empty"
+      role="status"
+    >
+      <div class="quick-check-unsaved-banner-copy">
+        <span class="quick-check-unsaved-banner-icon" aria-hidden="true">
+          <i class="bi bi-pencil-square"></i>
+        </span>
+        <span class="quick-check-unsaved-banner-text">
+          <span class="quick-check-unsaved-banner-title" id="quickCheckUnsavedBannerTitle">No pending changes</span>
+          <span class="quick-check-unsaved-banner-body" id="quickCheckUnsavedBannerBody">
+            New edits stay here until you save them.
+          </span>
+        </span>
+      </div>
+    </div>
+  </div>
   <div
     id="statusSelectionWarning"
     class="ui-state-banner ui-state-banner-warning d-none mb-3"
@@ -220,11 +242,26 @@
             >
           </div>
           <div class="mode-select-wrap">
-            <label class="visually-hidden" for="check_mode">Check mode</label>
-            <select class="form-select ui-control" id="check_mode" name="check_mode" aria-label="Check mode" {{ "disabled" if is_view_only else "" }}>
-              <option value="status" {% if not is_counts_mode %}selected{% endif %}>Quick Status</option>
-              <option value="raw_counts" {% if is_counts_mode %}selected{% endif %}>Counts</option>
-            </select>
+            <span class="visually-hidden" id="check_mode_label">Check mode</span>
+            <input type="hidden" id="check_mode" name="check_mode" value="{{ 'raw_counts' if is_counts_mode else 'status' }}">
+            <div class="venue-profile-segmented-filter quick-check-mode-toggle" role="group" aria-labelledby="check_mode_label">
+              <button
+                type="button"
+                class="venue-profile-segmented-filter-btn quick-check-mode-btn{{ ' is-active' if not is_counts_mode else '' }}"
+                data-mode-toggle="status"
+                aria-pressed="{{ 'true' if not is_counts_mode else 'false' }}"
+              >
+                Quick Status
+              </button>
+              <button
+                type="button"
+                class="venue-profile-segmented-filter-btn quick-check-mode-btn{{ ' is-active' if is_counts_mode else '' }}"
+                data-mode-toggle="raw_counts"
+                aria-pressed="{{ 'true' if is_counts_mode else 'false' }}"
+              >
+                Counts
+              </button>
+            </div>
           </div>
         </div>
       {% endcall %}
@@ -315,11 +352,45 @@
   </div>
 </form>
 
+<div
+  class="modal fade"
+  id="quickCheckUnsavedModal"
+  tabindex="-1"
+  aria-labelledby="quickCheckUnsavedModalLabel"
+  aria-hidden="true"
+  data-bs-backdrop="static"
+  data-bs-keyboard="false"
+>
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content quick-check-unsaved-modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="quickCheckUnsavedModalLabel">Unsaved changes</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Keep editing"></button>
+      </div>
+      <div class="modal-body d-grid gap-2">
+        <p class="mb-0 text-muted" id="quickCheckUnsavedModalBody">
+          Continue without saving to discard your pending updates, or cancel to keep editing.
+        </p>
+        <ul id="quickCheckUnsavedModalList" class="quick-check-unsaved-list quick-check-unsaved-list-modal d-none"></ul>
+      </div>
+      <div class="modal-footer quick-check-unsaved-modal-actions">
+        <button type="button" class="btn btn-outline-secondary ui-control quick-check-unsaved-modal-cancel" id="quickCheckUnsavedModalCancelBtn" data-bs-dismiss="modal">
+          Cancel
+        </button>
+        <button type="button" class="btn btn-outline-danger ui-control" id="quickCheckUnsavedModalDiscardBtn">
+          Continue Without Saving
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   (() => {
     const quickCheckForm = document.getElementById("quick-check-form");
     const quickCheckLayout = document.getElementById("quickCheckLayout");
-    const modeSelect = document.getElementById("check_mode");
+    const modeInput = document.getElementById("check_mode");
+    const modeToggleButtons = Array.from(document.querySelectorAll("[data-mode-toggle]"));
     const supplySearchEl = document.getElementById("supplySearch");
     const emptyFilteredEl = document.getElementById("suppliesFilteredEmpty");
     const overallStatusPill = document.getElementById("overallStatusPill");
@@ -328,11 +399,36 @@
     const selectionWarning = document.getElementById("statusSelectionWarning");
     const selectionWarningTitle = document.getElementById("statusSelectionWarningTitle");
     const selectionWarningBody = document.getElementById("statusSelectionWarningBody");
+    const unsavedBanner = document.getElementById("quickCheckUnsavedBanner");
+    const unsavedBannerTitle = document.getElementById("quickCheckUnsavedBannerTitle");
+    const unsavedBannerBody = document.getElementById("quickCheckUnsavedBannerBody");
+    const formNextInput = quickCheckForm?.querySelector('input[name="next"]');
+    const unsavedModalEl = document.getElementById("quickCheckUnsavedModal");
+    const unsavedModalBody = document.getElementById("quickCheckUnsavedModalBody");
+    const unsavedModalList = document.getElementById("quickCheckUnsavedModalList");
+    const unsavedModalDiscardBtn = document.getElementById("quickCheckUnsavedModalDiscardBtn");
+    const unsavedModalDismissButtons = Array.from(
+      unsavedModalEl?.querySelectorAll("[data-bs-dismiss='modal']") || []
+    );
+    const unsavedModal = unsavedModalEl && window.bootstrap?.Modal
+      ? window.bootstrap.Modal.getOrCreateInstance(unsavedModalEl, {
+        backdrop: "static",
+        keyboard: false,
+      })
+      : null;
+    const guardedLinks = Array.from(
+      document.querySelectorAll(".ui-back-link, [data-quickcheck-next-link]")
+    );
     const initialUrl = new URL(window.location.href);
     const focusItemId = initialUrl.searchParams.get("focus_item_id");
+    const historyGuardKey = "quickCheckGuard";
     let hasAppliedFocusHighlight = false;
     let hasTouchedStatusSelection = false;
     let hasTouchedCountSelection = false;
+    let pendingGuardAction = null;
+    let manualModalBackdrop = null;
+    let isManualModalOpen = false;
+    let skipNextPopstate = false;
 
     function getGroups() {
       return Array.from(document.querySelectorAll(".quick-check-group"));
@@ -355,6 +451,141 @@
       return itemId ? document.getElementById(`count_${itemId}`) : null;
     }
 
+    function normalizeQuickCheckMode(value) {
+      return value === "raw_counts" ? "raw_counts" : "status";
+    }
+
+    function getActiveMode() {
+      return normalizeQuickCheckMode(modeInput?.value || "status");
+    }
+
+    function getModeLabel(mode) {
+      return mode === "raw_counts" ? "Counts" : "Quick Status";
+    }
+
+    function setActiveMode(mode) {
+      const normalized = normalizeQuickCheckMode(mode);
+      if (modeInput) modeInput.value = normalized;
+      modeToggleButtons.forEach((btn) => {
+        const isActive = btn.dataset.modeToggle === normalized;
+        btn.classList.toggle("is-active", isActive);
+        btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+      });
+    }
+
+    function buildCurrentQuickCheckUrl() {
+      const nextUrl = new URL(window.location.href);
+      const mode = getActiveMode();
+      const query = (supplySearchEl?.value || "").trim();
+
+      if (mode !== "status") nextUrl.searchParams.set("mode", mode);
+      else nextUrl.searchParams.delete("mode");
+
+      if (query) nextUrl.searchParams.set("supply_q", query);
+      else nextUrl.searchParams.delete("supply_q");
+      nextUrl.searchParams.delete("supply_sort");
+      nextUrl.searchParams.delete("focus_item_id");
+
+      return nextUrl;
+    }
+
+    function getDefaultExitHref() {
+      const backLink = guardedLinks.find((link) => link.classList.contains("ui-back-link"));
+      if (backLink?.href) return backLink.href;
+
+      const nextValue = (formNextInput?.value || "").trim();
+      if (nextValue) {
+        try {
+          return new URL(nextValue, window.location.origin).toString();
+        } catch (error) {
+          // Fall through to safer local options.
+        }
+      }
+
+      try {
+        if (document.referrer) {
+          const referrerUrl = new URL(document.referrer);
+          if (referrerUrl.origin === window.location.origin) {
+            return referrerUrl.toString();
+          }
+        }
+      } catch (error) {
+        // Ignore invalid referrers and keep the final fallback local.
+      }
+
+      return new URL("/", window.location.origin).toString();
+    }
+
+    function installHistoryGuard() {
+      if (!window.history?.replaceState || !window.history?.pushState) return;
+      const currentState = window.history.state || {};
+      if (currentState[historyGuardKey]) return;
+
+      const currentUrl = buildCurrentQuickCheckUrl().toString();
+      window.history.replaceState(
+        { ...currentState, quickCheckBase: true },
+        "",
+        currentUrl
+      );
+      window.history.pushState(
+        { ...currentState, [historyGuardKey]: true },
+        "",
+        currentUrl
+      );
+    }
+
+    function isUnsavedModalOpen() {
+      return Boolean(unsavedModalEl?.classList.contains("show") || isManualModalOpen);
+    }
+
+    function showUnsavedModal() {
+      if (!unsavedModalEl) return;
+      if (unsavedModal) {
+        unsavedModal.show();
+        return;
+      }
+
+      isManualModalOpen = true;
+      unsavedModalEl.style.display = "block";
+      unsavedModalEl.removeAttribute("aria-hidden");
+      unsavedModalEl.setAttribute("aria-modal", "true");
+      unsavedModalEl.classList.add("show");
+      document.body.classList.add("modal-open");
+
+      if (!manualModalBackdrop) {
+        manualModalBackdrop = document.createElement("div");
+        manualModalBackdrop.className = "modal-backdrop fade show";
+        document.body.appendChild(manualModalBackdrop);
+      }
+
+      const focusTarget =
+        unsavedModalDiscardBtn ||
+        unsavedModalDismissButtons[0] ||
+        unsavedModalEl;
+      window.setTimeout(() => focusTarget?.focus(), 0);
+    }
+
+    function hideUnsavedModal() {
+      if (unsavedModal) {
+        unsavedModal.hide();
+        pendingGuardAction = null;
+        return;
+      }
+
+      if (!unsavedModalEl) return;
+      isManualModalOpen = false;
+      unsavedModalEl.classList.remove("show");
+      unsavedModalEl.style.display = "none";
+      unsavedModalEl.setAttribute("aria-hidden", "true");
+      unsavedModalEl.removeAttribute("aria-modal");
+      document.body.classList.remove("modal-open");
+      if (manualModalBackdrop) {
+        manualModalBackdrop.remove();
+        manualModalBackdrop = null;
+      }
+      pendingGuardAction = null;
+    }
+
     function normalizeSelectableStatus(value, allowBlank = false) {
       const normalized = (value || "").toLowerCase();
       if (allowBlank && normalized === "") return "";
@@ -373,7 +604,7 @@
 
     function getEffectiveStatusValue(row) {
       if (!row) return "not_checked";
-      if (modeSelect.value === "raw_counts" && (row.dataset.trackingMode || "") !== "singleton_asset") {
+      if (getActiveMode() === "raw_counts" && (row.dataset.trackingMode || "") !== "singleton_asset") {
         return getCurrentStatusValue(row);
       }
       return getPendingStatusValue(row) || getCurrentStatusValue(row);
@@ -399,6 +630,10 @@
       return Number(amount) === 1 ? "unit" : "units";
     }
 
+    function getRowItemLabel(row) {
+      return row?.dataset.itemLabel || row?.dataset.displayName || "Item";
+    }
+
     function getPendingCountRowCount() {
       return getEntryRows().reduce((count, row) => {
         if ((row.dataset.trackingMode || "") === "singleton_asset") return count;
@@ -422,6 +657,172 @@
 
     function syncAllStatusInputs() {
       getEntryRows().forEach((row) => syncRowStatusInput(row));
+    }
+
+    function buildStatusChangeDescription(row, pending) {
+      const label = getStatusMeta(row, pending).label;
+      if (pending === getCurrentStatusValue(row)) {
+        return `Update status (${label})`;
+      }
+      return `Set status to ${label}`;
+    }
+
+    function buildCountChangeDescription(row, pending) {
+      const current = getCurrentCountValue(row);
+      const unitLabel = getUnitLabel(row, pending);
+      if (current === null) {
+        return `First count: ${pending} ${unitLabel}`;
+      }
+      if (Number(current) === Number(pending)) {
+        return `Update count (${pending} ${unitLabel})`;
+      }
+      return `Set count to ${pending} ${unitLabel}`;
+    }
+
+    function getPendingChangeEntries() {
+      const activeMode = getActiveMode();
+      const entries = [];
+
+      getEntryRows().forEach((row) => {
+        if (activeMode === "status") {
+          const pendingStatus = getPendingStatusValue(row);
+          if (!pendingStatus) return;
+          entries.push({
+            itemName: getRowItemLabel(row),
+            description: buildStatusChangeDescription(row, pendingStatus),
+          });
+          return;
+        }
+
+        if ((row.dataset.trackingMode || "") === "singleton_asset") {
+          const pendingStatus = getPendingStatusValue(row);
+          if (!pendingStatus) return;
+          entries.push({
+            itemName: getRowItemLabel(row),
+            description: buildStatusChangeDescription(row, pendingStatus),
+          });
+          return;
+        }
+
+        const pendingCount = getPendingCountValue(row);
+        if (pendingCount === "") return;
+        entries.push({
+          itemName: getRowItemLabel(row),
+          description: buildCountChangeDescription(row, pendingCount),
+        });
+      });
+
+      return entries;
+    }
+
+    function hasUnsavedChanges() {
+      return getPendingChangeEntries().length > 0;
+    }
+
+    function renderUnsavedChangeList(listEl, entries, { limit = null } = {}) {
+      if (!listEl) return;
+      listEl.innerHTML = "";
+
+      const visibleEntries = limit ? entries.slice(0, limit) : entries;
+      visibleEntries.forEach((entry) => {
+        const item = document.createElement("li");
+        item.textContent = `${entry.itemName}: ${entry.description}`;
+        listEl.appendChild(item);
+      });
+
+      if (limit && entries.length > limit) {
+        const overflowItem = document.createElement("li");
+        const remainingCount = entries.length - limit;
+        overflowItem.textContent = `${remainingCount} more pending change${
+          remainingCount === 1 ? "" : "s"
+        }`;
+        listEl.appendChild(overflowItem);
+      }
+
+      listEl.classList.toggle("d-none", entries.length === 0);
+    }
+
+    function updateUnsavedChangesUI() {
+      const entries = getPendingChangeEntries();
+      if (!unsavedBanner || !unsavedBannerTitle || !unsavedBannerBody) return;
+
+      if (!entries.length) {
+        unsavedBanner.classList.add("is-empty");
+        unsavedBannerTitle.textContent = "No pending changes";
+        unsavedBannerBody.textContent = "New edits stay here until you save them.";
+        return;
+      }
+
+      const updateLabel = entries.length === 1 ? "1 unsaved change" : `${entries.length} unsaved changes`;
+      unsavedBannerTitle.textContent = updateLabel;
+      unsavedBannerBody.textContent =
+        "Save or discard them before switching modes or leaving this page.";
+      unsavedBanner.classList.remove("is-empty");
+    }
+
+    function describeGuardAction(action) {
+      if (!action) return "Continue without saving to discard them, or cancel to keep editing.";
+      if (action.type === "mode") {
+        return `Continue without saving to discard them before switching to ${getModeLabel(action.mode)}, or cancel to keep editing.`;
+      }
+      return "Continue without saving to discard them before leaving this page, or cancel to keep editing.";
+    }
+
+    function applyModeChange(nextMode) {
+      setActiveMode(nextMode);
+      refreshModeUI();
+      refreshAllStatusRows();
+      refreshAllCountRows();
+      applyQuickCheckView();
+      updateUnsavedChangesUI();
+    }
+
+    function runGuardedAction(action) {
+      if (!action) return;
+      if (action.type === "mode") {
+        applyModeChange(action.mode);
+        return;
+      }
+      window.location.href = action.href || getDefaultExitHref();
+    }
+
+    function promptForUnsavedChanges(action) {
+      const entries = getPendingChangeEntries();
+      if (!entries.length) {
+        runGuardedAction(action);
+        return;
+      }
+
+      pendingGuardAction =
+        action?.type === "navigate"
+          ? { ...action, href: action.href || getDefaultExitHref() }
+          : action;
+      if (unsavedModalBody) {
+        const countLabel = entries.length === 1
+          ? "You have 1 unsaved change."
+          : `You have ${entries.length} unsaved changes.`;
+        unsavedModalBody.textContent = `${countLabel} ${describeGuardAction(pendingGuardAction)}`;
+      }
+      renderUnsavedChangeList(unsavedModalList, entries);
+      showUnsavedModal();
+    }
+
+    function discardPendingChanges() {
+      getEntryRows().forEach((row) => {
+        row.dataset.pendingStatus = "";
+        syncRowStatusInput(row);
+        const countInput = getCountInput(row);
+        if (countInput) countInput.value = "";
+      });
+
+      hasTouchedStatusSelection = false;
+      hasTouchedCountSelection = false;
+      hideSelectionWarning();
+      refreshAllStatusRows();
+      refreshAllCountRows();
+      refreshAllFamilySummaries();
+      refreshOverallStatus();
+      updateUnsavedChangesUI();
     }
 
     function getStatusMeta(row, statusValue) {
@@ -493,7 +894,7 @@
     function showSelectionWarning() {
       if (!selectionWarning) return;
 
-      if (modeSelect.value === "raw_counts") {
+      if (getActiveMode() === "raw_counts") {
         if (hasTouchedCountSelection || hasTouchedStatusSelection) {
           selectionWarningTitle.textContent = "No count or status updates are queued";
           selectionWarningBody.textContent = "You cleared your pending entries. Enter a new count or select a singleton status before saving.";
@@ -631,19 +1032,8 @@
     }
 
     function syncQuickCheckUrl() {
-      const nextUrl = new URL(window.location.href);
-      const mode = modeSelect.value || "status";
-      const query = (supplySearchEl.value || "").trim();
-
-      if (mode !== "status") nextUrl.searchParams.set("mode", mode);
-      else nextUrl.searchParams.delete("mode");
-
-      if (query) nextUrl.searchParams.set("supply_q", query);
-      else nextUrl.searchParams.delete("supply_q");
-      nextUrl.searchParams.delete("supply_sort");
-      nextUrl.searchParams.delete("focus_item_id");
-
-      window.history.replaceState({}, "", nextUrl);
+      const nextUrl = buildCurrentQuickCheckUrl();
+      window.history.replaceState(window.history.state || {}, "", nextUrl.toString());
       syncQuickCheckActionUrls();
     }
 
@@ -665,7 +1055,7 @@
 
       const childRows = Array.from(groupEl.querySelectorAll(".quick-check-entry-row"));
       const childCount = childRows.length;
-      const isCountsMode = modeSelect.value === "raw_counts";
+      const isCountsMode = getActiveMode() === "raw_counts";
       let checkedCount = 0;
       let countedCount = 0;
       let hasSingletonChildren = false;
@@ -802,6 +1192,7 @@
 
     const initialQuery = initialUrl.searchParams.get("supply_q");
     if (initialQuery !== null) supplySearchEl.value = initialQuery;
+    installHistoryGuard();
 
     function focusAndHighlightSelectedItem() {
       if (hasAppliedFocusHighlight) return;
@@ -819,7 +1210,7 @@
 
       targetRow.classList.add("quick-check-row-focus");
       targetRow.scrollIntoView({ behavior: "smooth", block: "center" });
-      hasAppliedFocusHighlight = true;
+        hasAppliedFocusHighlight = true;
 
       window.setTimeout(() => {
         targetRow.classList.remove("quick-check-row-focus");
@@ -866,10 +1257,8 @@
         row.dataset.pendingStatus = currentPending === btn.dataset.value ? "" : btn.dataset.value;
         hasTouchedStatusSelection = true;
         refreshStatusRow(row);
-        if (
-          (modeSelect.value === "status" && getPendingStatusCount() > 0) ||
-          (modeSelect.value === "raw_counts" && (getPendingCountRowCount() + getPendingStatusCount({ singletonOnly: true }) > 0))
-        ) {
+        updateUnsavedChangesUI();
+        if (hasUnsavedChanges()) {
           hideSelectionWarning();
         }
       });
@@ -886,7 +1275,7 @@
     });
 
     function refreshModeUI() {
-      const isCountsMode = modeSelect.value === "raw_counts";
+      const isCountsMode = getActiveMode() === "raw_counts";
       if (quickCheckLayout) {
         quickCheckLayout.classList.toggle("quick-check-layout-raw", isCountsMode);
       }
@@ -913,14 +1302,20 @@
       }
       refreshAllFamilySummaries();
       refreshOverallStatus();
+      updateUnsavedChangesUI();
       syncQuickCheckUrl();
     }
 
-    modeSelect.addEventListener("change", () => {
-      refreshModeUI();
-      refreshAllStatusRows();
-      refreshAllCountRows();
-      applyQuickCheckView();
+    modeToggleButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const nextMode = normalizeQuickCheckMode(btn.dataset.modeToggle);
+        if (nextMode === getActiveMode()) return;
+        if (hasUnsavedChanges()) {
+          promptForUnsavedChanges({ type: "mode", mode: nextMode });
+          return;
+        }
+        applyModeChange(nextMode);
+      });
     });
 
     supplySearchEl.addEventListener("input", () => {
@@ -933,7 +1328,8 @@
         hasTouchedCountSelection = true;
         const row = inputEl.closest(".quick-check-entry-row");
         refreshCountRow(row);
-        if (getPendingCountRowCount() > 0) {
+        updateUnsavedChangesUI();
+        if (hasUnsavedChanges()) {
           hideSelectionWarning();
         }
       };
@@ -941,10 +1337,75 @@
       inputEl.addEventListener("change", handleCountInput);
     });
 
+    if (unsavedModalEl) {
+      unsavedModalEl.addEventListener("hidden.bs.modal", () => {
+        pendingGuardAction = null;
+      });
+    }
+
+    unsavedModalDismissButtons.forEach((button) => {
+      button.addEventListener("click", (event) => {
+        if (unsavedModal) return;
+        event.preventDefault();
+        hideUnsavedModal();
+      });
+    });
+
+    if (unsavedModalEl && !unsavedModal) {
+      unsavedModalEl.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        hideUnsavedModal();
+      });
+    }
+
+    if (unsavedModalDiscardBtn) {
+      unsavedModalDiscardBtn.addEventListener("click", () => {
+        const action = pendingGuardAction;
+        hideUnsavedModal();
+        discardPendingChanges();
+        runGuardedAction(action);
+      });
+    }
+
+    guardedLinks.forEach((link) => {
+      link.addEventListener("click", (event) => {
+        if (!hasUnsavedChanges()) return;
+        event.preventDefault();
+        promptForUnsavedChanges({ type: "navigate", href: link.href });
+      });
+    });
+
+    window.addEventListener("popstate", () => {
+      if (skipNextPopstate) {
+        skipNextPopstate = false;
+        return;
+      }
+      if (isUnsavedModalOpen()) return;
+      if (hasUnsavedChanges()) {
+        window.history.pushState(
+          { ...(window.history.state || {}), [historyGuardKey]: true },
+          "",
+          buildCurrentQuickCheckUrl().toString()
+        );
+        promptForUnsavedChanges({ type: "navigate", href: getDefaultExitHref() });
+        return;
+      }
+
+      skipNextPopstate = true;
+      window.history.back();
+    });
+
+    window.addEventListener("beforeunload", (event) => {
+      if (!hasUnsavedChanges()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    });
+
     quickCheckForm.addEventListener("submit", (event) => {
       syncAllStatusInputs();
 
-      if (modeSelect.value === "status") {
+      if (getActiveMode() === "status") {
         if (getPendingStatusCount() > 0) {
           hideSelectionWarning();
           return;

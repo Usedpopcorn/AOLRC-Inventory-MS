@@ -148,6 +148,30 @@ def quick_check_save_message(*, count_update_count=0, status_update_count=0):
     return f"Saved {parts[0]}."
 
 
+def normalize_quick_check_mode(value, fallback="status"):
+    normalized = (value or fallback).strip().lower()
+    if normalized not in {"status", "raw_counts"}:
+        return fallback
+    return normalized
+
+
+def build_quick_check_redirect(venue_id, *, next_url, selected_mode, request_values):
+    redirect_mode = normalize_quick_check_mode(
+        request_values.get("after_save_mode"),
+        selected_mode,
+    )
+    fallback_path = url_for(
+        "venue_items.quick_check",
+        venue_id=venue_id,
+        next=next_url,
+        mode=redirect_mode,
+    )
+    after_save_next = (request_values.get("after_save_next") or "").strip()
+    if after_save_next:
+        return redirect(normalize_next_path(after_save_next, fallback_path))
+    return redirect(fallback_path)
+
+
 def resolve_status_key_from_counts(total_tracked, counts):
     if total_tracked <= 0:
         return "not_checked"
@@ -396,18 +420,14 @@ def quick_check(venue_id):
         for item, venue_par_override in tracked_rows
     }
 
-    selected_mode = (request.values.get("mode") or "status").strip().lower()
-    if selected_mode not in ("status", "raw_counts"):
-        selected_mode = "status"
+    selected_mode = normalize_quick_check_mode(request.values.get("mode"), "status")
 
     if request.method == "POST":
         if not current_user.has_role("staff", "admin"):
             flash("You have view-only access.", "error")
             return redirect(url_for("venue_items.quick_check", venue_id=venue.id, next=next_url, mode=selected_mode))
 
-        selected_mode = (request.form.get("check_mode") or "status").strip().lower()
-        if selected_mode not in ("status", "raw_counts"):
-            selected_mode = "status"
+        selected_mode = normalize_quick_check_mode(request.form.get("check_mode"), "status")
 
         if selected_mode == "raw_counts":
             existing_counts = {
@@ -499,13 +519,11 @@ def quick_check(venue_id):
                 ),
                 "success",
             )
-            return redirect(
-                url_for(
-                    "venue_items.quick_check",
-                    venue_id=venue.id,
-                    next=next_url,
-                    mode="raw_counts",
-                )
+            return build_quick_check_redirect(
+                venue.id,
+                next_url=next_url,
+                selected_mode="raw_counts",
+                request_values=request.form,
             )
 
         selected_status_updates = []
@@ -552,8 +570,11 @@ def quick_check(venue_id):
             quick_check_save_message(status_update_count=len(selected_status_updates)),
             "success",
         )
-        return redirect(
-            url_for("venue_items.quick_check", venue_id=venue.id, next=next_url, mode="status")
+        return build_quick_check_redirect(
+            venue.id,
+            next_url=next_url,
+            selected_mode="status",
+            request_values=request.form,
         )
 
     latest_counts = {}
