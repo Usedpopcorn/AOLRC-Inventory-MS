@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% import "_ui_macros.html" as ui %}
+{% import "admin/_admin_macros.html" as admin_ui %}
+
+{% block title %}Orders{% endblock %}
+
+{% block content %}
+{{ ui.page_header(
+  title="Orders",
+  subtitle="Monthly, quarterly, and ad hoc planning batches built from the current restocking picture."
+) }}
+
+{% if not current_user.is_admin %}
+  {{ ui.state_banner(
+    "Orders are read-only on this account.",
+    body="Viewer and staff accounts can review historical batches and line details. Admins can create batches and update order lines.",
+    tone="neutral",
+    extra_classes="mb-3"
+  ) }}
+{% endif %}
+
+{% if current_user.is_admin %}
+  <section class="card border-0 shadow-sm mb-3 ui-surface-card-secondary orders-tools-card">
+    <div class="card-body">
+      {% call admin_ui.disclosure(
+        "Create Batch",
+        support="Optional venue and setup-group scoping. Leave both blank to seed from the full actionable catalog.",
+        open=(create_form_errors|length > 0)
+      ) %}
+        {{ ui.validation_summary(create_form_errors, title="Create batch couldn't be saved.", extra_classes="mb-3") }}
+        <form method="post" action="{{ url_for('orders.create_batch') }}" class="row g-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="return_batch_q" value="{{ batch_filters.q }}">
+          <input type="hidden" name="return_batch_type" value="{{ '' if batch_filters.type == 'all' else batch_filters.type }}">
+          <div class="col-12 col-xl-5">
+            <label class="form-label" for="batchName">Batch name</label>
+            <input
+              id="batchName"
+              name="name"
+              class="form-control ui-control"
+              maxlength="160"
+              value="{{ create_form_values.name }}"
+              required
+            >
+          </div>
+          <div class="col-12 col-md-6 col-xl-2">
+            <label class="form-label" for="batchType">Batch type</label>
+            <select id="batchType" name="batch_type" class="form-select ui-control">
+              {% if create_form_values.invalid_batch_type %}
+                <option value="{{ create_form_values.invalid_batch_type }}" selected>
+                  Invalid selection: {{ create_form_values.invalid_batch_type }}
+                </option>
+              {% endif %}
+              {% for batch_type, label in batch_type_labels.items() %}
+                <option value="{{ batch_type }}" {{ "selected" if create_form_values.batch_type == batch_type else "" }}>
+                  {{ label }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12 col-md-6 col-xl-2">
+            <label class="form-label" for="batchVenueScope">Venue scope</label>
+            <select id="batchVenueScope" name="scope_venue_id" class="form-select ui-control">
+              <option value="" {{ "selected" if not create_form_values.scope_venue_id and not create_form_values.invalid_scope_venue_id else "" }}>
+                All venues
+              </option>
+              {% if create_form_values.invalid_scope_venue_id %}
+                <option value="{{ create_form_values.invalid_scope_venue_id }}" selected>
+                  Invalid selection: {{ create_form_values.invalid_scope_venue_id }}
+                </option>
+              {% endif %}
+              {% for venue in scope_options.venues %}
+                <option value="{{ venue.id }}" {{ "selected" if create_form_values.scope_venue_id == venue.id|string else "" }}>
+                  {{ venue.name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12 col-md-6 col-xl-3">
+            <label class="form-label" for="batchSetupGroupScope">Setup group scope</label>
+            <select id="batchSetupGroupScope" name="scope_setup_group" class="form-select ui-control">
+              <option value="" {{ "selected" if not create_form_values.scope_setup_group and not create_form_values.invalid_scope_setup_group else "" }}>
+                All setup groups
+              </option>
+              {% if create_form_values.invalid_scope_setup_group %}
+                <option value="{{ create_form_values.invalid_scope_setup_group }}" selected>
+                  Invalid selection: {{ create_form_values.invalid_scope_setup_group }}
+                </option>
+              {% endif %}
+              {% for option in scope_options.setup_groups %}
+                <option value="{{ option.value }}" {{ "selected" if create_form_values.scope_setup_group == option.value else "" }}>
+                  {{ option.display }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="batchNotes">Notes</label>
+            <textarea
+              id="batchNotes"
+              name="notes"
+              rows="2"
+              class="form-control ui-control-area"
+              placeholder="Optional batch notes"
+            >{{ create_form_values.notes }}</textarea>
+          </div>
+          <div class="col-12 d-flex justify-content-end">
+            <button class="btn btn-aolrc-accent ui-control" type="submit">Create Batch</button>
+          </div>
+        </form>
+      {% endcall %}
+    </div>
+  </section>
+{% endif %}
+
+<section class="card border-0 shadow-sm mb-3 ui-surface-card-secondary orders-tools-card">
+  <div class="card-body">
+    <form method="get" action="{{ url_for('orders.index') }}">
+      {% call ui.toolbar("ui-toolbar-split") %}
+        <div class="ui-toolbar-main ui-toolbar-main-2">
+          <div>
+            <label class="form-label" for="orderSearch">Search batches</label>
+            <input
+              id="orderSearch"
+              name="q"
+              class="form-control ui-control"
+              type="search"
+              value="{{ batch_filters.q }}"
+              placeholder="Search by batch name or notes"
+            >
+          </div>
+          <div>
+            <label class="form-label" for="orderType">Batch type</label>
+            <select id="orderType" name="type" class="form-select ui-control">
+              <option value="" {{ "selected" if batch_filters.type == "all" else "" }}>All batch types</option>
+              {% for batch_type, label in batch_type_labels.items() %}
+                <option value="{{ batch_type }}" {{ "selected" if batch_filters.type == batch_type else "" }}>
+                  {{ label }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="ui-toolbar-actions orders-toolbar-actions">
+          <button class="btn btn-aolrc-accent ui-control" type="submit">Apply</button>
+          <a class="btn btn-outline-secondary ui-control" href="{{ url_for('orders.index') }}">Clear</a>
+        </div>
+      {% endcall %}
+    </form>
+  </div>
+</section>
+
+<section class="card border-0 shadow-sm ui-surface-card orders-batch-list-card">
+  <div class="card-body">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
+      <div>
+        <h2 class="h5 mb-1">Order Batches</h2>
+        <div class="text-muted small">
+          {{ batch_rows|length }} {{ "batch" if batch_rows|length == 1 else "batches" }}
+        </div>
+      </div>
+      <div class="text-muted small">
+        Suggested totals are frozen from batch creation so later inventory changes do not rewrite history.
+      </div>
+    </div>
+
+    {% if batch_rows %}
+      <div class="d-none d-xl-block table-responsive">
+        <table class="table table-sm align-middle orders-batch-table">
+          <thead>
+            <tr>
+              <th>Batch</th>
+              <th>Type</th>
+              <th>Created</th>
+              <th>Created By</th>
+              <th class="text-end">Lines</th>
+              <th class="text-end">Suggested</th>
+              <th class="text-end">Over Par</th>
+              <th style="width: 160px;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in batch_rows %}
+              <tr>
+                <td>
+                  <div class="fw-semibold">{{ row.name }}</div>
+                  {% if row.notes_excerpt %}
+                    <div class="text-muted small mt-1">{{ row.notes_excerpt }}</div>
+                  {% endif %}
+                </td>
+                <td>{{ ui.chip(row.batch_type_label, tone="secondary", extra_classes="ui-chip-compact") }}</td>
+                <td class="text-nowrap">{{ row.created_at_text }}</td>
+                <td>{{ row.created_by_label }}</td>
+                <td class="text-end">{{ row.summary.line_count }}</td>
+                <td class="text-end">{{ row.summary.total_suggested_qty }}</td>
+                <td class="text-end">{{ row.summary.total_over_par_qty }}</td>
+                <td>
+                  <a class="btn btn-aolrc-primary ui-control-sm" href="{{ url_for('orders.detail', batch_id=row.id) }}">
+                    Open Batch
+                  </a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="d-xl-none d-flex flex-column gap-3">
+        {% for row in batch_rows %}
+          <article class="card border-0 shadow-sm ui-surface-card-secondary orders-batch-mobile-card">
+            <div class="card-body d-flex flex-column gap-3">
+              <div class="d-flex align-items-start justify-content-between gap-2">
+                <div>
+                  <div class="fw-semibold">{{ row.name }}</div>
+                  <div class="text-muted small">{{ row.created_at_text }} by {{ row.created_by_label }}</div>
+                </div>
+                {{ ui.chip(row.batch_type_label, tone="secondary", extra_classes="ui-chip-compact") }}
+              </div>
+              {% if row.notes_excerpt %}
+                <div class="text-muted small">{{ row.notes_excerpt }}</div>
+              {% endif %}
+              <div class="row g-2">
+                <div class="col-4">
+                  <div class="text-muted small">Lines</div>
+                  <div class="fw-semibold">{{ row.summary.line_count }}</div>
+                </div>
+                <div class="col-4">
+                  <div class="text-muted small">Suggested</div>
+                  <div class="fw-semibold">{{ row.summary.total_suggested_qty }}</div>
+                </div>
+                <div class="col-4">
+                  <div class="text-muted small">Over Par</div>
+                  <div class="fw-semibold">{{ row.summary.total_over_par_qty }}</div>
+                </div>
+              </div>
+              <div>
+                <a class="btn btn-aolrc-primary ui-control-sm" href="{{ url_for('orders.detail', batch_id=row.id) }}">
+                  Open Batch
+                </a>
+              </div>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      {{ ui.empty_state(
+        "No order batches match the current filters.",
+        body="Create a batch or broaden the search to show more monthly, quarterly, or ad hoc plans."
+      ) }}
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

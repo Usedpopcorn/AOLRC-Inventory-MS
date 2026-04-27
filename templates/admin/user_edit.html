@@ -1,0 +1,176 @@
+{% extends "admin/layout.html" %}
+{% import "_ui_macros.html" as ui %}
+{% import "admin/_admin_macros.html" as admin_ui %}
+{% block title %}Manage User{% endblock %}
+
+{% set row = user_detail.row %}
+
+{% block admin_page %}
+{% call ui.page_header(
+  title=row.display_name,
+  subtitle=row.email,
+  back_url=next_path,
+  back_label="Users"
+) %}
+  {{ admin_ui.role_chip(row) }}
+  {{ ui.chip(row.active_label, tone=row.active_tone, icon_class='bi-person-check' if row.is_active else 'bi-person-dash') }}
+  {{ ui.chip(row.locked_label, tone=row.locked_tone, icon_class='bi-lock' if row.is_locked else 'bi-unlock') }}
+  {{ ui.chip(row.password_status_label, tone=row.password_status_tone, icon_class='bi-key') }}
+{% endcall %}
+
+{% if row.is_self %}
+  {{ ui.state_banner(
+    "You can't change your own access here.",
+    "You can still update your name.",
+    tone="info",
+    icon_class="bi-shield-lock"
+  ) }}
+{% endif %}
+
+<div class="admin-user-detail-grid">
+  {% call ui.form_section("Account Details", none, "admin-user-detail-card") %}
+    <form method="post" action="{{ url_for('admin.edit_user', user_id=row.id) }}" class="admin-user-create-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ next_path }}">
+      <div>
+        <label class="form-label" for="edit_user_email">Email</label>
+        <input class="form-control ui-control" id="edit_user_email" type="email" value="{{ row.email }}" readonly>
+      </div>
+      <div>
+        <label class="form-label" for="edit_user_display_name">Display name</label>
+        <input
+          class="form-control ui-control"
+          id="edit_user_display_name"
+          name="display_name"
+          maxlength="120"
+          value="{{ row.display_name if row.display_name != row.email else '' }}"
+        >
+      </div>
+      <div>
+        <label class="form-label" for="edit_user_role">Role</label>
+        <select class="form-select ui-control" id="edit_user_role" name="role">
+          {% for value, label in role_options %}
+            <option value="{{ value }}" {% if row.role == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="btn btn-aolrc-accent ui-control" type="submit">Save User</button>
+    </form>
+  {% endcall %}
+
+  {% call admin_ui.panel("Security", none, "admin-user-detail-card") %}
+    <div class="admin-user-detail-stack">
+      <div class="admin-user-detail-row">
+        <span class="admin-user-detail-label">Last sign in</span>
+        <span>{{ row.last_login_at_text }}</span>
+      </div>
+      <div class="admin-user-detail-row">
+        <span class="admin-user-detail-label">Password status</span>
+        <span>{{ row.password_status_label }}</span>
+      </div>
+      <div class="admin-user-detail-row">
+        <span class="admin-user-detail-label">Password</span>
+        <span>{{ row.password_status_detail }}</span>
+      </div>
+      <div class="admin-user-detail-row">
+        <span class="admin-user-detail-label">Password changed</span>
+        <span>{{ row.password_changed_at_text }}</span>
+      </div>
+      <div class="admin-user-detail-row">
+        <span class="admin-user-detail-label">Failed attempts</span>
+        <span>{{ row.failed_login_attempts }}</span>
+      </div>
+      <div class="admin-user-detail-row">
+        <span class="admin-user-detail-label">Locked until</span>
+        <span>{{ row.locked_until_text }}</span>
+      </div>
+      <div class="admin-user-detail-row">
+        <span class="admin-user-detail-label">Created</span>
+        <span>{{ row.created_at_text }}</span>
+      </div>
+      {% if not row.is_active %}
+        <div class="admin-user-detail-row">
+          <span class="admin-user-detail-label">Deactivated</span>
+          <span>{{ row.deactivated_at_text }}</span>
+        </div>
+      {% endif %}
+    </div>
+  {% endcall %}
+  {% call admin_ui.panel("Actions", none, "admin-user-detail-card") %}
+    <div class="admin-user-actions-mobile">
+      <form method="post" action="{{ url_for('admin.issue_user_password_link', user_id=row.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ request.path }}">
+        <button class="btn btn-outline-secondary ui-control w-100" type="submit">
+          {{ "Send Setup Link" if row.password_status_label.startswith("Setup") else "Send Reset Link" }}
+        </button>
+      </form>
+
+      {% if row.is_locked or row.failed_login_attempts %}
+        <form method="post" action="{{ url_for('admin.unlock_user', user_id=row.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="next" value="{{ request.path }}">
+          <button class="btn btn-outline-warning ui-control w-100" type="submit">Unlock Account</button>
+        </form>
+      {% endif %}
+
+      {% if row.is_active and not row.is_self %}
+        <form method="post" action="{{ url_for('admin.deactivate_user', user_id=row.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="next" value="{{ request.path }}">
+          <button class="btn btn-outline-danger ui-control w-100" type="submit">Deactivate Account</button>
+        </form>
+      {% elif not row.is_active %}
+        <form method="post" action="{{ url_for('admin.activate_user', user_id=row.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="next" value="{{ request.path }}">
+          <button class="btn btn-outline-success ui-control w-100" type="submit">Activate Account</button>
+        </form>
+      {% endif %}
+    </div>
+  {% endcall %}
+</div>
+
+{% call admin_ui.region("Recent Events") %}
+  {% if user_detail.recent_account_events.preview %}
+    <div class="admin-feed-list admin-feed-list-dense">
+      {% for event in user_detail.recent_account_events.preview %}
+        <article class="admin-feed-item">
+          <div class="admin-feed-item-top">
+            <div class="admin-feed-title">
+              <i class="bi {{ event.icon_class }}" aria-hidden="true"></i>
+              <span>{{ event.title }}</span>
+            </div>
+            <div class="admin-feed-time">{{ event.changed_at_text }}</div>
+          </div>
+          <div class="admin-feed-body">{{ event.actor_name }}</div>
+          <div class="admin-feed-meta">{{ event.detail }}</div>
+        </article>
+      {% endfor %}
+    </div>
+    {% if user_detail.recent_account_events.has_more %}
+      {% call admin_ui.disclosure(
+        "Show " ~ user_detail.recent_account_events.remaining_count ~ " more event" ~ ("s" if user_detail.recent_account_events.remaining_count != 1 else "")
+      ) %}
+        <div class="admin-feed-list admin-feed-list-dense admin-scroll-region">
+          {% for event in user_detail.recent_account_events.remaining %}
+            <article class="admin-feed-item">
+              <div class="admin-feed-item-top">
+                <div class="admin-feed-title">
+                  <i class="bi {{ event.icon_class }}" aria-hidden="true"></i>
+                  <span>{{ event.title }}</span>
+                </div>
+                <div class="admin-feed-time">{{ event.changed_at_text }}</div>
+              </div>
+              <div class="admin-feed-body">{{ event.actor_name }}</div>
+              <div class="admin-feed-meta">{{ event.detail }}</div>
+            </article>
+          {% endfor %}
+        </div>
+      {% endcall %}
+    {% endif %}
+  {% else %}
+    {{ ui.empty_state("No account events yet.", compact=True) }}
+  {% endif %}
+{% endcall %}
+{% endblock %}

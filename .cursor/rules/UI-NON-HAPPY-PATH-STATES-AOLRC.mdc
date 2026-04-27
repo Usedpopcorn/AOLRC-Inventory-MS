@@ -1,0 +1,26 @@
+---
+description: Keep AOLRC empty, no-results, loading, and error states consistent
+alwaysApply: true
+---
+
+# UI State Patterns
+
+Use shared state patterns for non-happy-path UI:
+
+- `ui.empty_state`
+- `ui.state_banner`
+- `ui.loading_state`
+- `ui.validation_summary`
+- `ui.table_empty_row`
+
+Required behavior:
+
+- Empty and no-results states should explain what is missing and what to do next when appropriate.
+- Loading states should only be added where async behavior really exists.
+- Error states should stay readable, high-contrast, and actionable.
+- Reuse the same state language across dashboard, venues, supplies, quick check, and admin pages.
+
+Reject:
+
+- Raw Bootstrap alerts for routine empty/no-results/info states when shared macros already fit
+- New one-off empty boxes or error banners with page-specific styling

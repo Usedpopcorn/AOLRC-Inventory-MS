@@ -1,7 +1,7 @@
 from functools import wraps
 
 from flask import flash, jsonify, redirect, request, url_for
-from flask_login import current_user, login_required
+from flask_login import current_user, login_required, logout_user
 
 from app.models import normalize_role
 
@@ -26,6 +26,14 @@ def roles_required(*roles):
         @wraps(view_func)
         @login_required
         def wrapped(*args, **kwargs):
+            if not getattr(current_user, "is_active", False):
+                logout_user()
+                if wants_json_response():
+                    return jsonify({"error": "authentication required", "code": "inactive"}), 401
+
+                flash("Your account is inactive. Contact an admin.", "error")
+                return redirect(url_for("auth.login", next=request.url))
+
             if current_user.has_role(*normalized_roles):
                 return view_func(*args, **kwargs)
 

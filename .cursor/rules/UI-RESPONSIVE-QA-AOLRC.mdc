@@ -1,0 +1,29 @@
+---
+description: Enforce AOLRC responsive UI expectations and validation widths
+alwaysApply: true
+---
+
+# Responsive UI Expectations
+
+Use `RESPONSIVE_UI_RULES.md` and `UI_REGRESSION_CHECKLIST.md` for every UI change.
+
+Required validation widths:
+
+- `375`
+- `768`
+- `973`
+- `1199`
+- `1440`
+
+Required behavior:
+
+- Operational workflows must not depend on horizontal scrolling on small screens.
+- Toolbars must stay aligned at intermediate widths, not just pure mobile and large desktop.
+- Headers, rows, and cards must wrap naturally without clipped controls or one-word-per-line titles.
+- Supplies must keep its stacked/card inventory presentation below the desktop table breakpoint.
+
+Required checks:
+
+- `git diff --check`
+- Jinja compile pass
+- app boot smoke test

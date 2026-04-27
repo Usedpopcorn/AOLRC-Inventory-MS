@@ -1,21 +1,24 @@
 {% extends "base.html" %}
+{% import "_ui_macros.html" as ui %}
 {% block title %}Sign In{% endblock %}
 
 {% block content %}
+{{ ui.page_header(
+  title="Sign In",
+  subtitle="Use your inventory account credentials."
+) }}
+
 <div class="row justify-content-center">
   <div class="col-12 col-sm-10 col-md-8 col-lg-5">
     <div class="card">
       <div class="card-body p-4">
-        <h1 class="h4 mb-2 fw-bold text-aolrc-purple page-heading">Sign In</h1>
-        <p class="text-muted mb-4">Use your inventory account credentials.</p>
-
         <form method="post" class="d-flex flex-column gap-3">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
           <div>
             <label class="form-label" for="email">Email</label>
             <input
-              class="form-control"
+              class="form-control ui-control"
               id="email"
               name="email"
               type="email"
@@ -27,7 +30,7 @@
           <div>
             <label class="form-label" for="password">Password</label>
             <input
-              class="form-control"
+              class="form-control ui-control"
               id="password"
               name="password"
               type="password"
@@ -35,7 +38,10 @@
               autocomplete="current-password"
             >
           </div>
-          <button class="btn btn-aolrc-accent py-2" type="submit">Sign In</button>
+          <div class="d-flex justify-content-end">
+            <a class="small text-decoration-none" href="{{ url_for('auth.forgot_password') }}">Forgot your password?</a>
+          </div>
+          <button class="btn btn-aolrc-accent ui-control" type="submit">Sign In</button>
         </form>
 
         {% if quick_login_enabled %}
@@ -46,19 +52,19 @@
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
               <input type="hidden" name="quick_login_role" value="admin">
-              <button class="btn btn-outline-secondary w-100 py-2" type="submit">Admin</button>
+              <button class="btn btn-outline-secondary ui-control w-100" type="submit">Admin</button>
             </form>
             <form method="post" class="flex-fill">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
               <input type="hidden" name="quick_login_role" value="staff">
-              <button class="btn btn-outline-secondary w-100 py-2" type="submit">Staff</button>
+              <button class="btn btn-outline-secondary ui-control w-100" type="submit">Staff</button>
             </form>
             <form method="post" class="flex-fill">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
               <input type="hidden" name="quick_login_role" value="user">
-              <button class="btn btn-outline-secondary w-100 py-2" type="submit">View Only</button>
+              <button class="btn btn-outline-secondary ui-control w-100" type="submit">View Only</button>
             </form>
           </div>
         {% endif %}

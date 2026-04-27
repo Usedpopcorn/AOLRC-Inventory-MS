@@ -1,0 +1,174 @@
+{% extends "admin/layout.html" %}
+{% import "_ui_macros.html" as ui %}
+{% import "admin/_admin_macros.html" as admin_ui %}
+{% block title %}Feedback Inbox{% endblock %}
+
+{% block admin_page %}
+{{ ui.page_header(
+  title="Feedback Inbox",
+  subtitle="Read feedback and bug reports submitted from the app."
+) }}
+
+{% if not feedback_review_unlocked %}
+  {% if feedback_pin_configured %}
+    {{ ui.state_banner(
+      "Review PIN required.",
+      "Enter the shared review PIN to open stored feedback and bug reports for this session.",
+      tone="warning",
+      icon_class="bi-shield-lock"
+    ) }}
+    {% call admin_ui.region("Unlock Inbox") %}
+      {% call ui.form_section("Review PIN", "This extra gate only affects the feedback inbox.") %}
+        <form method="post" action="{{ url_for('admin.unlock_feedback_inbox') }}" class="feedback-pin-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="form-label" for="feedbackReviewPin">Review PIN</label>
+          <input
+            id="feedbackReviewPin"
+            name="review_pin"
+            type="password"
+            class="form-control ui-control"
+            autocomplete="current-password"
+            required
+          >
+          <div class="d-flex justify-content-end">
+            <button class="btn btn-aolrc-accent ui-control" type="submit">Unlock Inbox</button>
+          </div>
+        </form>
+      {% endcall %}
+    {% endcall %}
+  {% else %}
+    {{ ui.state_banner(
+      "Feedback inbox is not configured yet.",
+      "Set FEEDBACK_REVIEW_PIN in the environment before opening stored feedback and bug reports.",
+      tone="warning",
+      icon_class="bi-sliders"
+    ) }}
+  {% endif %}
+{% else %}
+  <section class="admin-summary-grid" aria-label="Feedback inbox summary">
+    {{ admin_ui.summary_card("Total", feedback_inbox.summary.total_submissions, "bi-inboxes") }}
+    {{ admin_ui.summary_card("Feedback", feedback_inbox.summary.feedback_count, "bi-chat-dots") }}
+    {{ admin_ui.summary_card("Bug reports", feedback_inbox.summary.bug_report_count, "bi-bug") }}
+    {{ admin_ui.summary_card("Anonymous", feedback_inbox.summary.anonymous_feedback_count, "bi-incognito") }}
+  </section>
+
+  {% call admin_ui.region("Inbox", "Newest submissions first.") %}
+    <form method="get" class="feedback-inbox-filter-form">
+      {% call ui.toolbar("ui-toolbar-split") %}
+        <div class="ui-toolbar-main ui-toolbar-main-2 feedback-inbox-toolbar-main">
+          <div>
+            <label class="form-label" for="feedbackInboxSearch">Search</label>
+            <input
+              id="feedbackInboxSearch"
+              name="q"
+              type="search"
+              class="form-control ui-control"
+              value="{{ feedback_inbox.filters.search }}"
+              placeholder="Search summaries, details, or page context"
+            >
+          </div>
+          <div>
+            <label class="form-label" for="feedbackInboxType">Type</label>
+            <select id="feedbackInboxType" name="type" class="form-select ui-control">
+              {% for value, label in feedback_type_options %}
+                <option value="{{ value }}" {% if feedback_inbox.filters.submission_type == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="ui-toolbar-actions feedback-inbox-toolbar-actions">
+          <button class="btn btn-aolrc-accent ui-control" type="submit">Apply</button>
+          <a class="btn btn-outline-secondary ui-control" href="{{ url_for('admin.feedback_inbox') }}">Clear</a>
+        </div>
+      {% endcall %}
+    </form>
+
+    {% if feedback_inbox.pagination.total_count %}
+      <div class="admin-preview-meta">
+        <span>
+          Showing {{ feedback_inbox.pagination.showing_from }}-{{ feedback_inbox.pagination.showing_to }}
+          of {{ feedback_inbox.pagination.total_count }} submission{{ "" if feedback_inbox.pagination.total_count == 1 else "s" }}
+        </span>
+      </div>
+
+      <div class="admin-list feedback-inbox-list">
+        {% for row in feedback_inbox.rows %}
+          <article class="admin-list-item feedback-inbox-row">
+            <div class="admin-list-item-top">
+              <div class="admin-list-item-copy">
+                <div class="admin-list-title">{{ row.summary }}</div>
+                <div class="admin-list-support">{{ row.displayed_submitter }} | {{ row.source_label }}</div>
+              </div>
+              {{ ui.chip(row.type_meta.label, tone=row.type_meta.tone, icon_class=row.type_meta.icon_class) }}
+            </div>
+            <div class="admin-list-meta">{{ row.created_at_text }}</div>
+            {% call admin_ui.disclosure("View details", "Open the full submission and captured context.", "feedback-inbox-disclosure") %}
+              <div class="feedback-inbox-details">
+                <section class="feedback-inbox-detail-block">
+                  <h3 class="feedback-inbox-detail-label">Details</h3>
+                  <div class="feedback-inbox-body">{{ row.body }}</div>
+                </section>
+                <section class="feedback-inbox-detail-block">
+                  <h3 class="feedback-inbox-detail-label">Context</h3>
+                  <dl class="feedback-inbox-context-list">
+                    <div>
+                      <dt>Type</dt>
+                      <dd>{{ row.type_meta.label }}</dd>
+                    </div>
+                    <div>
+                      <dt>Submitted by</dt>
+                      <dd>{{ row.displayed_submitter }}</dd>
+                    </div>
+                    <div>
+                      <dt>Submitted</dt>
+                      <dd>{{ row.created_at_text }}</dd>
+                    </div>
+                    <div>
+                      <dt>Page</dt>
+                      <dd>{{ row.source_label }}</dd>
+                    </div>
+                    <div>
+                      <dt>Browser</dt>
+                      <dd>{{ row.user_agent }}</dd>
+                    </div>
+                  </dl>
+                </section>
+              </div>
+            {% endcall %}
+          </article>
+        {% endfor %}
+      </div>
+
+      {% if feedback_inbox.pagination.total_pages > 1 %}
+        <nav class="admin-pager" aria-label="Feedback inbox pages">
+          <a
+            class="admin-pager-link{{ ' is-disabled' if not feedback_inbox.pagination.has_prev else '' }}"
+            href="{{ url_for('admin.feedback_inbox', q=feedback_inbox.filters.search or None, type=feedback_inbox.filters.submission_type if feedback_inbox.filters.submission_type != 'all' else None, page=feedback_inbox.pagination.prev_page) if feedback_inbox.pagination.has_prev else '#' }}"
+            aria-disabled="{{ 'false' if feedback_inbox.pagination.has_prev else 'true' }}"
+            {% if not feedback_inbox.pagination.has_prev %}tabindex="-1"{% endif %}
+          >
+            <i class="bi bi-chevron-left" aria-hidden="true"></i>
+            <span>Previous</span>
+          </a>
+          <div class="admin-pager-status">Page {{ feedback_inbox.pagination.current_page }} of {{ feedback_inbox.pagination.total_pages }}</div>
+          <a
+            class="admin-pager-link{{ ' is-disabled' if not feedback_inbox.pagination.has_next else '' }}"
+            href="{{ url_for('admin.feedback_inbox', q=feedback_inbox.filters.search or None, type=feedback_inbox.filters.submission_type if feedback_inbox.filters.submission_type != 'all' else None, page=feedback_inbox.pagination.next_page) if feedback_inbox.pagination.has_next else '#' }}"
+            aria-disabled="{{ 'false' if feedback_inbox.pagination.has_next else 'true' }}"
+            {% if not feedback_inbox.pagination.has_next %}tabindex="-1"{% endif %}
+          >
+            <span>Next</span>
+            <i class="bi bi-chevron-right" aria-hidden="true"></i>
+          </a>
+        </nav>
+      {% endif %}
+    {% else %}
+      {{ ui.empty_state(
+        "No submissions match the current filters." if feedback_inbox.filters.search or feedback_inbox.filters.submission_type != 'all' else "No feedback or bug reports yet.",
+        body="Adjust the filters or wait for the first submission to arrive.",
+        compact=True
+      ) }}
+    {% endif %}
+  {% endcall %}
+{% endif %}
+{% endblock %}

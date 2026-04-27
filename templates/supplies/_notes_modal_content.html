@@ -1,0 +1,273 @@
+{% import "_ui_macros.html" as ui %}
+{% set note_count = note_pagination.total_count %}
+{% set is_edit_mode = editor_state.mode == "edit" %}
+
+<div
+  class="d-none"
+  data-supply-note-modal-root
+  data-note-item-id="{{ active_note_item.id if active_note_item else '' }}"
+  data-note-count="{{ note_count }}"
+  data-note-focus="{{ note_focus or 'list' }}"
+  data-editor-mode="{{ editor_state.mode }}"
+  data-note-page="{{ note_pagination.current_page }}"
+  data-expanded-note-id="{{ expanded_note_id or '' }}"
+></div>
+
+<div class="modal-header supply-notes-modal-header">
+  <div class="supply-notes-modal-heading">
+    <h2 class="modal-title supply-notes-modal-title" id="supplyNotesModalLabel">
+      {{ active_note_item.name if active_note_item else "Supply Notes" }}
+    </h2>
+    <p class="supply-notes-modal-subtitle mb-0">
+      {% if active_note_item %}
+        Global notes across venues for this supply item.
+      {% else %}
+        Select an active supply item to view notes.
+      {% endif %}
+    </p>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+</div>
+
+<div class="modal-body supply-notes-modal-body">
+  {% if active_note_item %}
+    {% if feedback %}
+      {{ ui.state_banner(
+        feedback.title,
+        body=feedback.body,
+        tone=feedback.tone,
+        extra_classes="ui-state-banner-compact"
+      ) }}
+    {% endif %}
+
+    {% if not current_user.is_staff %}
+      {{ ui.state_banner(
+        "Notes are read-only on viewer accounts.",
+        body="Staff and admin accounts can add notes. Viewers can browse existing notes but cannot create, edit, or delete them.",
+        tone="neutral",
+        extra_classes="ui-state-banner-compact"
+      ) }}
+    {% endif %}
+
+    {% call ui.toolbar("ui-toolbar-split venue-note-toolbar-shell supply-note-toolbar-shell supply-note-toolbar-shell-modal") %}
+      <div class="ui-toolbar-main supply-note-toolbar-main">
+        <div class="supply-note-toolbar-copy">
+          <div class="supply-note-toolbar-title">Item Notes</div>
+          <div class="text-muted small">
+            Keep cross-venue context close to the item without interrupting the audit workflow.
+            {% if note_count %}
+              Showing {{ note_pagination.showing_from }}-{{ note_pagination.showing_to }} of {{ note_count }} note{{ "" if note_count == 1 else "s" }}.
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% if current_user.is_staff %}
+        <div class="ui-toolbar-actions venue-note-toolbar-actions supply-note-toolbar-actions">
+          <button
+            class="btn btn-aolrc-accent ui-control venue-note-toggle-btn"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#supplyNoteComposerCollapse"
+            data-supply-note-compose-toggle
+            aria-controls="supplyNoteComposerCollapse"
+            aria-expanded="{{ 'true' if note_focus == 'compose' else 'false' }}"
+          >
+            Add Note
+          </button>
+        </div>
+      {% endif %}
+    {% endcall %}
+
+    {% if current_user.is_staff %}
+      <div class="collapse venue-note-composer-collapse supply-note-composer-collapse{{ ' show' if note_focus == 'compose' else '' }}" id="supplyNoteComposerCollapse">
+        <section class="venue-note-composer-panel supply-note-composer-panel supply-note-compose-panel">
+          <div class="supply-note-compose-head">
+            <h3 class="h6 mb-1" data-supply-note-compose-title>{{ "Edit Note" if is_edit_mode else "New Note" }}</h3>
+            <p class="text-muted small mb-0" data-supply-note-compose-description>
+              {{ "Update this note for all venues using this supply item." if is_edit_mode else "Add cross-venue context or reminders for this supply item." }}
+            </p>
+          </div>
+          <form
+            method="post"
+            action="{{ url_for('supplies.note_modal') }}"
+            class="venue-note-composer"
+            id="supplyNoteComposer"
+            data-supply-note-form
+          >
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="{{ 'edit_note' if is_edit_mode else 'create_note' }}" data-supply-note-action-input>
+            <input type="hidden" name="item_id" value="{{ active_note_item.id }}">
+            <input type="hidden" name="note_id" value="{{ editor_state.note_id }}" data-supply-note-id-input>
+            <input type="hidden" name="note_page" value="{{ note_pagination.current_page }}">
+
+            <div class="venue-note-composer-grid supply-note-composer-grid">
+              <div class="venue-note-composer-field supply-note-item-field">
+                <label class="form-label mb-0" for="supplyNoteItemScope">Note scope</label>
+                <input
+                  id="supplyNoteItemScope"
+                  class="form-control ui-control"
+                  type="text"
+                  value="{{ active_note_item.name }}"
+                  readonly
+                >
+              </div>
+              <div class="venue-note-composer-field venue-note-composer-field-title">
+                <label class="form-label mb-0" for="supplyNoteTitle">Title</label>
+                <input
+                  id="supplyNoteTitle"
+                  name="title"
+                  class="form-control ui-control"
+                  maxlength="{{ note_title_max_length }}"
+                  placeholder="Note title"
+                  value="{{ editor_state.title }}"
+                  data-supply-note-title-input
+                >
+              </div>
+            </div>
+
+            <textarea
+              id="supplyNoteBody"
+              name="body"
+              rows="4"
+              class="form-control ui-control-area"
+              maxlength="{{ note_body_max_length }}"
+              placeholder="Write note details..."
+              data-supply-note-body-input
+            >{{ editor_state.body }}</textarea>
+            <div class="text-muted small">
+              Up to {{ note_title_max_length }} characters for the title and {{ "{:,}".format(note_body_max_length) }} characters for the note body.
+            </div>
+
+            <div class="supply-note-compose-actions">
+              <button
+                type="button"
+                class="btn btn-outline-secondary ui-control{{ '' if is_edit_mode else ' d-none' }}"
+                data-supply-note-cancel-edit
+              >
+                Cancel Edit
+              </button>
+              <button class="btn btn-aolrc-accent ui-control" type="submit" data-supply-note-submit-label>
+                {{ "Save Changes" if is_edit_mode else "Save Note" }}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    {% endif %}
+
+    <div class="venue-note-list-shell supply-note-list-shell">
+      {% if supply_note_rows %}
+        <ul class="list-group venue-note-list supply-note-list" id="supplyNoteList">
+          {% for note in supply_note_rows %}
+            <li class="list-group-item venue-note-row supply-note-row">
+              <button
+                type="button"
+                class="supply-note-entry-toggle"
+                data-bs-toggle="collapse"
+                data-bs-target="#supplyNoteEntry{{ note.id }}"
+                aria-expanded="{{ 'true' if expanded_note_id == note.id else 'false' }}"
+                aria-controls="supplyNoteEntry{{ note.id }}"
+              >
+                <span class="supply-note-entry-main">
+                  <span class="venue-note-title-text">{{ note.title }}</span>
+                  <span class="supply-note-entry-meta">{{ note.display_time_label }}: {{ note.display_time_text }} by {{ note.author_name }}</span>
+                </span>
+                <i class="bi bi-chevron-down supply-note-entry-chevron" aria-hidden="true"></i>
+              </button>
+              <div
+                class="collapse supply-note-entry-collapse{{ ' show' if expanded_note_id == note.id else '' }}"
+                id="supplyNoteEntry{{ note.id }}"
+                data-bs-parent="#supplyNoteList"
+              >
+                <div class="supply-note-entry-body">
+                  <div class="venue-note-body-text">{{ note.body }}</div>
+                  {% if note.can_manage %}
+                    <div class="supply-note-entry-actions">
+                      <button
+                        type="button"
+                        class="btn btn-outline-secondary ui-control btn-sm"
+                        data-supply-note-edit
+                        data-note-id="{{ note.id }}"
+                        data-note-title='{{ note.title|tojson|forceescape }}'
+                        data-note-body='{{ note.body|tojson|forceescape }}'
+                        aria-label="Edit note {{ note.title }}"
+                      >
+                        Edit Note
+                      </button>
+                      <form
+                        method="post"
+                        action="{{ url_for('supplies.note_modal') }}"
+                        class="d-inline"
+                        data-supply-note-form
+                        data-confirm-message="Delete this note? This cannot be undone."
+                      >
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="delete_note">
+                        <input type="hidden" name="item_id" value="{{ active_note_item.id }}">
+                        <input type="hidden" name="note_id" value="{{ note.id }}">
+                        <input type="hidden" name="note_page" value="{{ note_pagination.current_page }}">
+                        <button type="submit" class="btn btn-outline-danger ui-control btn-sm" aria-label="Delete note {{ note.title }}">
+                          Delete Note
+                        </button>
+                      </form>
+                    </div>
+                  {% endif %}
+                </div>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+        {% if note_pagination.total_pages > 1 %}
+          <div class="supply-note-pagination">
+            <div class="small text-muted">
+              Showing {{ note_pagination.showing_from }}-{{ note_pagination.showing_to }} of {{ note_pagination.total_count }} note{{ "" if note_pagination.total_count == 1 else "s" }}
+            </div>
+            <nav class="admin-pager" aria-label="Supply note pages">
+              <a
+                class="admin-pager-link{{ ' is-disabled' if not note_pagination.has_prev else '' }}"
+                href="{{ url_for('supplies.note_modal', item_id=active_note_item.id, note_focus='list', note_page=note_pagination.prev_page) if note_pagination.has_prev else '#' }}"
+                {% if note_pagination.has_prev %}data-supply-note-url="{{ url_for('supplies.note_modal', item_id=active_note_item.id, note_focus='list', note_page=note_pagination.prev_page) }}"{% endif %}
+                aria-disabled="{{ 'false' if note_pagination.has_prev else 'true' }}"
+                {% if not note_pagination.has_prev %}tabindex="-1"{% endif %}
+              >
+                <i class="bi bi-chevron-left" aria-hidden="true"></i>
+                <span>Previous</span>
+              </a>
+              <div class="admin-pager-status">Page {{ note_pagination.current_page }} of {{ note_pagination.total_pages }}</div>
+              <a
+                class="admin-pager-link{{ ' is-disabled' if not note_pagination.has_next else '' }}"
+                href="{{ url_for('supplies.note_modal', item_id=active_note_item.id, note_focus='list', note_page=note_pagination.next_page) if note_pagination.has_next else '#' }}"
+                {% if note_pagination.has_next %}data-supply-note-url="{{ url_for('supplies.note_modal', item_id=active_note_item.id, note_focus='list', note_page=note_pagination.next_page) }}"{% endif %}
+                aria-disabled="{{ 'false' if note_pagination.has_next else 'true' }}"
+                {% if not note_pagination.has_next %}tabindex="-1"{% endif %}
+              >
+                <span>Next</span>
+                <i class="bi bi-chevron-right" aria-hidden="true"></i>
+              </a>
+            </nav>
+          </div>
+        {% endif %}
+      {% else %}
+        {{ ui.empty_state(
+          "No notes added yet.",
+          body="Add a supply note to capture cross-venue context, follow-up, or operational reminders." if current_user.is_staff else "Staff or admin accounts can add notes here. Viewer accounts can read notes once they have been added.",
+          compact=True
+        ) }}
+      {% endif %}
+    </div>
+  {% else %}
+    {% if feedback %}
+      {{ ui.state_banner(
+        feedback.title,
+        body=feedback.body,
+        tone=feedback.tone,
+        extra_classes="ui-state-banner-compact"
+      ) }}
+    {% endif %}
+    {{ ui.empty_state(
+      "Supply item not found.",
+      body="Select an active supply item from the supplies list to view notes.",
+      compact=True
+    ) }}
+  {% endif %}
+</div>

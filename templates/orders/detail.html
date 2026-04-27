@@ -1,0 +1,399 @@
+{% extends "base.html" %}
+{% import "_ui_macros.html" as ui %}
+
+{% block title %}{{ batch.name }}{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  title=batch.name,
+  subtitle=batch_type_label ~ " batch created " ~ (batch.created_at.strftime("%Y-%m-%d %I:%M %p") if batch.created_at else "Unknown time") ~ " by " ~ batch_created_by_label ~ ".",
+  back_url=url_for("orders.index"),
+  back_label="Orders"
+) %}
+  {{ ui.chip(batch_type_label, tone="secondary", extra_classes="ui-chip-compact") }}
+  {{ ui.chip(batch_summary.line_count ~ " lines", tone="neutral", extra_classes="ui-chip-compact") }}
+  {{ ui.chip(batch_summary.total_suggested_qty ~ " suggested", tone="warning", extra_classes="ui-chip-compact") }}
+{% endcall %}
+
+{% if not current_user.is_admin %}
+  {{ ui.state_banner(
+    "Orders are read-only on this account.",
+    body="Viewer and staff accounts can review snapshots and progress, but only admins can create or update batches.",
+    tone="neutral",
+    extra_classes="mb-3"
+  ) }}
+{% endif %}
+
+<div
+  id="ordersDetailContent"
+  data-orders-detail-partial-url="{{ detail_partial_url }}"
+  data-orders-export-base-url="{{ export_base_url }}"
+>
+  {% include "orders/_detail_content.html" %}
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+  (() => {
+    const contentEl = document.getElementById("ordersDetailContent");
+    if (!contentEl) return;
+
+    const exportLink = document.querySelector(".orders-export-action");
+    const partialUrl = contentEl.dataset.ordersDetailPartialUrl || window.location.pathname;
+    const exportBaseUrl = contentEl.dataset.ordersExportBaseUrl || "";
+    const debounceMs = 180;
+
+    let refreshController = null;
+    let filterDebounceHandle = null;
+    let purchaseFilterDebounceHandle = null;
+
+    function getFilterElements() {
+      return {
+        form: document.getElementById("ordersLineFilterForm"),
+        searchEl: document.getElementById("orderLineSearch"),
+        statusEl: document.getElementById("orderLineStatus"),
+        clearEl: document.getElementById("ordersLineFilterClear"),
+      };
+    }
+
+    function getPurchaseSearchEl(root = document) {
+      return root.querySelector("[data-order-purchase-search]");
+    }
+
+    function sanitizeFilterParams(inputParams) {
+      const params = new URLSearchParams();
+      const query = (inputParams.get("q") || "").trim();
+      const status = (inputParams.get("status") || "").trim();
+      const purchaseQuery = (inputParams.get("purchase_q") || "").trim();
+      if (query) {
+        params.set("q", query);
+      }
+      if (status && status !== "all") {
+        params.set("status", status);
+      }
+      if (purchaseQuery) {
+        params.set("purchase_q", purchaseQuery);
+      }
+      return params;
+    }
+
+    function buildFilterParamsFromControls() {
+      const { searchEl, statusEl } = getFilterElements();
+      const purchaseSearchEl = getPurchaseSearchEl(contentEl);
+      const params = new URLSearchParams();
+      params.set("q", (searchEl?.value || "").trim());
+      params.set("status", statusEl?.value || "all");
+      params.set("purchase_q", (purchaseSearchEl?.value || "").trim());
+      return sanitizeFilterParams(params);
+    }
+
+    function syncUrl(params) {
+      const nextUrl = new URL(window.location.href);
+      nextUrl.search = params.toString();
+      window.history.replaceState({}, "", nextUrl);
+    }
+
+    function updateExportHref(params, explicitHref = "") {
+      if (!exportLink) return;
+      if (explicitHref) {
+        exportLink.href = explicitHref;
+        return;
+      }
+      if (!exportBaseUrl) return;
+      const nextUrl = new URL(exportBaseUrl, window.location.origin);
+      params.forEach((value, key) => {
+        nextUrl.searchParams.set(key, value);
+      });
+      exportLink.href = `${nextUrl.pathname}${nextUrl.search}`;
+    }
+
+    function buildRefreshUiState({ preserveViewportAnchor = false, focusTargetId = "" } = {}) {
+      const activeElement = document.activeElement;
+      const resolvedFocusId = focusTargetId || activeElement?.id || "";
+      const anchorEl = preserveViewportAnchor
+        ? document.getElementById("ordersLineFilterForm") || document.getElementById("line-details")
+        : null;
+      const state = {
+        anchorTop: anchorEl ? anchorEl.getBoundingClientRect().top : null,
+        focusTargetId: resolvedFocusId,
+        selectionStart: null,
+        selectionEnd: null,
+      };
+
+      const selectionSource =
+        activeElement && resolvedFocusId && activeElement.id === resolvedFocusId
+          ? activeElement
+          : null;
+      if (
+        selectionSource &&
+        typeof selectionSource.selectionStart === "number" &&
+        typeof selectionSource.selectionEnd === "number"
+      ) {
+        state.selectionStart = selectionSource.selectionStart;
+        state.selectionEnd = selectionSource.selectionEnd;
+      }
+      return state;
+    }
+
+    function restoreRefreshUiState(state) {
+      if (!state) return;
+
+      if (typeof state.anchorTop === "number") {
+        const anchorEl = document.getElementById("ordersLineFilterForm") || document.getElementById("line-details");
+        if (anchorEl) {
+          const delta = anchorEl.getBoundingClientRect().top - state.anchorTop;
+          if (Math.abs(delta) > 1) {
+            window.scrollBy(0, delta);
+          }
+        }
+      }
+
+      if (!state.focusTargetId) return;
+      const focusTarget = document.getElementById(state.focusTargetId);
+      if (!focusTarget) return;
+
+      try {
+        focusTarget.focus({ preventScroll: true });
+      } catch {
+        focusTarget.focus();
+      }
+
+      if (
+        typeof state.selectionStart === "number" &&
+        typeof state.selectionEnd === "number" &&
+        typeof focusTarget.setSelectionRange === "function"
+      ) {
+        const maxLength = typeof focusTarget.value === "string" ? focusTarget.value.length : 0;
+        const selectionStart = Math.min(state.selectionStart, maxLength);
+        const selectionEnd = Math.min(state.selectionEnd, maxLength);
+        focusTarget.setSelectionRange(selectionStart, selectionEnd);
+      }
+    }
+
+    function bindBulkToolbar(root = document) {
+      const bulkForm = root.querySelector("#order-bulk-form");
+      if (!bulkForm) return;
+
+      const countTargets = Array.from(root.querySelectorAll("[data-order-selected-count]"));
+      const checkboxes = Array.from(root.querySelectorAll("[data-order-line-checkbox]"));
+      const selectAllButton = root.querySelector("[data-order-select-all]");
+      const clearButton = root.querySelector("[data-order-clear-selection]");
+      const submitButton = bulkForm.querySelector("[data-order-bulk-submit]");
+
+      const visibleCheckboxes = () =>
+        checkboxes.filter((checkbox) => checkbox.offsetParent !== null);
+
+      const syncSelectionState = () => {
+        const selectedCount = visibleCheckboxes().filter((checkbox) => checkbox.checked).length;
+        countTargets.forEach((target) => {
+          target.textContent = String(selectedCount);
+        });
+        if (submitButton) {
+          submitButton.disabled = selectedCount === 0;
+        }
+      };
+
+      checkboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", syncSelectionState);
+      });
+
+      selectAllButton?.addEventListener("click", () => {
+        const visible = visibleCheckboxes();
+        const shouldSelect = visible.some((checkbox) => !checkbox.checked);
+        visible.forEach((checkbox) => {
+          checkbox.checked = shouldSelect;
+        });
+        syncSelectionState();
+      });
+
+      clearButton?.addEventListener("click", () => {
+        visibleCheckboxes().forEach((checkbox) => {
+          checkbox.checked = false;
+        });
+        syncSelectionState();
+      });
+
+      syncSelectionState();
+    }
+
+    function syncPurchaseExportHref(root = document) {
+      const currentLink = root.querySelector("[data-order-purchase-export-current]");
+      if (!currentLink) return;
+
+      const baseHref = currentLink.getAttribute("data-base-href") || currentLink.href;
+      if (!baseHref) return;
+
+      const purchaseSearchEl = getPurchaseSearchEl(root);
+      const nextUrl = new URL(baseHref, window.location.origin);
+      const purchaseQuery = (purchaseSearchEl?.value || "").trim();
+      if (purchaseQuery) {
+        nextUrl.searchParams.set("purchase_q", purchaseQuery);
+      } else {
+        nextUrl.searchParams.delete("purchase_q");
+      }
+      currentLink.href = `${nextUrl.pathname}${nextUrl.search}`;
+    }
+
+    function bindPurchaseSummaryQuickFilter(root = document) {
+      const searchEl = root.querySelector("[data-order-purchase-search]");
+      const rows = Array.from(root.querySelectorAll("[data-order-purchase-row]"));
+      const visibleCountTarget = root.querySelector("[data-order-purchase-visible-count]");
+      const emptyState = root.querySelector("[data-order-purchase-empty-filter]");
+      if (!searchEl || !rows.length || !visibleCountTarget || !emptyState) return;
+
+      const applyFilter = () => {
+        const query = (searchEl.value || "").trim().toLowerCase();
+        let visibleCount = 0;
+        rows.forEach((row) => {
+          const matches = !query || (row.dataset.orderPurchaseSearchText || "").includes(query);
+          row.classList.toggle("d-none", !matches);
+          if (matches) {
+            visibleCount += 1;
+          }
+        });
+        visibleCountTarget.textContent = String(visibleCount);
+        emptyState.classList.toggle("d-none", visibleCount > 0);
+        syncPurchaseExportHref(root);
+        syncUrl(buildFilterParamsFromControls());
+      };
+
+      searchEl.addEventListener("input", () => {
+        if (purchaseFilterDebounceHandle) {
+          window.clearTimeout(purchaseFilterDebounceHandle);
+        }
+        purchaseFilterDebounceHandle = window.setTimeout(applyFilter, 120);
+      });
+      searchEl.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        if (purchaseFilterDebounceHandle) {
+          window.clearTimeout(purchaseFilterDebounceHandle);
+        }
+        applyFilter();
+      });
+
+      applyFilter();
+    }
+
+    function bindDetailFilters() {
+      const { form, searchEl, statusEl, clearEl } = getFilterElements();
+      if (!form || !searchEl || !statusEl) return;
+
+      form.classList.add("is-live");
+
+      const queueRefresh = ({ immediate = false, focusTargetId = "" } = {}) => {
+        if (filterDebounceHandle) {
+          window.clearTimeout(filterDebounceHandle);
+          filterDebounceHandle = null;
+        }
+        if (immediate) {
+          refreshDetail({
+            params: buildFilterParamsFromControls(),
+            preserveViewportAnchor: true,
+            focusTargetId,
+          });
+          return;
+        }
+        filterDebounceHandle = window.setTimeout(() => {
+          refreshDetail({
+            params: buildFilterParamsFromControls(),
+            preserveViewportAnchor: true,
+            focusTargetId,
+          });
+        }, debounceMs);
+      };
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        queueRefresh({ immediate: true, focusTargetId: document.activeElement?.id || "orderLineSearch" });
+      });
+      searchEl.addEventListener("input", () => {
+        queueRefresh({ immediate: false, focusTargetId: "orderLineSearch" });
+      });
+      searchEl.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        queueRefresh({ immediate: true, focusTargetId: "orderLineSearch" });
+      });
+      statusEl.addEventListener("change", () => {
+        queueRefresh({ immediate: true, focusTargetId: "orderLineStatus" });
+      });
+      clearEl?.addEventListener("click", (event) => {
+        event.preventDefault();
+        searchEl.value = "";
+        statusEl.value = "all";
+        queueRefresh({ immediate: true, focusTargetId: "orderLineSearch" });
+      });
+    }
+
+    function bindDetailUi() {
+      bindBulkToolbar(contentEl);
+      bindPurchaseSummaryQuickFilter(contentEl);
+      bindDetailFilters();
+      syncPurchaseExportHref(contentEl);
+      updateExportHref(buildFilterParamsFromControls());
+    }
+
+    async function refreshDetail({ params, preserveViewportAnchor = false, focusTargetId = "" }) {
+      const requestParams = sanitizeFilterParams(params || new URLSearchParams());
+      const requestUrl = new URL(partialUrl, window.location.origin);
+      requestParams.forEach((value, key) => {
+        requestUrl.searchParams.set(key, value);
+      });
+      requestUrl.searchParams.set("detail_partial", "1");
+      const refreshUiState = buildRefreshUiState({
+        preserveViewportAnchor,
+        focusTargetId,
+      });
+
+      if (refreshController) {
+        refreshController.abort();
+      }
+      const controller = new AbortController();
+      refreshController = controller;
+      contentEl.classList.add("is-loading");
+      contentEl.setAttribute("aria-busy", "true");
+
+      try {
+        const response = await fetch(requestUrl, {
+          headers: {
+            Accept: "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+          },
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to refresh order detail (${response.status})`);
+        }
+        const payload = await response.json();
+        contentEl.innerHTML = payload.html || "";
+        syncUrl(requestParams);
+        updateExportHref(requestParams, payload.export_url || "");
+        bindDetailUi();
+        window.requestAnimationFrame(() => {
+          restoreRefreshUiState(refreshUiState);
+        });
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+        const fallbackUrl = new URL(window.location.href);
+        fallbackUrl.search = requestParams.toString();
+        window.location.assign(fallbackUrl);
+      } finally {
+        if (refreshController === controller) {
+          refreshController = null;
+          contentEl.classList.remove("is-loading");
+          contentEl.setAttribute("aria-busy", "false");
+        }
+      }
+    }
+
+    window.addEventListener("popstate", () => {
+      refreshDetail({
+        params: sanitizeFilterParams(new URLSearchParams(window.location.search)),
+      });
+    });
+
+    bindDetailUi();
+    updateExportHref(sanitizeFilterParams(new URLSearchParams(window.location.search)));
+  })();
+</script>
+{% endblock %}

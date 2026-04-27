@@ -1,83 +1,49 @@
 {% extends "base.html" %}
+{% import "_ui_macros.html" as ui %}
 {% block title %}Venues{% endblock %}
 
 {% block content %}
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="h3 mb-0 fw-bold text-aolrc-purple page-heading">Venues</h1>
-  </div>
+  {{ ui.page_header(
+    title="Venues",
+    subtitle="Search venue status, filter by type, and manage the directory from one consistent toolbar."
+  ) }}
 
-  <div class="card mb-3">
-    <div class="card-body venue-directory-toolbar">
-      <div class="venue-directory-toolbar-row venue-toolbar-controls">
-        <input
-          id="venueSearch"
-          class="form-control w-100 restock-compact-control"
-          placeholder="Search venues..."
-          aria-label="Search venues"
-        >
-        <select id="statusFilter" class="form-select w-100 restock-compact-control" aria-label="Filter venues by status">
-          <option value="all">All Statuses</option>
-          <option value="good">Good</option>
-          <option value="ok">OK</option>
-          <option value="low">Low</option>
-          <option value="out">Out</option>
-          <option value="not_checked">Not Checked</option>
-        </select>
-        <select id="venueTypeFilter" class="form-select w-100 restock-compact-control" aria-label="Filter venues by type">
-          <option value="all">Primary + Other</option>
-          <option value="primary">Primary only</option>
-          <option value="other">Other only</option>
-        </select>
-      </div>
-      {% if current_user.is_admin %}
-        <div class="venue-directory-toolbar-actions">
-          <button
-            class="btn btn-aolrc-accent restock-compact-control venue-directory-add-btn"
-            data-bs-toggle="collapse"
-            data-bs-target="#addVenueCollapse"
-            aria-expanded="false"
-            aria-controls="addVenueCollapse"
+  <div class="card mb-3 venue-directory-toolbar-shell ui-surface-card-secondary">
+    <div class="card-body">
+      {% call ui.toolbar("ui-toolbar-split venue-directory-toolbar") %}
+        <div class="ui-toolbar-main ui-toolbar-main-3 venue-directory-toolbar-row venue-toolbar-controls">
+          <input
+            id="venueSearch"
+            class="form-control ui-control w-100"
+            placeholder="Search venues..."
+            aria-label="Search venues"
           >
-            Add Venue
-          </button>
+          <select id="statusFilter" class="form-select ui-control w-100" aria-label="Filter venues by status">
+            <option value="all">All Statuses</option>
+            <option value="good">Good</option>
+            <option value="ok">OK</option>
+            <option value="low">Low</option>
+            <option value="out">Out</option>
+            <option value="not_checked">Not Checked</option>
+          </select>
+          <select id="venueTypeFilter" class="form-select ui-control w-100" aria-label="Filter venues by type">
+            <option value="all">Primary + Other</option>
+            <option value="primary">Primary only</option>
+            <option value="other">Other only</option>
+          </select>
         </div>
-      {% endif %}
+        {% if current_user.is_admin %}
+          <div class="ui-toolbar-actions venue-directory-toolbar-actions">
+            <a class="btn btn-aolrc-accent ui-control venue-directory-add-btn" href="{{ url_for('main.create_venue') }}">
+              Create Venue
+            </a>
+          </div>
+        {% endif %}
+      {% endcall %}
     </div>
   </div>
 
-  {% if current_user.is_admin %}
-    <div class="collapse mb-4" id="addVenueCollapse">
-      <div class="card">
-        <div class="card-body">
-          <h2 class="h5 mb-2">Add a venue</h2>
-          <form method="post" class="row g-2 align-items-end">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="col-lg-6">
-              <label class="form-label mb-1">Venue name</label>
-              <input class="form-control" type="text" name="name" placeholder="e.g., Veda 5">
-            </div>
-            <div class="col-lg-4">
-              <label class="form-label mb-1">Venue type</label>
-              <select class="form-select" name="is_core">
-                <option value="false" selected>Other (can be deleted later)</option>
-                <option value="true">Primary (cannot be deleted)</option>
-              </select>
-            </div>
-            <div class="col-12">
-              <div class="form-text">
-                Primary venues are protected from deletion; other venues are editable/removable.
-              </div>
-            </div>
-            <div class="col-lg-2">
-              <button class="btn w-100 btn-aolrc-accent">Create</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-  {% endif %}
-
-  <div class="card">
+  <div class="card ui-surface-card">
     <div class="card-body">
       <div id="venueResultCount" class="text-muted small mb-3">
         {{ venue_rows|length }} {{ "result" if venue_rows|length == 1 else "results" }}
@@ -118,9 +84,20 @@
                     <i class="bi bi-clock-history"></i> {{ row.freshness.text }}
                   </div>
                 </div>
-                <span class="badge venue-note-count-pill" title="Venue notes">
-                  <i class="bi bi-journal-text"></i> {{ row.notes_count }}
-                </span>
+                {% if row.attention %}
+                  {{ ui.chip(
+                    row.attention.label,
+                    tone=row.attention.tone,
+                    icon_class=row.attention.icon_class,
+                    extra_classes='venue-attention-pill'
+                  ) }}
+                {% endif %}
+                {{ ui.chip(
+                  row.notes_count ~ ' note' ~ ('' if row.notes_count == 1 else 's'),
+                  tone='neutral',
+                  icon_class='bi-journal-text',
+                  extra_classes='venue-note-count-pill'
+                ) }}
                 {% if current_user.is_admin %}
                   <a
                     class="icon-btn-plain icon-btn-sm venue-directory-settings-btn"
@@ -137,57 +114,49 @@
             <div class="venue-directory-summary-grid">
               <div class="venue-directory-summary-card venue-directory-summary-card-status">
                 <div class="venue-directory-status-main">
-                  <span
-                    class="status-pill
-                      {{ 'status-good' if row.badge.key == 'good' else '' }}
-                      {{ 'status-ok' if row.badge.key == 'ok' else '' }}
-                      {{ 'status-low' if row.badge.key == 'low' else '' }}
-                      {{ 'status-out' if row.badge.key == 'out' else '' }}
-                      {{ 'status-na' if row.badge.key == 'not_checked' else '' }}"
-                  >
-                    <i class="bi {{ row.badge.icon_class }}"></i> {{ row.badge.text }}
-                  </span>
-                  <button
-                    type="button"
-                    class="status-info-btn"
-                    data-status-popover
-                    data-status-key="{{ row.badge.key }}"
-                    data-status-icon="{{ row.badge.icon_class }}"
-                    data-status-summary="{{ row.badge.text }}"
-                    data-status-venue="{{ v.name }}"
-                    data-total-tracked="{{ row.total_tracked }}"
-                    data-count-good="{{ row.counts.good }}"
-                    data-count-ok="{{ row.counts.ok }}"
-                    data-count-low="{{ row.counts.low }}"
-                    data-count-out="{{ row.counts.out }}"
-                    data-count-not-checked="{{ row.counts.not_checked }}"
-                    aria-label="Show status details for {{ v.name }}"
-                  >
-                    <i class="bi bi-info-circle"></i>
-                  </button>
+                  {{ ui.status_pill(row.badge.key, row.badge.text, row.badge.icon_class) }}
+                  {{ ui.status_info_button(row.badge.key, row.badge.text, row.badge.icon_class, v.name, row.total_tracked, row.counts) }}
                 </div>
               </div>
               <div class="venue-directory-summary-card venue-directory-summary-card-count">
                 <div class="venue-directory-count-stack">
-                  <span class="venue-directory-count-number">{{ row.total_tracked }}</span>
-                  <span class="venue-directory-count-label">Tracked item{{ "" if row.total_tracked == 1 else "s" }}</span>
+                  <span class="venue-directory-count-number">
+                    <span class="venue-directory-count-current">{{ row.current_total_count }}</span>
+                    <span class="venue-directory-count-par">
+                      {% if row.total_par_count is not none %}
+                        / {{ row.total_par_count }}
+                      {% else %}
+                        / --
+                      {% endif %}
+                    </span>
+                  </span>
+                  <span class="venue-directory-count-label">
+                    {% if row.total_par_count is not none %}
+                      Current total / par
+                    {% else %}
+                      Current total (par not set)
+                    {% endif %}
+                  </span>
+                  <span class="venue-directory-count-support">
+                    {{ row.total_tracked }} tracked item{{ "" if row.total_tracked == 1 else "s" }}
+                  </span>
                 </div>
               </div>
             </div>
 
           </article>
         {% else %}
-          <div class="venue-directory-empty">No venues yet.</div>
+          {{ ui.empty_state("No venues yet.", body="Add a venue to start tracking venue checks and directory status.") }}
         {% endfor %}
       </div>
 
-      <div id="venueDirectoryEmptyFiltered" class="venue-directory-empty d-none mt-2">
-        No venues match your current filters.
+      <div id="venueDirectoryEmptyFiltered" class="d-none mt-2" aria-live="polite">
+        {{ ui.empty_state("No venues match your current filters.", body="Adjust the search or filter combination to show more venues.", compact=True) }}
       </div>
     </div>
   </div>
 
-  <script>
+  <script nonce="{{ csp_nonce() }}">
     (() => {
       const searchEl = document.getElementById("venueSearch");
       const statusEl = document.getElementById("statusFilter");

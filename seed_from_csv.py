@@ -69,20 +69,34 @@ def seed(items_csv: Path, venue_items_csv: Path):
                     if it.item_type != item_type:
                         it.item_type = item_type
                         changed = True
+                    if it.item_category != item_type:
+                        it.item_category = item_type
+                        changed = True
+                    if it.tracking_mode != "quantity":
+                        it.tracking_mode = "quantity"
+                        changed = True
                     if it.active != active:
                         it.active = active
                         changed = True
-                    # unit/notes are optional; only overwrite if provided
                     if unit is not None and getattr(it, "unit", None) != unit:
-                        # only if you later add unit/notes columns to Item
-                        pass
+                        it.unit = unit
+                        changed = True
                     if notes is not None and getattr(it, "notes", None) != notes:
                         pass
 
                     if changed:
                         updated_items += 1
                 else:
-                    db.session.add(Item(name=item_name, item_type=item_type, active=active))
+                    db.session.add(
+                        Item(
+                            name=item_name,
+                            item_type=item_type,
+                            item_category=item_type,
+                            tracking_mode="quantity",
+                            unit=unit,
+                            active=active,
+                        )
+                    )
                     created_items += 1
 
         db.session.commit()

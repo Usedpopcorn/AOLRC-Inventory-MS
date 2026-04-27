@@ -1,13 +1,22 @@
 {% extends "base.html" %}
+{% import "_ui_macros.html" as ui %}
 {% block title %}Account{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <div>
-    <h1 class="h4 mb-0 fw-bold text-aolrc-purple page-heading">My Account</h1>
-    <div class="text-muted">Manage your profile and password.</div>
-  </div>
-</div>
+{% call ui.page_header(
+  title="My Account",
+  subtitle="Manage your profile and password."
+) %}
+  {% if current_user.role == "admin" %}
+    {{ ui.chip("Admin", tone="danger", icon_class="bi-shield-lock") }}
+  {% elif current_user.role == "staff" %}
+    {{ ui.chip("Staff", tone="primary", icon_class="bi-person-badge") }}
+  {% else %}
+    {{ ui.chip("Viewer", tone="secondary", icon_class="bi-eye") }}
+  {% endif %}
+  {{ ui.chip("Last sign in: " ~ (current_user.last_login_at.strftime("%Y-%m-%d %I:%M %p") if current_user.last_login_at else "Never"), tone="neutral", icon_class="bi-clock-history") }}
+  {{ ui.chip("Password updated: " ~ (current_user.password_changed_at.strftime("%Y-%m-%d %I:%M %p") if current_user.password_changed_at else "Not recorded"), tone="neutral", icon_class="bi-key") }}
+{% endcall %}
 
 <div class="row g-3">
   <div class="col-12 col-lg-4">
@@ -35,11 +44,11 @@
         <div class="text-muted small">{{ current_user.email }}</div>
         <div class="small">
           {% if current_user.role == "admin" %}
-            <span class="badge bg-danger-subtle text-danger-emphasis border border-danger-subtle">Permission: Admin</span>
+            {{ ui.chip("Permission: Admin", tone="danger") }}
           {% elif current_user.role == "staff" %}
-            <span class="badge bg-primary-subtle text-primary-emphasis border border-primary-subtle">Permission: Staff</span>
+            {{ ui.chip("Permission: Staff", tone="primary") }}
           {% else %}
-            <span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle">Permission: View Only</span>
+            {{ ui.chip("Permission: View Only", tone="secondary") }}
           {% endif %}
         </div>
         <form method="post" action="{{ url_for('auth.upload_avatar') }}" enctype="multipart/form-data" class="d-flex flex-column gap-2">
@@ -116,16 +125,14 @@
     </div>
   </div>
 
-  <div class="col-12 col-lg-8">
-    <div class="card mb-3">
-      <div class="card-body">
-        <h2 class="h5 mb-3">Profile</h2>
-        <form method="post" action="{{ url_for('auth.update_profile') }}" class="d-flex flex-column gap-3">
+  <div class="col-12 col-lg-8 d-grid gap-3">
+    {% call ui.form_section("Profile", "Update the shared account identity shown around the app.") %}
+      <form method="post" action="{{ url_for('auth.update_profile') }}" class="d-flex flex-column gap-3">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div>
             <label class="form-label" for="display_name">Display name</label>
             <input
-              class="form-control"
+              class="form-control ui-control"
               id="display_name"
               name="display_name"
               maxlength="120"
@@ -133,32 +140,68 @@
               placeholder="Enter your name"
             >
           </div>
-          <button class="btn btn-aolrc-accent py-2" type="submit">Save Profile</button>
-        </form>
-      </div>
-    </div>
+          <button class="btn btn-aolrc-accent ui-control align-self-start" type="submit">Save Profile</button>
+      </form>
+    {% endcall %}
 
-    <div class="card">
-      <div class="card-body">
-        <h2 class="h5 mb-3">Change Password</h2>
-        <form method="post" action="{{ url_for('auth.change_password') }}" class="d-flex flex-column gap-3">
+    {% call ui.form_section("Change Password", "Keep local development access secure while preserving your current account.") %}
+      <form method="post" action="{{ url_for('auth.change_password') }}" class="d-flex flex-column gap-3">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div>
             <label class="form-label" for="current_password">Current password</label>
-            <input class="form-control" id="current_password" name="current_password" type="password" required autocomplete="current-password">
+            <input class="form-control ui-control" id="current_password" name="current_password" type="password" required autocomplete="current-password">
           </div>
           <div>
             <label class="form-label" for="new_password">New password</label>
-            <input class="form-control" id="new_password" name="new_password" type="password" required minlength="8" autocomplete="new-password">
+            <input class="form-control ui-control" id="new_password" name="new_password" type="password" required minlength="8" autocomplete="new-password">
           </div>
           <div>
             <label class="form-label" for="confirm_password">Confirm new password</label>
-            <input class="form-control" id="confirm_password" name="confirm_password" type="password" required minlength="8" autocomplete="new-password">
+            <input class="form-control ui-control" id="confirm_password" name="confirm_password" type="password" required minlength="8" autocomplete="new-password">
           </div>
-          <button class="btn btn-aolrc-accent py-2" type="submit">Update Password</button>
-        </form>
-      </div>
-    </div>
+          <button class="btn btn-aolrc-accent ui-control align-self-start" type="submit">Update Password</button>
+      </form>
+    {% endcall %}
+
+    {% call ui.form_section("Custom Settings", "Choose the theme used across the app. The selected theme also carries onto sign-in and password pages in this browser.") %}
+      <form method="post" action="{{ url_for('auth.update_custom_settings') }}" class="d-flex flex-column gap-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <fieldset class="account-theme-picker">
+          <legend class="form-label mb-2">Color theme</legend>
+          <div class="account-theme-option-grid">
+            {% for option in theme_options %}
+              <label class="account-theme-option account-theme-option-{{ option.value }}">
+                <input
+                  class="account-theme-radio"
+                  type="radio"
+                  name="theme_preference"
+                  value="{{ option.value }}"
+                  {{ 'checked' if current_theme_preference == option.value else '' }}
+                >
+                <span class="account-theme-card">
+                  <span class="account-theme-preview" aria-hidden="true">
+                    <span class="account-theme-preview-shell">
+                      <span class="account-theme-preview-topbar"></span>
+                      <span class="account-theme-preview-heading"></span>
+                      <span class="account-theme-preview-chip"></span>
+                      <span class="account-theme-preview-button"></span>
+                    </span>
+                  </span>
+                  <span class="account-theme-copy">
+                    <span class="account-theme-label">{{ option.label }}</span>
+                    <span class="account-theme-description">{{ option.description }}</span>
+                  </span>
+                  <span class="account-theme-indicator" aria-hidden="true">
+                    <i class="bi bi-check-circle-fill"></i>
+                  </span>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+        </fieldset>
+        <button class="btn btn-aolrc-accent ui-control align-self-start" type="submit">Save Settings</button>
+      </form>
+    {% endcall %}
   </div>
 </div>
 {% endblock %}

@@ -1,5 +1,6 @@
 import os
 from datetime import timedelta
+from urllib.parse import urlparse
 
 DEFAULT_SECRET_KEY = "dev-secret-change-me"
 
@@ -21,6 +22,23 @@ def _env_int(name, default):
         return default
 
 
+def _env_csv(name):
+    raw = os.getenv(name)
+    if raw is None:
+        return []
+    return [value.strip() for value in raw.split(",") if value.strip()]
+
+
+def _default_trusted_hosts():
+    hosts = {"localhost", "127.0.0.1", "::1"}
+    app_base_url = (os.getenv("APP_BASE_URL") or "").strip()
+    if app_base_url:
+        parsed = urlparse(app_base_url)
+        if parsed.hostname:
+            hosts.add(parsed.hostname.lower())
+    return sorted(hosts)
+
+
 def is_development_environment():
     if _env_flag("RENDER", default=False):
         return False
@@ -32,6 +50,9 @@ class Config:
     SECRET_KEY = DEFAULT_SECRET_KEY
     SQLALCHEMY_DATABASE_URI = "sqlite:///local.db"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    APP_BASE_URL = (os.getenv("APP_BASE_URL") or "").strip() or None
+    FEEDBACK_REVIEW_PIN = (os.getenv("FEEDBACK_REVIEW_PIN") or "").strip()
+    TRUSTED_HOSTS = tuple(_env_csv("TRUSTED_HOSTS") or _default_trusted_hosts())
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = _env_flag(
@@ -51,3 +72,42 @@ class Config:
         1, _env_int("AUTH_MAX_FAILED_LOGIN_ATTEMPTS", 5)
     )
     AUTH_LOCKOUT_MINUTES = max(1, _env_int("AUTH_LOCKOUT_MINUTES", 15))
+    AUTH_PASSWORD_MIN_LENGTH = max(8, _env_int("AUTH_PASSWORD_MIN_LENGTH", 8))
+    AUTH_PASSWORD_TOKEN_TTL_HOURS = max(1, _env_int("AUTH_PASSWORD_TOKEN_TTL_HOURS", 4))
+    AUTH_LOGIN_ACCOUNT_THROTTLE_LIMIT = max(
+        1, _env_int("AUTH_LOGIN_ACCOUNT_THROTTLE_LIMIT", 4)
+    )
+    AUTH_LOGIN_IP_THROTTLE_LIMIT = max(1, _env_int("AUTH_LOGIN_IP_THROTTLE_LIMIT", 12))
+    AUTH_LOGIN_THROTTLE_WINDOW_SECONDS = max(
+        60, _env_int("AUTH_LOGIN_THROTTLE_WINDOW_SECONDS", 300)
+    )
+    AUTH_PASSWORD_REQUEST_ACCOUNT_THROTTLE_LIMIT = max(
+        1, _env_int("AUTH_PASSWORD_REQUEST_ACCOUNT_THROTTLE_LIMIT", 4)
+    )
+    AUTH_PASSWORD_REQUEST_IP_THROTTLE_LIMIT = max(
+        1, _env_int("AUTH_PASSWORD_REQUEST_IP_THROTTLE_LIMIT", 8)
+    )
+    AUTH_PASSWORD_REQUEST_THROTTLE_WINDOW_SECONDS = max(
+        60, _env_int("AUTH_PASSWORD_REQUEST_THROTTLE_WINDOW_SECONDS", 300)
+    )
+    AUTH_PASSWORD_RESET_ACCOUNT_THROTTLE_LIMIT = max(
+        1, _env_int("AUTH_PASSWORD_RESET_ACCOUNT_THROTTLE_LIMIT", 6)
+    )
+    AUTH_PASSWORD_RESET_IP_THROTTLE_LIMIT = max(
+        1, _env_int("AUTH_PASSWORD_RESET_IP_THROTTLE_LIMIT", 8)
+    )
+    AUTH_PASSWORD_RESET_THROTTLE_WINDOW_SECONDS = max(
+        60, _env_int("AUTH_PASSWORD_RESET_THROTTLE_WINDOW_SECONDS", 300)
+    )
+    FEEDBACK_SUBMISSION_LIMIT = max(1, _env_int("FEEDBACK_SUBMISSION_LIMIT", 4))
+    FEEDBACK_SUBMISSION_WINDOW_SECONDS = max(
+        60, _env_int("FEEDBACK_SUBMISSION_WINDOW_SECONDS", 300)
+    )
+    AUTH_ALLOW_DEV_QUICK_LOGIN = _env_flag(
+        "AUTH_ALLOW_DEV_QUICK_LOGIN",
+        default=is_development_environment(),
+    )
+    AUTH_DEV_EXPOSE_PASSWORD_LINKS = _env_flag(
+        "AUTH_DEV_EXPOSE_PASSWORD_LINKS",
+        default=is_development_environment(),
+    )
