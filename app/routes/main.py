@@ -255,6 +255,16 @@ def normalize_activity_sort(value):
     return normalized
 
 
+def normalize_activity_actor_user_id(value):
+    raw_value = (value or "").strip()
+    if not raw_value or not raw_value.isdigit():
+        return None
+    parsed_value = int(raw_value)
+    if parsed_value <= 0:
+        return None
+    return parsed_value
+
+
 def format_activity_timestamp(value):
     if value is None:
         return "Unknown time"
@@ -598,6 +608,9 @@ def parse_activity_request_args(args):
     activity_search = (args.get("activity_q", "") or "").strip()
     activity_type = normalize_activity_type(args.get("activity_type", "all"))
     activity_sort = normalize_activity_sort(args.get("activity_sort", "newest"))
+    activity_actor_user_id = normalize_activity_actor_user_id(
+        args.get("activity_actor_user_id", "")
+    )
     activity_start_date = parse_activity_date(args.get("activity_start", ""))
     activity_end_date = parse_activity_date(args.get("activity_end", ""))
     activity_start_date, activity_end_date = normalize_activity_date_range(
@@ -612,6 +625,7 @@ def parse_activity_request_args(args):
         "search": activity_search,
         "type": activity_type,
         "sort": activity_sort,
+        "actor_user_id": activity_actor_user_id,
         "start_date": activity_start_date,
         "end_date": activity_end_date,
         "page": activity_page,
@@ -622,6 +636,8 @@ def build_activity_base_params(activity_filters):
     params = {"tab": "activity"}
     if activity_filters["search"]:
         params["activity_q"] = activity_filters["search"]
+    if activity_filters["actor_user_id"] is not None:
+        params["activity_actor_user_id"] = activity_filters["actor_user_id"]
     if activity_filters["type"] != "all":
         params["activity_type"] = activity_filters["type"]
     if activity_filters["sort"] != "newest":
@@ -671,6 +687,7 @@ def serialize_activity_filters(activity_filters):
         "search": activity_filters["search"],
         "type": activity_filters["type"],
         "sort": activity_filters["sort"],
+        "actor_user_id": activity_filters["actor_user_id"],
         "start_date": activity_filters["start_date"].isoformat() if activity_filters["start_date"] else "",
         "end_date": activity_filters["end_date"].isoformat() if activity_filters["end_date"] else "",
     }
@@ -1252,6 +1269,7 @@ def dashboard():
         k in request.args
         for k in (
             "activity_q",
+            "activity_actor_user_id",
             "activity_type",
             "activity_sort",
             "activity_start",
@@ -1267,6 +1285,7 @@ def dashboard():
         activity_page_data = build_activity_page(
             search=activity_filters["search"],
             activity_type=activity_filters["type"],
+            actor_user_id=activity_filters["actor_user_id"],
             start_date=activity_filters["start_date"],
             end_date=activity_filters["end_date"],
             sort=activity_filters["sort"],
@@ -1375,6 +1394,11 @@ def dashboard():
         activity_rows=activity_rows,
         activity_loaded=should_load_activity,
         activity_filters=serialize_activity_filters(activity_filters),
+        activity_actor_filter_user=(
+            db.session.get(User, activity_filters["actor_user_id"])
+            if activity_filters["actor_user_id"] is not None
+            else None
+        ),
         activity_pagination=activity_pagination,
         restock_filters={
             "statuses": restock_statuses,
@@ -1394,6 +1418,7 @@ def dashboard_activity_rows():
     activity_page_data = build_activity_page(
         search=activity_filters["search"],
         activity_type=activity_filters["type"],
+        actor_user_id=activity_filters["actor_user_id"],
         start_date=activity_filters["start_date"],
         end_date=activity_filters["end_date"],
         sort=activity_filters["sort"],

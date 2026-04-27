@@ -860,6 +860,55 @@ button.ui-control-sm {
   gap: var(--ui-space-3);
 }
 
+.account-avatar-image,
+.account-avatar-fallback {
+  width: 88px;
+  height: 88px;
+}
+
+.account-avatar-image {
+  object-fit: cover;
+}
+
+.account-avatar-fallback {
+  font-size: 1.5rem;
+  background: var(--aolrc-purple);
+}
+
+.account-activity-snapshot {
+  display: grid;
+  gap: 0.65rem;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.account-activity-snapshot-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.account-activity-snapshot-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.account-activity-snapshot-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.account-activity-snapshot-item {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--ui-border-subtle);
+  border-radius: 0.75rem;
+  background: linear-gradient(180deg, #ffffff 0%, var(--ui-surface-primary) 100%);
+}
+
 .account-theme-picker {
   display: grid;
   gap: var(--ui-space-3);
@@ -3550,6 +3599,14 @@ button.ui-control-sm {
   grid-template-columns: minmax(0, 1fr);
   gap: 0.5rem;
   align-items: start;
+}
+
+.activity-actor-filter-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .activity-date-range {

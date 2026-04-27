@@ -56,12 +56,12 @@ AUTH_THROTTLE_MESSAGE = "Too many attempts. Please wait a few minutes and try ag
 ACCOUNT_THEME_OPTIONS = (
     {
         "description": "Keep the existing AOLRC purple primary with the shared gold accent.",
-        "label": "Default Purple",
+        "label": "Purple",
         "value": "purple",
     },
     {
         "description": "Swap in the warm blue primary while keeping the shared gold accent.",
-        "label": "Warm Blue",
+        "label": "Blue",
         "value": "blue",
     },
 )
@@ -113,7 +113,7 @@ def _build_account_activity(user_id, full_history=False, page=1):
 
     if full_history:
         return build_activity_page(actor_user_id=user_id, page=page)
-    return build_activity_page(actor_user_id=user_id, page=1, page_size=3)
+    return build_activity_page(actor_user_id=user_id, page=1, page_size=6)
 
 
 def _is_user_locked(user, now=None):
@@ -592,34 +592,25 @@ def reset_password(token):
 @auth_bp.get("/account")
 @login_required
 def account():
-    activity_view = (request.args.get("activity_view") or "").strip().lower()
-    show_full_activity = activity_view == "full"
-    try:
-        activity_page = max(int(request.args.get("activity_page", "1")), 1)
-    except ValueError:
-        activity_page = 1
-
     recent_activity_data = _build_account_activity(
         current_user.id,
         full_history=False,
         page=1,
     )
-    full_activity_data = None
-    if show_full_activity:
-        full_activity_data = _build_account_activity(
-            current_user.id,
-            full_history=True,
-            page=activity_page,
-        )
+    activity_search_seed = (current_user.display_name or current_user.email or "").strip()
+    dashboard_activity_url = url_for(
+        "main.dashboard",
+        tab="activity",
+        activity_actor_user_id=current_user.id,
+        activity_q=activity_search_seed,
+    )
 
     return render_template(
         "auth/account.html",
         avatar_initials=_build_account_initials(current_user),
         avatar_url=_avatar_url_for_user(current_user),
         recent_activity_rows=recent_activity_data["rows"],
-        full_activity_rows=(full_activity_data["rows"] if full_activity_data else []),
-        full_activity_pagination=full_activity_data,
-        show_full_activity=show_full_activity,
+        dashboard_activity_url=dashboard_activity_url,
         current_theme_preference=normalize_theme_preference(
             getattr(current_user, "theme_preference", None)
         ),

@@ -419,6 +419,41 @@ def test_account_custom_settings_updates_theme_preference_and_session(client, ap
         assert admin_user.theme_preference == "blue"
 
 
+def test_account_page_activity_snapshot_links_to_dashboard_actor_filter(client, app):
+    quick_login(client, "admin")
+
+    with app.app_context():
+        admin_user = User.query.filter_by(email="admin@example.com").first()
+        admin_id = admin_user.id
+
+    response = client.get("/account")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert "Recent Activity" in body
+    assert "See More" in body
+    assert f"activity_actor_user_id={admin_id}" in body
+    assert "activity_view=full" not in body
+    assert "Full History" not in body
+
+
+def test_dashboard_activity_tab_renders_actor_filter_summary_when_selected(client, app):
+    quick_login(client, "admin")
+
+    with app.app_context():
+        admin_user = User.query.filter_by(email="admin@example.com").first()
+        admin_id = admin_user.id
+
+    response = client.get(f"/dashboard?tab=activity&activity_actor_user_id={admin_id}")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert 'name="activity_actor_user_id"' in body
+    assert f'value="{admin_id}"' in body
+    assert "Filtered to:" in body
+    assert "Clear user filter" in body
+
+
 def test_invalid_theme_preference_is_rejected_without_mutation(client, app):
     quick_login(client, "admin")
 

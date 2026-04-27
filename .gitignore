@@ -9,6 +9,7 @@ __pycache__/
 *.pre_migration_*
 local.db
 instance/
+static/uploads/
 **/__pycache__/
 .tmp_ui_qa/
 .tmp_playwright_job.txt
