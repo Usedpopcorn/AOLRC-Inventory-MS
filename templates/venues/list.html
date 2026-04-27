@@ -8,7 +8,7 @@
     subtitle="Search venue status, filter by type, and manage the directory from one consistent toolbar."
   ) }}
 
-  <div class="card mb-3 venue-directory-toolbar-shell">
+  <div class="card mb-3 venue-directory-toolbar-shell ui-surface-card-secondary">
     <div class="card-body">
       {% call ui.toolbar("ui-toolbar-split venue-directory-toolbar") %}
         <div class="ui-toolbar-main ui-toolbar-main-3 venue-directory-toolbar-row venue-toolbar-controls">
@@ -34,51 +34,16 @@
         </div>
         {% if current_user.is_admin %}
           <div class="ui-toolbar-actions venue-directory-toolbar-actions">
-            <button
-              class="btn btn-aolrc-accent ui-control venue-directory-add-btn"
-              type="button"
-              data-bs-toggle="collapse"
-              data-bs-target="#addVenueCollapse"
-              aria-controls="addVenueCollapse"
-              aria-expanded="false"
-            >
-              Add Venue
-            </button>
+            <a class="btn btn-aolrc-accent ui-control venue-directory-add-btn" href="{{ url_for('main.create_venue') }}">
+              Create Venue
+            </a>
           </div>
         {% endif %}
       {% endcall %}
-      {% if current_user.is_admin %}
-        <div class="collapse venue-directory-add-collapse" id="addVenueCollapse">
-          {% call ui.form_section("Add a venue", "Primary venues are protected from deletion; other venues are editable and removable.") %}
-            <form method="post" class="row g-3 align-items-end">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <div class="col-lg-6">
-                <label class="form-label mb-1">Venue name</label>
-                <input class="form-control ui-control" type="text" name="name" placeholder="e.g., Veda 5">
-              </div>
-              <div class="col-lg-4">
-                <label class="form-label mb-1">Venue type</label>
-                <select class="form-select ui-control" name="is_core">
-                  <option value="false" selected>Other (can be deleted later)</option>
-                  <option value="true">Primary (cannot be deleted)</option>
-                </select>
-              </div>
-              <div class="col-12">
-                <div class="form-text">
-                  Primary venues are protected from deletion; other venues are editable and removable.
-                </div>
-              </div>
-              <div class="col-lg-2">
-                <button class="btn w-100 btn-aolrc-accent ui-control">Create</button>
-              </div>
-            </form>
-          {% endcall %}
-        </div>
-      {% endif %}
     </div>
   </div>
 
-  <div class="card">
+  <div class="card ui-surface-card">
     <div class="card-body">
       <div id="venueResultCount" class="text-muted small mb-3">
         {{ venue_rows|length }} {{ "result" if venue_rows|length == 1 else "results" }}
@@ -119,6 +84,14 @@
                     <i class="bi bi-clock-history"></i> {{ row.freshness.text }}
                   </div>
                 </div>
+                {% if row.attention %}
+                  {{ ui.chip(
+                    row.attention.label,
+                    tone=row.attention.tone,
+                    icon_class=row.attention.icon_class,
+                    extra_classes='venue-attention-pill'
+                  ) }}
+                {% endif %}
                 {{ ui.chip(
                   row.notes_count ~ ' note' ~ ('' if row.notes_count == 1 else 's'),
                   tone='neutral',
@@ -147,8 +120,26 @@
               </div>
               <div class="venue-directory-summary-card venue-directory-summary-card-count">
                 <div class="venue-directory-count-stack">
-                  <span class="venue-directory-count-number">{{ row.total_tracked }}</span>
-                  <span class="venue-directory-count-label">Tracked item{{ "" if row.total_tracked == 1 else "s" }}</span>
+                  <span class="venue-directory-count-number">
+                    <span class="venue-directory-count-current">{{ row.current_total_count }}</span>
+                    <span class="venue-directory-count-par">
+                      {% if row.total_par_count is not none %}
+                        / {{ row.total_par_count }}
+                      {% else %}
+                        / --
+                      {% endif %}
+                    </span>
+                  </span>
+                  <span class="venue-directory-count-label">
+                    {% if row.total_par_count is not none %}
+                      Current total / par
+                    {% else %}
+                      Current total (par not set)
+                    {% endif %}
+                  </span>
+                  <span class="venue-directory-count-support">
+                    {{ row.total_tracked }} tracked item{{ "" if row.total_tracked == 1 else "s" }}
+                  </span>
                 </div>
               </div>
             </div>
@@ -165,7 +156,7 @@
     </div>
   </div>
 
-  <script>
+  <script nonce="{{ csp_nonce() }}">
     (() => {
       const searchEl = document.getElementById("venueSearch");
       const statusEl = document.getElementById("statusFilter");

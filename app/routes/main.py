@@ -1,27 +1,69 @@
-import re
 from datetime import datetime, time, timedelta, timezone
-from urllib.parse import urljoin, urlparse
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user
-from sqlalchemy import func, and_, or_, select, union_all, literal, cast, Integer, String, case
-from sqlalchemy.orm import aliased
+from sqlalchemy import Integer, String, and_, case, cast, func, literal, or_, select, union_all
+from sqlalchemy.orm import selectinload
+
 from app import db
 from app.authz import roles_required
-from app.models import Venue, VenueItem, VenueNote, Item, Check, CheckLine, CountSession, CountLine, User
-from app.services.venue_profile import build_venue_profile_view_model
+from app.models import (
+    Check,
+    CheckLine,
+    CountLine,
+    CountSession,
+    Item,
+    User,
+    Venue,
+    VenueItem,
+    VenueNote,
+)
+from app.security import normalize_safe_redirect_path
+from app.services.csv_exports import (
+    EXPORT_SCOPE_FILTERED,
+    build_csv_response,
+    normalize_export_scope,
+)
+from app.services.inventory_rules import (
+    InventoryRuleError,
+    copy_venue_tracking_setup,
+    get_default_stale_threshold_days,
+    log_inventory_admin_event,
+    normalize_optional_threshold_days,
+    resolve_effective_stale_threshold_days,
+    sync_venue_tracked_items,
+)
+from app.services.inventory_signals import (
+    build_latest_count_signal_map,
+    build_latest_status_signal_map,
+)
+from app.services.inventory_status import normalize_singleton_status, normalize_status
+from app.services.notes import (
+    NOTE_BODY_MAX_LENGTH,
+    NOTE_TITLE_MAX_LENGTH,
+    VENUE_NOTES_PAGE_SIZE,
+    build_pagination,
+    normalize_note_page,
+    validate_note_fields,
+)
+from app.services.restocking import (
+    RESTOCK_STATUS_META,
+    build_restock_rows,
+    normalize_restock_mode,
+    normalize_restock_sort,
+)
+from app.services.venue_profile import (
+    VENUE_INVENTORY_EXPORT_HEADERS,
+    build_venue_inventory_csv_rows,
+    build_venue_inventory_export_filename,
+    build_venue_profile_view_model,
+    filter_venue_inventory_rows,
+    normalize_venue_inventory_filters,
+)
 
 main_bp = Blueprint("main", __name__)
 RESTOCK_PAGE_SIZE = 50
 ACTIVITY_PAGE_SIZE = 50
-
-RESTOCK_STATUS_META = {
-    "good": {"text": "Good", "icon_class": "bi-check-circle-fill"},
-    "ok": {"text": "OK", "icon_class": "bi-check-circle-fill"},
-    "low": {"text": "Low", "icon_class": "bi-exclamation-triangle-fill"},
-    "out": {"text": "Out", "icon_class": "bi-x-circle-fill"},
-    "not_checked": {"text": "Not Checked", "icon_class": "bi-dash-circle"},
-}
 
 ACTIVITY_TYPE_META = {
     "status": {
@@ -40,23 +82,11 @@ ACTIVITY_SORT_OPTIONS = {"newest", "oldest", "venue", "item", "actor", "type"}
 
 
 def normalize_next_path(next_candidate, fallback_path):
-    if not next_candidate:
-        return fallback_path
-
-    host_url = urlparse(request.host_url)
-    target_url = urlparse(urljoin(request.host_url, next_candidate))
-    if target_url.scheme not in {"http", "https"} or target_url.netloc != host_url.netloc:
-        return fallback_path
-
-    current_url = urlparse(urljoin(request.host_url, request.full_path))
-    if target_url.path == current_url.path and target_url.query == current_url.query:
-        return fallback_path
-
-    return f"{target_url.path}?{target_url.query}" if target_url.query else target_url.path
+    return normalize_safe_redirect_path(next_candidate, fallback_path)
 
 
 def describe_back_destination(next_path, venue_id):
-    target_path = urlparse(urljoin(request.host_url, next_path)).path
+    target_path = next_path.split("?", 1)[0]
 
     if target_path == url_for("main.dashboard"):
         return "Dashboard"
@@ -73,30 +103,80 @@ def describe_back_destination(next_path, venue_id):
     return "Previous Page"
 
 
-def normalize_status(status):
-    value = (status or "").strip().lower()
-    if value == "-":
-        value = "not_checked"
-    if value not in RESTOCK_STATUS_META:
-        return "not_checked"
-    return value
+def normalize_note_focus(value):
+    normalized = (value or "").strip().lower()
+    if normalized not in {"compose", "list"}:
+        return None
+    return normalized
 
 
-def restock_status_meta_for_item(status_key, tracking_mode):
-    base_meta = RESTOCK_STATUS_META[status_key]
-    if tracking_mode == "singleton_asset":
-        asset_labels = {
-            "good": "Present",
-            "ok": "Present",
-            "low": "Damaged",
-            "out": "Missing",
-            "not_checked": "Not Checked",
-        }
-        return {
-            "text": asset_labels.get(status_key, base_meta["text"]),
-            "icon_class": base_meta["icon_class"],
-        }
-    return base_meta
+def normalize_note_kind_filter(value):
+    normalized = (value or "").strip().lower()
+    if normalized not in {"general", "tagged"}:
+        return "all"
+    return normalized
+
+
+def normalize_note_search_query(value):
+    return (value or "").strip()
+
+
+def load_valid_venue_note_items(venue_id):
+    rows = (
+        db.session.query(Item.id, Item.name)
+        .join(VenueItem, VenueItem.item_id == Item.id)
+        .filter(
+            VenueItem.venue_id == venue_id,
+            VenueItem.active == True,
+            Item.active == True,
+            Item.is_group_parent == False,
+        )
+        .all()
+    )
+    return {row.id: row.name for row in rows}
+
+
+def load_valid_venue_note_item_ids(venue_id):
+    return set(load_valid_venue_note_items(venue_id))
+
+
+def normalize_venue_note_item_id(raw_value, valid_item_ids):
+    value = (raw_value or "").strip()
+    if not value or not value.isdigit():
+        return None
+    item_id = int(value)
+    if item_id not in valid_item_ids:
+        return None
+    return item_id
+
+
+def redirect_to_venue_detail(
+    venue_id,
+    *,
+    next_path,
+    profile_tab="overview",
+    note_item_id=None,
+    note_focus=None,
+    note_q=None,
+    note_kind="all",
+    note_page=None,
+):
+    route_values = {
+        "venue_id": venue_id,
+        "next": next_path,
+        "profile_tab": profile_tab,
+    }
+    if note_item_id is not None:
+        route_values["note_item_id"] = note_item_id
+    if note_focus:
+        route_values["note_focus"] = note_focus
+    if note_q:
+        route_values["note_q"] = note_q
+    if note_kind and note_kind != "all":
+        route_values["note_kind"] = note_kind
+    if note_page and int(note_page) > 1:
+        route_values["note_page"] = int(note_page)
+    return redirect(url_for("main.venue_detail", **route_values))
 
 
 def build_status_detail_counts():
@@ -152,49 +232,13 @@ def build_overall_status_badge(total_tracked, counts, detail_counts=None):
     if checked_count > 0 and counts["ok"] > 0 and (counts["ok"] * 2 >= checked_count):
         return {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
     if counts["good"] > 0:
-        return {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
+        good_has_partial_attention = counts["ok"] > 0 or counts["not_checked"] > 0
+        return {
+            "key": "good",
+            "text": "Good*" if good_has_partial_attention else "Good",
+            "icon_class": "bi-check-circle-fill",
+        }
     return {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
-
-
-def _word_boundary_match(text, query):
-    return bool(re.search(rf"(^|\W){re.escape(query)}", text))
-
-
-def restock_search_rank(row, search_query):
-    if not search_query:
-        return 0
-
-    item_text = (row.get("item_name") or "").lower()
-    family_text = (row.get("parent_name") or "").lower()
-    venue_text = (row.get("venue_name") or "").lower()
-    status_text = (row.get("status", {}).get("text") or "").lower()
-    tracking_text = ("asset" if row.get("tracking_mode") == "singleton_asset" else "quantity")
-
-    if item_text.startswith(search_query):
-        return 0
-    if _word_boundary_match(item_text, search_query):
-        return 1
-    if search_query in item_text:
-        return 2
-    if family_text.startswith(search_query):
-        return 3
-    if _word_boundary_match(family_text, search_query):
-        return 4
-    if search_query in family_text:
-        return 5
-    if venue_text.startswith(search_query):
-        return 6
-    if _word_boundary_match(venue_text, search_query):
-        return 7
-    if search_query in venue_text:
-        return 8
-    if tracking_text.startswith(search_query) or search_query in tracking_text:
-        return 9
-    if status_text.startswith(search_query):
-        return 10
-    if search_query in status_text:
-        return 11
-    return None
 
 
 def normalize_activity_type(value):
@@ -631,7 +675,7 @@ def ensure_utc(value):
     return value.astimezone(timezone.utc)
 
 
-def format_updated_label(value):
+def format_updated_label(value, stale_threshold=None):
     updated_at = ensure_utc(value)
     if updated_at is None:
         return {
@@ -658,7 +702,7 @@ def format_updated_label(value):
     return {
         "text": relative,
         "is_missing": False,
-        "is_stale": delta >= timedelta(days=2),
+        "is_stale": delta >= timedelta(days=max(int(stale_threshold or 2), 1)),
     }
 
 
@@ -783,6 +827,7 @@ def build_recent_venue_activity_rows(venue_id, limit=20):
 
 
 def build_venue_rows(include_inactive=False):
+    global_stale_threshold_days = get_default_stale_threshold_days()
     q = Venue.query
     if not include_inactive:
         q = q.filter(Venue.active == True)
@@ -791,24 +836,26 @@ def build_venue_rows(include_inactive=False):
         return []
 
     venue_ids = [v.id for v in venues]
-    tracked_totals = {
-        row.venue_id: row.total_tracked
-        for row in (
-            db.session.query(
-                VenueItem.venue_id.label("venue_id"),
-                func.count(VenueItem.item_id).label("total_tracked"),
-            )
-            .join(Item, Item.id == VenueItem.item_id)
-            .filter(
-                VenueItem.venue_id.in_(venue_ids),
-                VenueItem.active == True,
-                Item.active == True,
-                Item.is_group_parent == False,
-            )
-            .group_by(VenueItem.venue_id)
-            .all()
+    tracked_item_rows = (
+        db.session.query(
+            VenueItem.venue_id.label("venue_id"),
+            VenueItem.item_id.label("item_id"),
+            Item.tracking_mode.label("tracking_mode"),
         )
-    }
+        .join(Item, Item.id == VenueItem.item_id)
+        .filter(
+            VenueItem.venue_id.in_(venue_ids),
+            VenueItem.active == True,
+            Item.active == True,
+            Item.is_group_parent == False,
+        )
+        .all()
+    )
+    tracked_totals = {}
+    tracked_item_ids = set()
+    for row in tracked_item_rows:
+        tracked_totals[row.venue_id] = int(tracked_totals.get(row.venue_id, 0) or 0) + 1
+        tracked_item_ids.add(row.item_id)
 
     notes_count_map = {
         row.venue_id: row.notes_count
@@ -823,46 +870,95 @@ def build_venue_rows(include_inactive=False):
         )
     }
 
-    latest_check_sq = (
-        db.session.query(
-            Check.venue_id.label("venue_id"),
-            func.max(Check.id).label("latest_check_id"),
-        )
-        .filter(Check.venue_id.in_(venue_ids))
-        .group_by(Check.venue_id)
-        .subquery()
-    )
-
     latest_status_counts = {}
     latest_status_detail_counts = {}
-    for row in (
-        db.session.query(
-            latest_check_sq.c.venue_id.label("venue_id"),
-            CheckLine.status.label("status"),
-            Item.tracking_mode.label("tracking_mode"),
-            func.count(CheckLine.id).label("status_count"),
+    latest_singleton_current_totals = {}
+    latest_quantity_count_totals = {}
+    latest_status_by_pair = {}
+    latest_count_by_pair = {}
+    if tracked_item_ids:
+        tracked_item_id_list = sorted(tracked_item_ids)
+        latest_status_by_pair = build_latest_status_signal_map(
+            venue_ids=venue_ids,
+            item_ids=tracked_item_id_list,
         )
-        .join(CheckLine, CheckLine.check_id == latest_check_sq.c.latest_check_id)
-        .join(
-            VenueItem,
-            and_(
-                VenueItem.venue_id == latest_check_sq.c.venue_id,
-                VenueItem.item_id == CheckLine.item_id,
-                VenueItem.active == True,
-            ),
+        latest_count_by_pair = build_latest_count_signal_map(
+            venue_ids=venue_ids,
+            item_ids=tracked_item_id_list,
         )
-        .join(Item, Item.id == VenueItem.item_id)
-        .filter(Item.active == True, Item.is_group_parent == False)
-        .group_by(latest_check_sq.c.venue_id, CheckLine.status, Item.tracking_mode)
-        .all()
-    ):
-        normalized_status = normalize_status(row.status)
-        latest_status_counts.setdefault(row.venue_id, {}).setdefault(normalized_status, 0)
-        latest_status_counts[row.venue_id][normalized_status] += row.status_count
+
+    for row in tracked_item_rows:
+        counts = latest_status_counts.setdefault(
+            row.venue_id,
+            {"good": 0, "ok": 0, "low": 0, "out": 0, "not_checked": 0},
+        )
+        status_signal = latest_status_by_pair.get((row.venue_id, row.item_id))
+        if row.tracking_mode == "singleton_asset":
+            normalized_status = (
+                normalize_singleton_status(status_signal["status"])
+                if status_signal
+                else "not_checked"
+            )
+        else:
+            normalized_status = normalize_status(status_signal["status"]) if status_signal else "not_checked"
+
+        counts[normalized_status] += 1
+
         if normalized_status in {"low", "out"}:
             detail_counts = latest_status_detail_counts.setdefault(row.venue_id, build_status_detail_counts())
             suffix = "singleton" if row.tracking_mode == "singleton_asset" else "quantity"
-            detail_counts[f"{normalized_status}_{suffix}"] += row.status_count
+            detail_counts[f"{normalized_status}_{suffix}"] += 1
+
+        if row.tracking_mode == "singleton_asset":
+            if normalized_status in {"good", "low"}:
+                latest_singleton_current_totals[row.venue_id] = (
+                    int(latest_singleton_current_totals.get(row.venue_id, 0) or 0) + 1
+                )
+            continue
+
+        count_signal = latest_count_by_pair.get((row.venue_id, row.item_id))
+        if count_signal and count_signal["raw_count"] is not None:
+            latest_quantity_count_totals[row.venue_id] = (
+                int(latest_quantity_count_totals.get(row.venue_id, 0) or 0)
+                + int(count_signal["raw_count"] or 0)
+            )
+
+    par_value_expr = func.coalesce(VenueItem.expected_qty, Item.default_par_level)
+    par_totals_map = {
+        row.venue_id: {
+            "total_par": int(row.total_par or 0),
+            "par_item_count": int(row.par_item_count or 0),
+        }
+        for row in (
+            db.session.query(
+                VenueItem.venue_id.label("venue_id"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (par_value_expr.is_(None), 0),
+                            else_=par_value_expr,
+                        )
+                    ),
+                    0,
+                ).label("total_par"),
+                func.sum(
+                    case(
+                        (par_value_expr.is_(None), 0),
+                        else_=1,
+                    )
+                ).label("par_item_count"),
+            )
+            .join(Item, Item.id == VenueItem.item_id)
+            .filter(
+                VenueItem.venue_id.in_(venue_ids),
+                VenueItem.active == True,
+                Item.active == True,
+                Item.is_group_parent == False,
+            )
+            .group_by(VenueItem.venue_id)
+            .all()
+        )
+    }
 
     last_updated_map = build_venue_last_updated_map(venue_ids)
     venue_rows = []
@@ -873,7 +969,14 @@ def build_venue_rows(include_inactive=False):
         detail_counts = latest_status_detail_counts.get(v.id, build_status_detail_counts()).copy()
         notes_count = int(notes_count_map.get(v.id, 0) or 0)
         last_updated_at = last_updated_map.get(v.id)
-        freshness = format_updated_label(last_updated_at)
+        venue_stale_threshold = resolve_effective_stale_threshold_days(
+            venue_stale_threshold_days=v.stale_threshold_days,
+            global_stale_threshold_days=global_stale_threshold_days,
+        )
+        freshness = format_updated_label(
+            last_updated_at,
+            stale_threshold=venue_stale_threshold.value,
+        )
 
         if total_tracked == 0:
             badge = {
@@ -890,6 +993,9 @@ def build_venue_rows(include_inactive=False):
                     "counts": counts.copy(),
                     "notes_count": notes_count,
                     "total_tracked": 0,
+                    "current_total_count": 0,
+                    "total_par_count": None,
+                    "attention": None,
                     "last_updated_at": last_updated_at,
                     "last_updated_text": (
                         format_activity_timestamp(last_updated_at) if last_updated_at else "No updates yet"
@@ -900,18 +1006,54 @@ def build_venue_rows(include_inactive=False):
             continue
 
         venue_status_counts = latest_status_counts.get(v.id)
-        if not venue_status_counts:
-            counts["not_checked"] = total_tracked
+        if venue_status_counts:
+            counts = venue_status_counts.copy()
         else:
-            for status, count in venue_status_counts.items():
-                if status in counts:
-                    counts[status] = count
-
-            counted = sum(counts.values())
-            if counted < total_tracked:
-                counts["not_checked"] += (total_tracked - counted)
+            counts["not_checked"] = total_tracked
 
         badge = build_overall_status_badge(total_tracked, counts, detail_counts)
+        quantity_current_total = latest_quantity_count_totals.get(v.id, 0)
+        singleton_current_total = latest_singleton_current_totals.get(v.id, 0)
+        current_total_count = int(quantity_current_total + singleton_current_total)
+        par_meta = par_totals_map.get(v.id, {"total_par": 0, "par_item_count": 0})
+        total_par_count = par_meta["total_par"] if par_meta["par_item_count"] > 0 else None
+
+        operational_issue_count = int(counts["low"] + counts["out"])
+        stale_follow_up = bool(freshness["is_stale"])
+        attention_count = operational_issue_count + (1 if stale_follow_up else 0)
+        attention = None
+        if attention_count > 0:
+            if counts["out"] > 0:
+                tone = "danger"
+                icon_class = "bi-exclamation-octagon-fill"
+            elif operational_issue_count > 0:
+                tone = "warning"
+                icon_class = "bi-exclamation-triangle-fill"
+            else:
+                tone = "warning"
+                icon_class = "bi-clock-history"
+
+            if operational_issue_count > 0 and stale_follow_up:
+                label = (
+                    f"{attention_count} alert"
+                    if attention_count == 1
+                    else f"{attention_count} alerts"
+                )
+            elif operational_issue_count > 0:
+                label = (
+                    f"{operational_issue_count} needs attention"
+                    if operational_issue_count == 1
+                    else f"{operational_issue_count} need attention"
+                )
+            else:
+                label = "Stale updates"
+
+            attention = {
+                "count": attention_count,
+                "label": label,
+                "tone": tone,
+                "icon_class": icon_class,
+            }
 
         tooltip = (
             f"Total tracked: {total_tracked} | "
@@ -928,6 +1070,9 @@ def build_venue_rows(include_inactive=False):
                 "counts": counts.copy(),
                 "notes_count": notes_count,
                 "total_tracked": total_tracked,
+                "current_total_count": current_total_count,
+                "total_par_count": total_par_count,
+                "attention": attention,
                 "last_updated_at": last_updated_at,
                 "last_updated_text": (
                     format_activity_timestamp(last_updated_at) if last_updated_at else "No updates yet"
@@ -939,155 +1084,58 @@ def build_venue_rows(include_inactive=False):
     return venue_rows
 
 
-def build_restock_rows(
-    statuses=None,
-    item_ids=None,
-    venue_ids=None,
-    search="",
-    sort="status_priority",
-    limit=None,
-    offset=0,
-):
-    if statuses is None:
-        selected_statuses = list(RESTOCK_STATUS_META.keys())
-    else:
-        selected_statuses = [s for s in statuses if s in RESTOCK_STATUS_META]
-    if not selected_statuses:
-        return {"rows": [], "total_count": 0, "has_more": False}
-    selected_statuses_set = set(selected_statuses)
-    search_query = (search or "").strip().lower()
-    if sort in {"item", "item_asc", "item_desc"}:
-        sort_mode = "item"
-    elif sort in {"venue", "venue_asc", "venue_desc"}:
-        sort_mode = "venue"
-    elif sort == "status_priority":
-        sort_mode = "status_priority"
-    elif sort == "last_checked":
-        sort_mode = "last_checked"
-    else:
-        sort_mode = "status_priority"
+def parse_selected_ids(raw_values):
+    selected_ids = []
+    for raw_value in raw_values or []:
+        value = (raw_value or "").strip()
+        if not value or not value.isdigit():
+            continue
+        parsed = int(value)
+        if parsed not in selected_ids:
+            selected_ids.append(parsed)
+    return selected_ids
 
-    latest_check_sq = (
-        db.session.query(
-            Check.venue_id.label("venue_id"),
-            func.max(Check.id).label("latest_check_id"),
-        )
-        .group_by(Check.venue_id)
-        .subquery()
-    )
-    parent_item = aliased(Item)
 
-    query = (
-        db.session.query(
-            Venue.id.label("venue_id"),
-            Venue.name.label("venue_name"),
-            Item.id.label("item_id"),
-            Item.name.label("item_name"),
-            Item.tracking_mode.label("tracking_mode"),
-            Item.item_category.label("item_category"),
-            parent_item.name.label("parent_name"),
-            Check.created_at.label("latest_check_at"),
-            CheckLine.status.label("line_status"),
-        )
-        .select_from(VenueItem)
-        .join(Venue, Venue.id == VenueItem.venue_id)
-        .join(Item, Item.id == VenueItem.item_id)
-        .outerjoin(parent_item, parent_item.id == Item.parent_item_id)
-        .outerjoin(latest_check_sq, latest_check_sq.c.venue_id == Venue.id)
-        .outerjoin(Check, Check.id == latest_check_sq.c.latest_check_id)
-        .outerjoin(
-            CheckLine,
-            and_(
-                CheckLine.check_id == latest_check_sq.c.latest_check_id,
-                CheckLine.item_id == VenueItem.item_id,
-            ),
-        )
+def fetch_trackable_items_for_setup():
+    return (
+        Item.query.options(selectinload(Item.parent_item))
         .filter(
-            VenueItem.active == True,
-            Venue.active == True,
             Item.active == True,
             Item.is_group_parent == False,
         )
+        .order_by(Item.name.asc(), Item.id.asc())
+        .all()
     )
 
-    if item_ids is not None:
-        if not item_ids:
-            return {"rows": [], "total_count": 0, "has_more": False}
-        query = query.filter(VenueItem.item_id.in_(item_ids))
-    if venue_ids is not None:
-        if not venue_ids:
-            return {"rows": [], "total_count": 0, "has_more": False}
-        query = query.filter(VenueItem.venue_id.in_(venue_ids))
 
+def build_venue_create_form_values(source=None):
+    source = source or {}
+    return {
+        "name": (source.get("name") or "").strip(),
+        "is_core": "true" if (source.get("is_core") or "false") == "true" else "false",
+        "stale_threshold_days": (source.get("stale_threshold_days") or "").strip(),
+        "setup_mode": (source.get("setup_mode") or "empty").strip().lower(),
+        "copy_source_venue_id": (source.get("copy_source_venue_id") or "").strip(),
+        "selected_item_ids": parse_selected_ids(source.getlist("item_ids")) if hasattr(source, "getlist") else [],
+    }
+
+
+def build_venue_setup_rows(trackable_items, selected_item_ids=None):
+    selected_item_id_set = set(selected_item_ids or [])
     rows = []
-    for row in query.order_by(Item.name.asc(), Venue.name.asc()).all():
-        status_key = normalize_status(row.line_status)
-        if status_key not in selected_statuses_set:
-            continue
-
-        tracking_mode = row.tracking_mode or "quantity"
-        meta = restock_status_meta_for_item(status_key, tracking_mode)
+    for item in trackable_items:
         rows.append(
             {
-                "venue_id": row.venue_id,
-                "venue_name": row.venue_name,
-                "item_id": row.item_id,
-                "item_name": row.item_name,
-                "parent_name": row.parent_name,
-                "tracking_mode": tracking_mode,
-                "item_category": row.item_category,
-                "latest_check_at": row.latest_check_at,
-                "status": {
-                    "key": status_key,
-                    "text": meta["text"],
-                    "icon_class": meta["icon_class"],
-                },
+                "id": item.id,
+                "name": item.name,
+                "parent_name": item.parent_item.name if item.parent_item else None,
+                "tracking_mode": item.tracking_mode,
+                "item_category": item.item_category or item.item_type,
+                "default_par_level": item.default_par_level,
+                "is_selected": item.id in selected_item_id_set,
             }
         )
-
-    status_rank = {"out": 0, "low": 1, "ok": 2, "good": 3, "not_checked": 4}
-    def base_sort_key(row):
-        family_name = (row.get("parent_name") or row["item_name"]).lower()
-        if sort_mode == "venue":
-            return (row["venue_name"].lower(), family_name, row["item_name"].lower())
-        if sort_mode == "status_priority":
-            return (
-                status_rank.get(row["status"]["key"], 99),
-                row["venue_name"].lower(),
-                family_name,
-                row["item_name"].lower(),
-            )
-        if sort_mode == "last_checked":
-            return (
-                1 if row["latest_check_at"] is None else 0,
-                -(row["latest_check_at"].timestamp()) if row["latest_check_at"] else 0,
-                family_name,
-                row["item_name"].lower(),
-                row["venue_name"].lower(),
-            )
-        return (family_name, row["item_name"].lower(), row["venue_name"].lower())
-
-    if search_query:
-        ranked_rows = []
-        for row in rows:
-            rank = restock_search_rank(row, search_query)
-            if rank is None:
-                continue
-            ranked_rows.append((rank, row))
-        ranked_rows.sort(key=lambda pair: (pair[0], base_sort_key(pair[1])))
-        rows = [pair[1] for pair in ranked_rows]
-    else:
-        rows.sort(key=base_sort_key)
-
-    total_count = len(rows)
-    normalized_offset = max(int(offset or 0), 0)
-    if limit is None:
-        paged_rows = rows[normalized_offset:]
-    else:
-        normalized_limit = max(int(limit), 0)
-        paged_rows = rows[normalized_offset : normalized_offset + normalized_limit]
-    has_more = (normalized_offset + len(paged_rows)) < total_count
-    return {"rows": paged_rows, "total_count": total_count, "has_more": has_more}
+    return rows
 
 
 def serialize_restock_row(row, next_path):
@@ -1100,16 +1148,24 @@ def serialize_restock_row(row, next_path):
         "parent_name": row.get("parent_name"),
         "tracking_mode": row.get("tracking_mode", "quantity"),
         "item_category": row.get("item_category"),
+        "setup_group_code": row.get("setup_group_code"),
+        "setup_group_label": row.get("setup_group_label"),
+        "setup_group_display": row.get("setup_group_display"),
         "latest_check_ts": latest_check_at.timestamp() if latest_check_at else None,
         "latest_check_text": (
             latest_check_at.strftime("%Y-%m-%d %I:%M %p") if latest_check_at else "No check yet"
         ),
         "latest_check_missing": latest_check_at is None,
+        "raw_count": row.get("raw_count"),
+        "par_value": row.get("par_value"),
         "status": row["status"],
+        "count_state": row.get("count_state"),
+        "quick_check_mode": row.get("quick_check_mode", "status"),
         "quick_check_url": url_for(
             "venue_items.quick_check",
             venue_id=row["venue_id"],
             focus_item_id=row["item_id"],
+            mode=row.get("quick_check_mode", "status"),
             next=next_path,
         ),
     }
@@ -1118,6 +1174,12 @@ def serialize_restock_row(row, next_path):
 @main_bp.route("/")
 def home():
     return redirect(url_for("main.dashboard"))
+
+
+@main_bp.route("/help")
+@roles_required("viewer", "staff", "admin")
+def help_page():
+    return render_template("help.html")
 
 
 @main_bp.route("/dashboard")
@@ -1157,13 +1219,8 @@ def dashboard():
                 restock_venue_ids.append(venue_id)
 
     restock_search = (request.args.get("restock_search", "") or "").strip()
-    restock_sort = request.args.get("restock_sort", "status_priority")
-    if restock_sort in {"item_asc", "item_desc"}:
-        restock_sort = "item"
-    elif restock_sort in {"venue_asc", "venue_desc"}:
-        restock_sort = "venue"
-    elif restock_sort not in {"item", "venue", "status_priority", "last_checked"}:
-        restock_sort = "status_priority"
+    restock_sort = normalize_restock_sort(request.args.get("restock_sort", "status_priority"))
+    restock_mode = normalize_restock_mode(request.args.get("restock_mode"), "status")
 
     restock_params_seen = any(
         k in request.args
@@ -1176,6 +1233,7 @@ def dashboard():
             "restock_venue_id",
             "restock_search",
             "restock_sort",
+            "restock_mode",
         )
     )
     if restock_params_seen and requested_tab is None:
@@ -1228,6 +1286,7 @@ def dashboard():
         venue_ids=restock_venue_ids if restock_venue_submitted else None,
         search=restock_search,
         sort=restock_sort,
+        mode=restock_mode,
         limit=RESTOCK_PAGE_SIZE,
         offset=0,
     )
@@ -1314,6 +1373,7 @@ def dashboard():
             "venue_ids": restock_venue_ids,
             "search": restock_search,
             "sort": restock_sort,
+            "mode": restock_mode,
         },
     )
 
@@ -1369,13 +1429,8 @@ def dashboard_restocking_rows():
                 restock_venue_ids.append(venue_id)
 
     restock_search = (request.args.get("restock_search", "") or "").strip()
-    restock_sort = request.args.get("restock_sort", "status_priority")
-    if restock_sort in {"item_asc", "item_desc"}:
-        restock_sort = "item"
-    elif restock_sort in {"venue_asc", "venue_desc"}:
-        restock_sort = "venue"
-    elif restock_sort not in {"item", "venue", "status_priority", "last_checked"}:
-        restock_sort = "status_priority"
+    restock_sort = normalize_restock_sort(request.args.get("restock_sort", "status_priority"))
+    restock_mode = normalize_restock_mode(request.args.get("restock_mode"), "status")
 
     raw_limit = request.args.get("limit", str(RESTOCK_PAGE_SIZE))
     raw_offset = request.args.get("offset", "0")
@@ -1394,6 +1449,7 @@ def dashboard_restocking_rows():
         venue_ids=restock_venue_ids if restock_venue_submitted else None,
         search=restock_search,
         sort=restock_sort,
+        mode=restock_mode,
         limit=limit,
         offset=offset,
     )
@@ -1407,6 +1463,106 @@ def dashboard_restocking_rows():
             "has_more": page["has_more"],
         }
     )
+
+
+@main_bp.route("/venues/create", methods=["GET", "POST"])
+@roles_required("admin")
+def create_venue():
+    trackable_items = fetch_trackable_items_for_setup()
+    copy_source_venues = Venue.query.order_by(Venue.name.asc(), Venue.id.asc()).all()
+    form_values = build_venue_create_form_values()
+    tracking_rows = build_venue_setup_rows(trackable_items, form_values["selected_item_ids"])
+
+    if request.method == "POST":
+        form_values = build_venue_create_form_values(request.form)
+        tracking_rows = build_venue_setup_rows(trackable_items, form_values["selected_item_ids"])
+        setup_mode = form_values["setup_mode"]
+        if setup_mode not in {"empty", "copy", "manual"}:
+            setup_mode = "empty"
+            form_values["setup_mode"] = setup_mode
+
+        try:
+            stale_threshold_days = normalize_optional_threshold_days(
+                request.form.get("stale_threshold_days"),
+                field_label="Venue stale threshold",
+            )
+        except InventoryRuleError as exc:
+            flash(str(exc), "error")
+        else:
+            name = form_values["name"]
+            if not name:
+                flash("Venue name is required.", "error")
+            elif Venue.query.filter_by(name=name).first():
+                flash("That venue already exists.", "error")
+            elif setup_mode == "copy" and not form_values["copy_source_venue_id"].isdigit():
+                flash("Choose a source venue to copy from.", "error")
+            else:
+                venue = Venue(
+                    name=name,
+                    is_core=form_values["is_core"] == "true",
+                    active=True,
+                    stale_threshold_days=stale_threshold_days,
+                )
+                db.session.add(venue)
+                db.session.flush()
+
+                log_inventory_admin_event(
+                    "venue_created",
+                    actor=current_user,
+                    subject_type="venue",
+                    subject_id=venue.id,
+                    subject_label=venue.name,
+                    details={"setup_mode": setup_mode},
+                )
+
+                if setup_mode == "copy":
+                    source_venue = Venue.query.get_or_404(int(form_values["copy_source_venue_id"]))
+                    summary = copy_venue_tracking_setup(
+                        source_venue=source_venue,
+                        target_venue=venue,
+                    )
+                    log_inventory_admin_event(
+                        "venue_tracking_copied",
+                        actor=current_user,
+                        subject_type="venue",
+                        subject_id=venue.id,
+                        subject_label=venue.name,
+                        details=summary,
+                    )
+                elif setup_mode == "manual":
+                    summary = sync_venue_tracked_items(
+                        venue=venue,
+                        selected_item_ids=form_values["selected_item_ids"],
+                        par_overrides={},
+                    )
+                    if any(summary.values()):
+                        log_inventory_admin_event(
+                            "venue_tracking_updated",
+                            actor=current_user,
+                            subject_type="venue",
+                            subject_id=venue.id,
+                            subject_label=venue.name,
+                            details=summary,
+                        )
+
+                db.session.commit()
+                flash("Venue created.", "success")
+                return redirect(
+                    url_for(
+                        "venue_settings.settings",
+                        venue_id=venue.id,
+                        next=url_for("main.venues"),
+                    )
+                )
+
+    return render_template(
+        "venues/create.html",
+        form_values=form_values,
+        tracking_rows=tracking_rows,
+        copy_source_venues=copy_source_venues,
+        global_stale_threshold_days=get_default_stale_threshold_days(),
+    )
+
 
 @main_bp.route("/venues", methods=["GET", "POST"])
 @roles_required("viewer", "staff", "admin")
@@ -1451,6 +1607,23 @@ def venue_detail(venue_id):
         request.args.get("next") or request.form.get("next"),
         url_for("main.venues"),
     )
+    valid_note_item_ids = load_valid_venue_note_item_ids(venue.id)
+    active_note_item_id = normalize_venue_note_item_id(
+        request.args.get("note_item_id") or request.form.get("note_filter_item_id"),
+        valid_note_item_ids,
+    )
+    note_search_query = normalize_note_search_query(
+        request.args.get("note_q") or request.form.get("note_q")
+    )
+    note_kind_filter = normalize_note_kind_filter(
+        request.args.get("note_kind") or request.form.get("note_kind")
+    )
+    note_page = normalize_note_page(
+        request.args.get("note_page") or request.form.get("note_page")
+    )
+    note_focus = normalize_note_focus(
+        request.args.get("note_focus") or request.form.get("note_focus")
+    )
     submit_profile_tab = (request.form.get("profile_tab") or active_profile_tab).strip().lower()
     if submit_profile_tab == "details":
         submit_profile_tab = "overview"
@@ -1461,55 +1634,66 @@ def venue_detail(venue_id):
         action = (request.form.get("action") or "").strip().lower()
         if action in {"create_note", "edit_note", "delete_note"} and not current_user.is_staff:
             flash("Only staff and admins can manage notes.", "error")
-            return redirect(
-                url_for(
-                    "main.venue_detail",
-                    venue_id=venue.id,
-                    next=next_path,
-                    profile_tab=submit_profile_tab,
-                )
+            return redirect_to_venue_detail(
+                venue.id,
+                next_path=next_path,
+                profile_tab=submit_profile_tab,
+                note_item_id=active_note_item_id,
+                note_q=note_search_query,
+                note_kind=note_kind_filter,
+                note_page=note_page,
             )
 
         if action == "create_note":
             title = (request.form.get("title") or "").strip()
             body = (request.form.get("body") or "").strip()
-            if not title:
-                flash("Note title is required.", "error")
-                return redirect(
-                    url_for(
-                        "main.venue_detail",
-                        venue_id=venue.id,
-                        next=next_path,
-                        profile_tab=submit_profile_tab,
-                    )
+            note_item_raw = request.form.get("item_id", "")
+            note_item_id = normalize_venue_note_item_id(note_item_raw, valid_note_item_ids)
+            if note_item_raw.strip() and note_item_id is None:
+                flash("Select a tracked venue item or leave the note as a general venue note.", "error")
+                return redirect_to_venue_detail(
+                    venue.id,
+                    next_path=next_path,
+                    profile_tab=submit_profile_tab,
+                    note_item_id=active_note_item_id,
+                    note_focus="compose",
+                    note_q=note_search_query,
+                    note_kind=note_kind_filter,
+                    note_page=note_page,
                 )
-            if not body:
-                flash("Note body is required.", "error")
-                return redirect(
-                    url_for(
-                        "main.venue_detail",
-                        venue_id=venue.id,
-                        next=next_path,
-                        profile_tab=submit_profile_tab,
-                    )
+            validation_error = validate_note_fields(title, body)
+            if validation_error:
+                flash(validation_error, "error")
+                return redirect_to_venue_detail(
+                    venue.id,
+                    next_path=next_path,
+                    profile_tab=submit_profile_tab,
+                    note_item_id=note_item_id if note_item_id is not None else active_note_item_id,
+                    note_focus="compose",
+                    note_q=note_search_query,
+                    note_kind=note_kind_filter,
+                    note_page=note_page,
                 )
 
             new_note = VenueNote(
                 venue_id=venue.id,
                 author_user_id=current_user.id,
+                item_id=note_item_id,
                 title=title,
                 body=body,
             )
             db.session.add(new_note)
             db.session.commit()
             flash("Note added.", "success")
-            return redirect(
-                url_for(
-                    "main.venue_detail",
-                    venue_id=venue.id,
-                    next=next_path,
-                    profile_tab=submit_profile_tab,
-                )
+            return redirect_to_venue_detail(
+                venue.id,
+                next_path=next_path,
+                profile_tab=submit_profile_tab,
+                note_item_id=note_item_id,
+                note_focus="list",
+                note_q=note_search_query,
+                note_kind=note_kind_filter,
+                note_page=1,
             )
 
         if action in {"edit_note", "delete_note"}:
@@ -1519,13 +1703,14 @@ def venue_detail(venue_id):
                 note = VenueNote.query.filter_by(id=int(note_id_raw), venue_id=venue.id).first()
             if note is None:
                 flash("Note not found for this venue.", "error")
-                return redirect(
-                    url_for(
-                        "main.venue_detail",
-                        venue_id=venue.id,
-                        next=next_path,
-                        profile_tab=submit_profile_tab,
-                    )
+                return redirect_to_venue_detail(
+                    venue.id,
+                    next_path=next_path,
+                    profile_tab=submit_profile_tab,
+                    note_item_id=active_note_item_id,
+                    note_q=note_search_query,
+                    note_kind=note_kind_filter,
+                    note_page=note_page,
                 )
 
             can_manage = current_user.is_admin or (
@@ -1533,79 +1718,125 @@ def venue_detail(venue_id):
             )
             if not can_manage:
                 flash("You can only edit or delete your own notes.", "error")
-                return redirect(
-                    url_for(
-                        "main.venue_detail",
-                        venue_id=venue.id,
-                        next=next_path,
-                        profile_tab=submit_profile_tab,
-                    )
+                return redirect_to_venue_detail(
+                    venue.id,
+                    next_path=next_path,
+                    profile_tab=submit_profile_tab,
+                    note_item_id=active_note_item_id,
+                    note_q=note_search_query,
+                    note_kind=note_kind_filter,
+                    note_page=note_page,
                 )
 
             if action == "edit_note":
                 title = (request.form.get("title") or "").strip()
                 body = (request.form.get("body") or "").strip()
-                if not title:
-                    flash("Note title is required.", "error")
-                    return redirect(
-                        url_for(
-                            "main.venue_detail",
-                            venue_id=venue.id,
-                            next=next_path,
-                            profile_tab=submit_profile_tab,
-                        )
+                note_item_raw = request.form.get("item_id", "")
+                note_item_id = normalize_venue_note_item_id(note_item_raw, valid_note_item_ids)
+                if note_item_raw.strip() and note_item_id is None:
+                    flash("Select a tracked venue item or leave the note as a general venue note.", "error")
+                    return redirect_to_venue_detail(
+                        venue.id,
+                        next_path=next_path,
+                        profile_tab=submit_profile_tab,
+                        note_item_id=active_note_item_id,
+                        note_focus="list",
+                        note_q=note_search_query,
+                        note_kind=note_kind_filter,
+                        note_page=note_page,
                     )
-                if not body:
-                    flash("Note body is required.", "error")
-                    return redirect(
-                        url_for(
-                            "main.venue_detail",
-                            venue_id=venue.id,
-                            next=next_path,
-                            profile_tab=submit_profile_tab,
-                        )
+                validation_error = validate_note_fields(title, body)
+                if validation_error:
+                    flash(validation_error, "error")
+                    return redirect_to_venue_detail(
+                        venue.id,
+                        next_path=next_path,
+                        profile_tab=submit_profile_tab,
+                        note_item_id=note_item_id if note_item_id is not None else active_note_item_id,
+                        note_focus="list",
+                        note_q=note_search_query,
+                        note_kind=note_kind_filter,
+                        note_page=note_page,
                     )
 
+                note.item_id = note_item_id
                 note.title = title
                 note.body = body
                 db.session.commit()
                 flash("Note updated.", "success")
-                return redirect(
-                    url_for(
-                        "main.venue_detail",
-                        venue_id=venue.id,
-                        next=next_path,
-                        profile_tab=submit_profile_tab,
-                    )
+                return redirect_to_venue_detail(
+                    venue.id,
+                    next_path=next_path,
+                    profile_tab=submit_profile_tab,
+                    note_item_id=note_item_id,
+                    note_focus="list",
+                    note_q=note_search_query,
+                    note_kind=note_kind_filter,
+                    note_page=1,
                 )
 
+            redirect_note_item_id = (
+                active_note_item_id if active_note_item_id is not None else note.item_id
+            )
             db.session.delete(note)
             db.session.commit()
             flash("Note deleted.", "success")
-            return redirect(
-                url_for(
-                    "main.venue_detail",
-                    venue_id=venue.id,
-                    next=next_path,
-                    profile_tab=submit_profile_tab,
-                )
+            return redirect_to_venue_detail(
+                venue.id,
+                next_path=next_path,
+                profile_tab=submit_profile_tab,
+                note_item_id=redirect_note_item_id,
+                note_focus="list" if redirect_note_item_id is not None else None,
+                note_q=note_search_query,
+                note_kind=note_kind_filter,
+                note_page=note_page,
             )
 
     venue_profile = build_venue_profile_view_model(venue.id)
     recent_activity_rows = build_recent_venue_activity_rows(venue.id, limit=20)
-    note_rows = []
-    note_query_rows = (
+    note_item_options = venue_profile["note_item_options"]
+    note_item_option_map = {option["id"]: option for option in note_item_options}
+    if active_note_item_id not in note_item_option_map:
+        active_note_item_id = None
+    note_query = (
         db.session.query(
             VenueNote,
             User.display_name.label("author_display_name"),
             User.email.label("author_email"),
+            Item.name.label("item_name"),
         )
         .outerjoin(User, User.id == VenueNote.author_user_id)
+        .outerjoin(Item, Item.id == VenueNote.item_id)
         .filter(VenueNote.venue_id == venue.id)
-        .order_by(VenueNote.updated_at.desc(), VenueNote.id.desc())
+    )
+    if active_note_item_id is not None:
+        note_query = note_query.filter(VenueNote.item_id == active_note_item_id)
+    if note_kind_filter == "general":
+        note_query = note_query.filter(VenueNote.item_id.is_(None))
+    elif note_kind_filter == "tagged":
+        note_query = note_query.filter(VenueNote.item_id.is_not(None))
+    if note_search_query:
+        note_search_text = note_search_query.lower()
+        note_query = note_query.filter(
+            or_(
+                func.lower(VenueNote.title).contains(note_search_text),
+                func.lower(VenueNote.body).contains(note_search_text),
+                func.lower(func.coalesce(User.display_name, "")).contains(note_search_text),
+                func.lower(func.coalesce(User.email, "")).contains(note_search_text),
+                func.lower(func.coalesce(Item.name, "")).contains(note_search_text),
+            )
+        )
+
+    note_total_count = note_query.order_by(None).count()
+    note_pagination = build_pagination(note_total_count, note_page, VENUE_NOTES_PAGE_SIZE)
+    note_rows = []
+    note_query_rows = (
+        note_query.order_by(VenueNote.updated_at.desc(), VenueNote.id.desc())
+        .offset(note_pagination["offset"])
+        .limit(note_pagination["page_size"])
         .all()
     )
-    for note, author_display_name, author_email in note_query_rows:
+    for note, author_display_name, author_email, item_name in note_query_rows:
         created_at = ensure_utc(note.created_at)
         updated_at = ensure_utc(note.updated_at)
         is_edited = bool(
@@ -1618,9 +1849,14 @@ def venue_detail(venue_id):
             current_user.role == "staff" and note.author_user_id == current_user.id
         )
         author_name = (author_display_name or "").strip() or (author_email or "Unknown user")
+        is_item_note = note.item_id is not None
         note_rows.append(
             {
                 "id": note.id,
+                "item_id": note.item_id,
+                "item_name": (item_name or "").strip() or "Tracked item",
+                "is_item_note": is_item_note,
+                "note_kind_label": "Item note" if is_item_note else "Venue note",
                 "title": note.title,
                 "body": note.body,
                 "author_name": author_name,
@@ -1639,7 +1875,96 @@ def venue_detail(venue_id):
         back_label=describe_back_destination(next_path, venue.id),
         recent_activity_rows=recent_activity_rows,
         note_rows=note_rows,
+        active_note_item_id=active_note_item_id,
+        active_note_item_option=note_item_option_map.get(active_note_item_id),
+        note_search_query=note_search_query,
+        note_kind_filter=note_kind_filter,
+        note_pagination=note_pagination,
+        note_focus=note_focus,
+        note_title_max_length=NOTE_TITLE_MAX_LENGTH,
+        note_body_max_length=NOTE_BODY_MAX_LENGTH,
         active_profile_tab=active_profile_tab,
+        venue_inventory_export_base_url=url_for("main.export_venue_inventory", venue_id=venue.id),
         restock_status_options=RESTOCK_STATUS_META,
         update_status_url=url_for("venue_items.quick_check", venue_id=venue.id, next=request.full_path),
     )
+
+
+@main_bp.post("/venues/<int:venue_id>/notes/inline")
+@roles_required("staff", "admin")
+def create_venue_note_inline(venue_id):
+    venue = Venue.query.get_or_404(venue_id)
+    valid_note_items = load_valid_venue_note_items(venue.id)
+    note_item_id = normalize_venue_note_item_id(
+        request.form.get("item_id"),
+        set(valid_note_items),
+    )
+    if note_item_id is None:
+        return (
+            jsonify(
+                {
+                    "error": "Select a tracked venue item before adding a note.",
+                    "code": "invalid_item",
+                }
+            ),
+            400,
+        )
+
+    title = (request.form.get("title") or "").strip()
+    body = (request.form.get("body") or "").strip()
+    validation_error = validate_note_fields(title, body)
+    if validation_error:
+        return jsonify({"error": validation_error, "code": "validation_error"}), 400
+
+    db.session.add(
+        VenueNote(
+            venue_id=venue.id,
+            author_user_id=current_user.id,
+            item_id=note_item_id,
+            title=title,
+            body=body,
+        )
+    )
+    db.session.commit()
+
+    note_count = (
+        db.session.query(func.count(VenueNote.id))
+        .filter(
+            VenueNote.venue_id == venue.id,
+            VenueNote.item_id == note_item_id,
+        )
+        .scalar()
+        or 0
+    )
+
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Note added.",
+            "item_id": note_item_id,
+            "item_name": valid_note_items.get(note_item_id, "Tracked item"),
+            "note_count": int(note_count),
+        }
+    )
+
+
+@main_bp.get("/venues/<int:venue_id>/inventory/export.csv")
+@roles_required("viewer", "staff", "admin")
+def export_venue_inventory(venue_id):
+    venue_profile = build_venue_profile_view_model(venue_id)
+    venue = venue_profile["venue"]
+    scope = normalize_export_scope(request.args.get("scope"), default=EXPORT_SCOPE_FILTERED)
+    requested_filters = normalize_venue_inventory_filters(request.args)
+    filters = {
+        "q": "",
+        "segment": "all",
+        "filter": "all",
+        "sort": requested_filters["sort"],
+    }
+    if scope == EXPORT_SCOPE_FILTERED:
+        filters = requested_filters
+
+    rows = filter_venue_inventory_rows(venue_profile["item_rows"], filters)
+    csv_rows = build_venue_inventory_csv_rows(venue, rows)
+    filename = build_venue_inventory_export_filename(venue, scope=scope)
+    return build_csv_response(VENUE_INVENTORY_EXPORT_HEADERS, csv_rows, filename)

@@ -15,6 +15,7 @@
   const mobileList = document.getElementById("venueProfileMobileList");
   const activeFiltersWrap = document.getElementById("venueProfileActiveFilters");
   const activeFilterList = document.getElementById("venueProfileActiveFilterList");
+  const exportLinks = Array.from(document.querySelectorAll("[data-export-base-href][data-export-scope]"));
 
   const searchDebounceMs = 180;
   const defaultFilter = "all";
@@ -362,6 +363,47 @@
     });
   }
 
+  function syncInventoryExportUrls() {
+    if (!exportLinks.length) return;
+
+    const searchValue = (searchInput.value || "").trim();
+    const segmentValue = getActiveSegment();
+    const filterValue = filterSelect.value || defaultFilter;
+    const sortValue = sortSelect.value || defaultSort;
+
+    exportLinks.forEach((link) => {
+      const baseHref = link.getAttribute("data-export-base-href");
+      if (!baseHref) return;
+
+      const scope = link.getAttribute("data-export-scope") || "filtered";
+      const nextUrl = new URL(baseHref, window.location.origin);
+      nextUrl.searchParams.set("scope", scope);
+
+      if (sortValue && sortValue !== defaultSort) {
+        nextUrl.searchParams.set("inventory_sort", sortValue);
+      } else {
+        nextUrl.searchParams.delete("inventory_sort");
+      }
+
+      if (scope === "filtered") {
+        if (searchValue) nextUrl.searchParams.set("inventory_q", searchValue);
+        else nextUrl.searchParams.delete("inventory_q");
+
+        if (segmentValue !== defaultSegment) nextUrl.searchParams.set("inventory_segment", segmentValue);
+        else nextUrl.searchParams.delete("inventory_segment");
+
+        if (filterValue !== defaultFilter) nextUrl.searchParams.set("inventory_filter", filterValue);
+        else nextUrl.searchParams.delete("inventory_filter");
+      } else {
+        nextUrl.searchParams.delete("inventory_q");
+        nextUrl.searchParams.delete("inventory_segment");
+        nextUrl.searchParams.delete("inventory_filter");
+      }
+
+      link.href = `${nextUrl.pathname}${nextUrl.search}`;
+    });
+  }
+
   function syncInventoryUrl() {
     const nextUrl = new URL(window.location.href);
     const nextSearch = (searchInput.value || "").trim();
@@ -383,6 +425,7 @@
 
     window.history.replaceState({}, "", nextUrl);
     syncActionUrls();
+    syncInventoryExportUrls();
   }
 
   function hasNonDefaultToolbarState() {
@@ -645,5 +688,6 @@
   });
 
   syncActionUrls();
+  syncInventoryExportUrls();
   applyInventoryView();
 })();

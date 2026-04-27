@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% import "_inventory_macros.html" as inventory_ui %}
+{% import "_inventory_macros.html" as inventory_ui with context %}
 {% import "_ui_macros.html" as ui %}
 {% block title %}Supplies Audit{% endblock %}
 
@@ -12,7 +12,7 @@
   ("consumable", "Consumable"),
   ("durable", "Durable"),
 ] %}
-<section class="supplies-audit-hero card border-0 shadow-sm mb-2">
+<section class="supplies-audit-hero card border-0 shadow-sm mb-2 ui-surface-card-elevated">
   <div class="card-body supplies-audit-hero-body p-4">
     {{ ui.page_header(
       title="Supplies",
@@ -51,7 +51,7 @@
   </div>
 </section>
 
-<section class="card border-0 shadow-sm mb-3">
+<section class="card border-0 shadow-sm mb-3 ui-surface-card-secondary">
   <div class="card-body">
     <form method="get" action="{{ url_for('supplies.index') }}" class="supplies-filter-form" id="suppliesFilterForm">
       {% call ui.toolbar("ui-toolbar-split") %}
@@ -78,8 +78,30 @@
           </div>
         </div>
         <div class="ui-toolbar-actions supplies-filter-actions">
-          <button class="btn btn-aolrc-accent ui-control supplies-filter-submit" type="submit">Apply</button>
-          <a class="btn btn-outline-secondary ui-control" href="{{ url_for('supplies.index') }}">Clear</a>
+          <div class="ui-export-action-group">
+            <a
+              id="suppliesExportCurrent"
+              class="btn btn-outline-secondary ui-control"
+              href="{{ supplies_export_base_url }}"
+              data-supplies-export-base-href="{{ supplies_export_base_url }}"
+              data-supplies-export-scope="filtered"
+            >
+              Export View CSV
+            </a>
+            <a
+              id="suppliesExportFull"
+              class="btn btn-outline-secondary ui-control"
+              href="{{ supplies_export_base_url }}?scope=full"
+              data-supplies-export-base-href="{{ supplies_export_base_url }}"
+              data-supplies-export-scope="full"
+            >
+              Export All CSV
+            </a>
+          </div>
+          <div class="ui-toolbar-button-group">
+            <button class="btn btn-aolrc-accent ui-control supplies-filter-submit" type="submit">Apply</button>
+            <a class="btn btn-outline-secondary ui-control" href="{{ url_for('supplies.index') }}">Clear</a>
+          </div>
         </div>
       {% endcall %}
 
@@ -109,7 +131,7 @@
   </div>
 </section>
 
-<section class="card border-0 shadow-sm">
+<section class="card border-0 shadow-sm ui-surface-card">
   <div class="card-body">
       <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
         <div>
@@ -230,7 +252,30 @@
   </div>
 </section>
 
-<script>
+<div
+  class="modal fade supply-notes-modal"
+  id="supplyNotesModal"
+  tabindex="-1"
+  aria-labelledby="supplyNotesModalLabel"
+  aria-hidden="true"
+  data-active-note-item-id="{{ active_note_item_id or '' }}"
+  data-note-focus="{{ note_focus or '' }}"
+>
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable supply-notes-modal-dialog">
+    <div
+      class="modal-content supply-notes-modal-content"
+      id="supplyNotesModalContent"
+      data-modal-endpoint="{{ url_for('supplies.note_modal') }}"
+    >
+      <div class="supply-notes-modal-loading">
+        <div class="spinner-border spinner-border-sm text-secondary" role="status" aria-hidden="true"></div>
+        <span>Loading notes…</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
   (() => {
     const suppliesFilterForm = document.getElementById("suppliesFilterForm");
     const suppliesSearch = document.getElementById("suppliesSearch");
@@ -242,7 +287,10 @@
     const suppliesEmptyState = document.getElementById("suppliesClientEmptyState");
     const suppliesTable = document.querySelector(".supplies-audit-table");
     const suppliesMobileList = document.querySelector(".supply-mobile-list");
+    const suppliesExportLinks = Array.from(document.querySelectorAll("[data-supplies-export-base-href][data-supplies-export-scope]"));
     const supplySearchDebounceMs = 200;
+    const supplyNumberFitMinScale = 0.72;
+    const supplyNumberFitStep = 0.04;
     const quickFilterLabels = {
       missing_counts: "Missing counts",
       below_par: "Below par",
@@ -253,6 +301,7 @@
     };
 
     let supplySearchDebounceHandle = null;
+    let supplyNumberFitRafId = null;
 
     function getSelectedQuickFilters() {
       return suppliesQuickFilterInputs
@@ -567,6 +616,20 @@
       });
     }
 
+    function syncSupplyNoteUrls() {
+      document.querySelectorAll("[data-supply-note-item-id]").forEach((link) => {
+        const noteItemId = link.getAttribute("data-supply-note-item-id");
+        if (!noteItemId) return;
+
+        const nextUrl = new URL(window.location.href);
+        const noteFocus = link.getAttribute("data-supply-note-focus") || "list";
+        nextUrl.searchParams.set("note_item_id", noteItemId);
+        if (noteFocus) nextUrl.searchParams.set("note_focus", noteFocus);
+        else nextUrl.searchParams.delete("note_focus");
+        link.href = `${nextUrl.pathname}${nextUrl.search}`;
+      });
+    }
+
     function syncSupplyUrl() {
       const nextUrl = new URL(window.location.href);
       const nextSearch = (suppliesSearch?.value || "").trim();
@@ -589,6 +652,114 @@
 
       window.history.replaceState({}, "", nextUrl);
       syncSupplyActionUrls();
+      syncSupplyNoteUrls();
+      syncSupplyExportUrls();
+    }
+
+    function syncSupplyExportUrls() {
+      if (!suppliesExportLinks.length) return;
+
+      const nextSearch = (suppliesSearch?.value || "").trim();
+      const nextSort = suppliesSort?.value || "par_ratio_asc";
+      const nextQuickFilters = getSelectedQuickFilters();
+
+      suppliesExportLinks.forEach((link) => {
+        const baseHref = link.getAttribute("data-supplies-export-base-href");
+        if (!baseHref) return;
+
+        const scope = link.getAttribute("data-supplies-export-scope") || "filtered";
+        const nextUrl = new URL(baseHref, window.location.origin);
+        nextUrl.searchParams.set("scope", scope);
+
+        if (nextSort && nextSort !== "par_ratio_asc") {
+          nextUrl.searchParams.set("sort", nextSort);
+        } else {
+          nextUrl.searchParams.delete("sort");
+        }
+
+        if (scope === "filtered") {
+          if (nextSearch) nextUrl.searchParams.set("q", nextSearch);
+          else nextUrl.searchParams.delete("q");
+
+          nextUrl.searchParams.delete("quick_filter");
+          nextQuickFilters.forEach((value) => {
+            nextUrl.searchParams.append("quick_filter", value);
+          });
+        } else {
+          nextUrl.searchParams.delete("q");
+          nextUrl.searchParams.delete("quick_filter");
+        }
+
+        nextUrl.searchParams.delete("item_type");
+        nextUrl.searchParams.delete("coverage");
+        link.href = `${nextUrl.pathname}${nextUrl.search}`;
+      });
+    }
+
+    function disposeSupplyNumberTooltip(numberEl) {
+      if (!window.bootstrap?.Tooltip) return;
+      const existing = window.bootstrap.Tooltip.getInstance(numberEl);
+      if (existing) existing.dispose();
+    }
+
+    function fitSupplyNumber(numberEl) {
+      if (!numberEl) return;
+
+      numberEl.classList.remove("is-overflow-truncated");
+      numberEl.style.setProperty("--supply-fit-font-size", "1em");
+      disposeSupplyNumberTooltip(numberEl);
+      numberEl.removeAttribute("title");
+      numberEl.removeAttribute("data-bs-toggle");
+      numberEl.removeAttribute("data-bs-placement");
+      numberEl.removeAttribute("data-bs-trigger");
+      numberEl.removeAttribute("data-bs-title");
+
+      if (numberEl.offsetParent === null) return;
+      if (numberEl.clientWidth <= 0 && numberEl.parentElement?.clientWidth <= 0) return;
+
+      let scale = 1;
+      while (scale > supplyNumberFitMinScale && numberEl.scrollWidth > numberEl.clientWidth + 1) {
+        scale = Math.max(supplyNumberFitMinScale, Number((scale - supplyNumberFitStep).toFixed(2)));
+        numberEl.style.setProperty("--supply-fit-font-size", `${scale}em`);
+      }
+
+      if (numberEl.scrollWidth <= numberEl.clientWidth + 1) return;
+
+      numberEl.classList.add("is-overflow-truncated");
+      const fullValue = numberEl.dataset.supplyFitFullValue || numberEl.textContent.trim();
+      numberEl.setAttribute("title", fullValue);
+      numberEl.setAttribute("data-bs-toggle", "tooltip");
+      numberEl.setAttribute("data-bs-placement", "top");
+      numberEl.setAttribute("data-bs-trigger", "hover focus");
+      numberEl.setAttribute("data-bs-title", fullValue);
+
+      if (window.bootstrap?.Tooltip) {
+        const tooltip = window.bootstrap.Tooltip.getOrCreateInstance(numberEl, {
+          trigger: "hover focus",
+          placement: "top",
+          container: "body",
+          boundary: "viewport",
+        });
+        if (tooltip?.setContent) {
+          tooltip.setContent({ ".tooltip-inner": fullValue });
+        }
+      }
+    }
+
+    function applySupplyNumberOverflowBehavior() {
+      document.querySelectorAll(".js-supply-fit-number").forEach((numberEl) => {
+        fitSupplyNumber(numberEl);
+      });
+    }
+
+    function queueSupplyNumberOverflowBehavior() {
+      if (supplyNumberFitRafId !== null) {
+        window.cancelAnimationFrame(supplyNumberFitRafId);
+      }
+      supplyNumberFitRafId = window.requestAnimationFrame(() => {
+        supplyNumberFitRafId = null;
+        applySupplyNumberOverflowBehavior();
+      });
     }
 
     function renderActiveFilters() {
@@ -668,6 +839,7 @@
       updateSuppliesResultCount(visibleCount);
       renderActiveFilters();
       syncSupplyUrl();
+      queueSupplyNumberOverflowBehavior();
     }
 
     function queueSupplyLiveView(immediate = false) {
@@ -739,6 +911,10 @@
       });
     });
 
+    window.addEventListener("resize", () => {
+      queueSupplyNumberOverflowBehavior();
+    });
+
     suppliesTable?.addEventListener("click", (event) => {
       if (event.target.closest("button, a, input, select, textarea, label")) return;
 
@@ -771,8 +947,11 @@
     });
 
     syncSupplyActionUrls();
+    syncSupplyNoteUrls();
+    syncSupplyExportUrls();
     renderActiveFilters();
     applySupplyLiveView();
   })();
 </script>
+<script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/supply_notes.js') }}"></script>
 {% endblock %}

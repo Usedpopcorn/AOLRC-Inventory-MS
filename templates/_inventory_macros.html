@@ -1,8 +1,8 @@
 {% import "_item_macros.html" as item_ui %}
 {% import "_ui_macros.html" as ui %}
 
-{% macro state_badge(label, tone="neutral", icon_class=None, inline=False, extra_classes="", extra_attrs="") -%}
-  <span class="inventory-state-chip supply-audit-state-badge{{ ' supply-audit-state-inline' if inline else '' }} inventory-state-chip-{{ tone }}{{ ' ' ~ extra_classes if extra_classes else '' }}"{% if extra_attrs %} {{ extra_attrs|safe }}{% endif %}>
+{% macro state_badge(label, tone="neutral", icon_class=None, inline=False, extra_classes="") -%}
+  <span class="inventory-state-chip supply-audit-state-badge{{ ' supply-audit-state-inline' if inline else '' }} inventory-state-chip-{{ tone }}{{ ' ' ~ extra_classes if extra_classes else '' }}">
     {% if icon_class %}
       <i class="bi {{ icon_class }}" aria-hidden="true"></i>
     {% endif %}
@@ -55,7 +55,12 @@
     </div>
   {% else %}
     <div class="supply-count-stack{{ ' supply-count-stack-compact' if compact else '' }}">
-      <span class="supply-value-strong">{{ row.total_raw_count }}</span>
+      <span
+        class="supply-value-strong supply-overflow-number js-supply-fit-number"
+        data-supply-fit-kind="count"
+        data-supply-fit-full-value="{{ row.total_raw_count }}"
+        aria-label="Count {{ row.total_raw_count }}"
+      >{{ row.total_raw_count }}</span>
       <span class="supply-count-note">
         {% if row.total_par_count is not none %}
           {{ row.par_progress.label }}
@@ -117,12 +122,13 @@
 {%- endmacro %}
 
 {% macro quick_check_action(row, venue_row, request, extra_classes="") -%}
+  {% set button_class = "btn-aolrc-primary" if row.tracking_mode == "singleton_asset" else "btn-aolrc-primary-muted" %}
   <a
-    class="btn btn-sm btn-aolrc-primary inventory-action-btn{{ ' ' ~ extra_classes if extra_classes else '' }}"
+    class="btn btn-sm {{ button_class }} inventory-action-btn{{ ' ' ~ extra_classes if extra_classes else '' }}"
     data-supplies-base-href="{{ url_for('venue_items.quick_check', venue_id=venue_row.venue_id, mode='status' if row.tracking_mode == 'singleton_asset' else 'raw_counts', focus_item_id=row.id) }}"
     href="{{ quick_check_action_href(venue_row, row, request) }}"
   >
-    {{ "Open Check" if row.tracking_mode == "singleton_asset" else "Open Count" }}
+    {{ "Open Check" if row.tracking_mode == "singleton_asset" else "Update Count" }}
   </a>
 {%- endmacro %}
 
@@ -152,6 +158,27 @@
   </span>
 {%- endmacro %}
 
+{% macro supply_item_note_link(row, note_focus="list", extra_classes="") -%}
+  {% set note_href = url_for('supplies.index', note_item_id=row.id, note_focus=note_focus) %}
+  {% set modal_base_href = url_for('supplies.note_modal', item_id=row.id) %}
+  {% set note_label = row.notes_count ~ ' note' ~ ('' if row.notes_count == 1 else 's') %}
+  <a
+    class="icon-btn-plain icon-btn-sm venue-profile-row-note-action supply-item-note-action-btn{{ ' ' ~ extra_classes if extra_classes else '' }}"
+    data-supply-note-item-id="{{ row.id }}"
+    data-supply-item-name="{{ row.name }}"
+    data-supply-note-focus="{{ note_focus }}"
+    data-supply-note-base-url="{{ modal_base_href }}"
+    data-supply-note-url="{{ url_for('supplies.note_modal', item_id=row.id, note_focus=note_focus) }}"
+    data-supply-note-can-manage="{{ 'true' if current_user.is_staff else 'false' }}"
+    {% if row.notes_count %}data-note-count="{{ row.notes_count }}"{% endif %}
+    href="{{ note_href }}"
+    aria-label="{{ ('View ' ~ note_label ~ ' for ' ~ row.name) if row.has_notes else ('Add note for ' ~ row.name) }}"
+    title="{{ note_label|capitalize if row.has_notes else 'Add note' }}"
+  >
+    <i class="bi {{ 'bi-journal-text' if row.has_notes else 'bi-journal-plus' }}" aria-hidden="true"></i>
+  </a>
+{%- endmacro %}
+
 {% macro desktop_item_row(row, detail_id, detail_row_id, request, nested=False, hidden=False) -%}
   <tr
     class="supply-audit-row supply-audit-row-clickable supply-audit-row-{{ row.attention_level }}{{ ' supply-audit-row-child' if nested else '' }}"
@@ -172,26 +199,33 @@
     {{ 'hidden' if hidden else '' }}
   >
     <td>
-      <button
-        class="supply-item-toggle{{ ' supply-item-toggle-child' if nested else '' }}"
-        type="button"
-        data-bs-toggle="collapse"
-        data-bs-target="#{{ detail_id }}"
-        aria-expanded="false"
-        aria-controls="{{ detail_id }}"
-      >
-        <span class="supply-item-toggle-main">
-          {{ item_ui.item_heading(
-            row.name,
-            parent_name=row.parent_name if not nested else none,
-            compact=True
-          ) }}
-          <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>
-        </span>
-        {% if row.desktop_issue_summary != "Fully counted" %}
-          {{ issue_summary(row.attention_level, row.desktop_issue_summary) }}
+      <div class="supply-item-cell-shell">
+        <button
+          class="supply-item-toggle{{ ' supply-item-toggle-child' if nested else '' }}"
+          type="button"
+          data-bs-toggle="collapse"
+          data-bs-target="#{{ detail_id }}"
+          aria-expanded="false"
+          aria-controls="{{ detail_id }}"
+        >
+          <span class="supply-item-toggle-main">
+            {{ item_ui.item_heading(
+              row.name,
+              parent_name=row.parent_name if not nested else none,
+              compact=True
+            ) }}
+            <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>
+          </span>
+          {% if row.desktop_issue_summary != "Fully counted" %}
+            {{ issue_summary(row.attention_level, row.desktop_issue_summary) }}
+          {% endif %}
+        </button>
+        {% if row.has_notes %}
+          {{ supply_item_note_link(row, extra_classes="supply-item-note-affordance") }}
+        {% elif current_user.is_staff %}
+          {{ supply_item_note_link(row, note_focus="compose", extra_classes="supply-item-note-affordance") }}
         {% endif %}
-      </button>
+      </div>
     </td>
     <td class="supply-model-cell{{ ' supply-model-cell-child' if nested else '' }}">
       {{ item_ui.structure_badges(
@@ -215,7 +249,12 @@
         {% if row.tracking_mode == "singleton_asset" %}
           <span class="text-muted small">&mdash;</span>
         {% elif row.total_par_count is not none %}
-          <span class="supply-value-strong">{{ row.total_par_count }}</span>
+          <span
+            class="supply-value-strong supply-overflow-number js-supply-fit-number"
+            data-supply-fit-kind="par"
+            data-supply-fit-full-value="{{ row.total_par_count }}"
+            aria-label="Par {{ row.total_par_count }}"
+          >{{ row.total_par_count }}</span>
         {% else %}
           <span class="text-muted">Not Set</span>
         {% endif %}
@@ -270,7 +309,12 @@
     </td>
     <td class="supply-count-cell">
       <span class="supply-count-stack supply-count-stack-compact">
-        <span class="supply-value-strong">{{ group.child_count }}</span>
+        <span
+          class="supply-value-strong supply-overflow-number js-supply-fit-number"
+          data-supply-fit-kind="family-count"
+          data-supply-fit-full-value="{{ group.child_count }}"
+          aria-label="Variants {{ group.child_count }}"
+        >{{ group.child_count }}</span>
         <span class="supply-count-note">variants</span>
       </span>
     </td>
@@ -347,6 +391,15 @@
     data-attention-level="{{ row.attention_level }}"
     {{ 'hidden' if hidden else '' }}
   >
+    {% if row.has_notes %}
+      <div class="supply-mobile-card-note-action-wrap">
+        {{ supply_item_note_link(row, extra_classes="supply-mobile-card-note-link") }}
+      </div>
+    {% elif current_user.is_staff %}
+      <div class="supply-mobile-card-note-action-wrap">
+        {{ supply_item_note_link(row, note_focus="compose", extra_classes="supply-mobile-card-note-link") }}
+      </div>
+    {% endif %}
     <button
       class="supply-mobile-card-toggle{{ ' supply-mobile-card-toggle-child' if nested else '' }}"
       type="button"
@@ -402,13 +455,23 @@
         {% else %}
           <div class="supply-mobile-metric">
             <span class="supply-mobile-metric-label">Count</span>
-            <span class="supply-mobile-metric-value">{{ row.total_raw_count }}</span>
+            <span
+              class="supply-mobile-metric-value supply-overflow-number js-supply-fit-number"
+              data-supply-fit-kind="count"
+              data-supply-fit-full-value="{{ row.total_raw_count }}"
+              aria-label="Count {{ row.total_raw_count }}"
+            >{{ row.total_raw_count }}</span>
           </div>
           <div class="supply-mobile-metric">
             <span class="supply-mobile-metric-label">Par</span>
             <span class="supply-mobile-metric-value">
               {% if row.total_par_count is not none %}
-                {{ row.total_par_count }}
+                <span
+                  class="supply-overflow-number js-supply-fit-number"
+                  data-supply-fit-kind="par"
+                  data-supply-fit-full-value="{{ row.total_par_count }}"
+                  aria-label="Par {{ row.total_par_count }}"
+                >{{ row.total_par_count }}</span>
               {% else %}
                 Not Set
               {% endif %}
@@ -472,7 +535,12 @@
       <div class="supply-mobile-family-metrics">
         <div class="supply-mobile-family-metric">
           <span class="supply-mobile-metric-label">Variants</span>
-          <span class="supply-mobile-metric-value">{{ group.child_count }}</span>
+          <span
+            class="supply-mobile-metric-value supply-overflow-number js-supply-fit-number"
+            data-supply-fit-kind="family-count"
+            data-supply-fit-full-value="{{ group.child_count }}"
+            aria-label="Variants {{ group.child_count }}"
+          >{{ group.child_count }}</span>
         </div>
         <div class="supply-mobile-family-metric">
           <span class="supply-mobile-metric-label">Coverage</span>
@@ -677,6 +745,8 @@
   {% set button_class = "btn-aolrc-primary" %}
   {% if tone == "accent" %}
     {% set button_class = "btn-aolrc-accent" %}
+  {% elif tone == "muted" %}
+    {% set button_class = "btn-aolrc-primary-muted" %}
   {% elif tone == "secondary" %}
     {% set button_class = "btn-outline-secondary" %}
   {% endif %}
@@ -689,17 +759,90 @@
   </a>
 {%- endmacro %}
 
+{% macro venue_profile_item_note_link(row, note_focus="list", icon_only=False) -%}
+  {% set resolved_note_focus = note_focus if current_user.is_staff else 'list' %}
+  {% set base_href = url_for('main.venue_detail', venue_id=row.venue_id, profile_tab='notes', note_item_id=row.id, note_focus=resolved_note_focus) %}
+  {% set href = url_for('main.venue_detail', venue_id=row.venue_id, profile_tab='notes', note_item_id=row.id, note_focus=resolved_note_focus, next=request.full_path) %}
+  {% set note_count = row.notes_count or 0 %}
+  {% set note_label = note_count ~ ' note' ~ ('' if note_count == 1 else 's') %}
+  {% if icon_only %}
+    {% if current_user.is_staff %}
+      <button
+        type="button"
+        class="icon-btn-plain icon-btn-sm venue-profile-row-note-action"
+        data-venue-inline-note-button
+        data-venue-note-item-id="{{ row.id }}"
+        data-venue-note-item-name="{{ row.name }}"
+        {% if note_count %}data-note-count="{{ note_count }}"{% endif %}
+        aria-label="{{ ('Add note for ' ~ row.name ~ '. ' ~ note_label ~ ' already added.') if note_count else ('Add note for ' ~ row.name) }}"
+        title="{{ ('Add note (' ~ note_label ~ ' existing)') if note_count else 'Add note' }}"
+      >
+        <i class="bi {{ 'bi-journal-text' if note_count else 'bi-journal-plus' }}"></i>
+      </button>
+    {% else %}
+      <a
+        class="icon-btn-plain icon-btn-sm venue-profile-row-note-action"
+        data-venue-profile-base-href="{{ base_href }}"
+        data-venue-note-item-id="{{ row.id }}"
+        data-venue-note-item-name="{{ row.name }}"
+        {% if note_count %}data-note-count="{{ note_count }}"{% endif %}
+        href="{{ href }}"
+        aria-label="{{ ('View ' ~ note_label ~ ' for ' ~ row.name) if note_count else ('Open notes for ' ~ row.name) }}"
+        title="{{ note_label|capitalize if note_count else 'Open notes' }}"
+      >
+        <i class="bi {{ 'bi-journal-text' if note_count else 'bi-journal-plus' }}"></i>
+      </a>
+    {% endif %}
+  {% else %}
+    {% if current_user.is_staff %}
+      <span
+        class="inventory-item-badge inventory-item-badge-note venue-profile-item-note-link"
+        data-venue-inline-note-button
+        data-venue-note-item-id="{{ row.id }}"
+        data-venue-note-item-name="{{ row.name }}"
+        data-venue-note-badge-item-id="{{ row.id }}"
+        data-note-count="{{ note_count }}"
+        role="button"
+        tabindex="0"
+        aria-label="Add note for {{ row.name }}. {{ note_label }} already added."
+        title="Add note ({{ note_label }} existing)"
+      >
+        <i class="bi bi-journal-text" aria-hidden="true"></i>
+        <span>{{ note_label }}</span>
+      </span>
+    {% else %}
+      <a
+        class="inventory-item-badge inventory-item-badge-note venue-profile-item-note-link"
+        data-venue-profile-base-href="{{ base_href }}"
+        data-venue-note-item-id="{{ row.id }}"
+        data-venue-note-item-name="{{ row.name }}"
+        data-venue-note-badge-item-id="{{ row.id }}"
+        data-note-count="{{ note_count }}"
+        href="{{ href }}"
+        aria-label="View {{ note_label }} for {{ row.name }}"
+        title="View notes"
+      >
+        <i class="bi bi-journal-text" aria-hidden="true"></i>
+        <span>{{ note_label }}</span>
+      </a>
+    {% endif %}
+  {% endif %}
+{%- endmacro %}
+
 {% macro venue_profile_inventory_row_actions(row, mobile=False) -%}
+  {% set primary_tone = "muted" if row.primary_action_mode == "raw_counts" else "primary" %}
+  {% set secondary_tone = "muted" if row.secondary_action_mode == "raw_counts" else "primary" %}
   <div class="venue-profile-row-actions{{ ' venue-profile-row-actions-mobile' if mobile else '' }}">
     {{ venue_profile_inventory_action_link(
       row,
       row.primary_action_label,
       row.primary_action_mode,
-      tone="accent" if row.has_count_gap else "primary"
+      tone=primary_tone
     ) }}
     {% if row.secondary_action_label %}
-      {{ venue_profile_inventory_action_link(row, row.secondary_action_label, row.secondary_action_mode, tone="secondary") }}
+      {{ venue_profile_inventory_action_link(row, row.secondary_action_label, row.secondary_action_mode, tone=secondary_tone) }}
     {% endif %}
+    {{ venue_profile_item_note_link(row, note_focus="compose", icon_only=True) }}
   </div>
 {%- endmacro %}
 
@@ -707,49 +850,67 @@
   <div class="collapse venue-profile-inventory-detail" id="{{ detail_id }}">
     <div class="venue-profile-audit-detail-panel">
       <div class="venue-profile-audit-detail-grid">
-        <div class="venue-profile-audit-detail-block">
-          <div class="venue-profile-audit-detail-label">Quick status</div>
-          <div class="venue-profile-audit-detail-value">
-            {{ ui.status_pill(row.status_meta.key, row.status_meta.text, row.status_meta.icon_class) }}
+        <div class="venue-profile-audit-detail-block venue-profile-audit-detail-block-followup venue-profile-audit-detail-block-{{ row.attention_level }}">
+          <div class="venue-profile-audit-detail-label">
+            <i class="bi bi-compass" aria-hidden="true"></i>
+            <span>Follow-up now</span>
           </div>
-          <div class="venue-profile-audit-detail-note">{{ row.status_absolute_text }}</div>
-          <div class="venue-profile-audit-detail-subnote">{{ row.status_freshness.text }}</div>
+          <div class="venue-profile-audit-detail-value">
+            <span class="venue-profile-audit-keyline venue-profile-audit-keyline-{{ row.attention_level }}">{{ row.next_step_label }}</span>
+          </div>
+          <div class="venue-profile-audit-detail-note">{{ row.consistency.detail }}</div>
+          {% if row.tracking_mode != "singleton_asset" and row.suggested_order_qty is not none and row.suggested_order_qty > 0 %}
+            <div class="venue-profile-audit-detail-subnote">Suggested order {{ row.suggested_order_qty }}</div>
+          {% elif row.tracking_mode != "singleton_asset" and row.over_par_qty is not none and row.over_par_qty > 0 %}
+            <div class="venue-profile-audit-detail-subnote">{{ row.over_par_qty }} over par</div>
+          {% elif row.review_meta_text %}
+            <div class="venue-profile-audit-detail-subnote">{{ row.review_meta_text }}</div>
+          {% endif %}
         </div>
-        <div class="venue-profile-audit-detail-block">
-          <div class="venue-profile-audit-detail-label">{{ "Asset state" if row.tracking_mode == "singleton_asset" else "Latest count" }}</div>
-          <div class="venue-profile-audit-detail-value">{{ row.count_context_text }}</div>
+        <div class="venue-profile-audit-detail-block venue-profile-audit-detail-block-setup">
+          <div class="venue-profile-audit-detail-label">
+            <i class="bi bi-sliders2" aria-hidden="true"></i>
+            <span>Setup context</span>
+          </div>
+          <div class="venue-profile-audit-detail-value">{{ row.detail_setup_text }}</div>
           {% if row.tracking_mode == "singleton_asset" %}
             <div class="venue-profile-audit-detail-note">Status-first asset check</div>
           {% else %}
             <div class="venue-profile-audit-detail-note">
-              {% if row.par_value is not none %}
+              {% if row.par_value is not none and row.par_source %}
+                Par {{ row.par_value }} ({{ row.par_source|replace('_', ' ')|title }})
+              {% elif row.par_value is not none %}
                 Par {{ row.par_value }}
               {% else %}
-                No par set
+                No par configured
               {% endif %}
-              {% if row.consistency.suggested_status_label %}
-                / Suggests {{ row.consistency.suggested_status_label }}
-              {% endif %}
-            </div>
-            <div class="venue-profile-audit-detail-subnote">
-              {{ row.count_freshness.text }}{% if not row.count_freshness.is_missing %} / {{ row.count_absolute_text }}{% endif %}
             </div>
           {% endif %}
+          <div class="venue-profile-audit-detail-subnote">{{ row.detail_threshold_text }}</div>
         </div>
-        <div class="venue-profile-audit-detail-block">
-          <div class="venue-profile-audit-detail-label">Consistency</div>
-          <div class="venue-profile-audit-detail-value">
-            {{ venue_profile_consistency_badge(row.consistency, compact=True) }}
+        <div class="venue-profile-audit-detail-block venue-profile-audit-detail-block-audit">
+          <div class="venue-profile-audit-detail-label">
+            <i class="bi bi-clock-history" aria-hidden="true"></i>
+            <span>Audit trail</span>
           </div>
-          <div class="venue-profile-audit-detail-note">{{ row.consistency.detail }}</div>
-          {% if row.review_meta_text %}
-            <div class="venue-profile-audit-detail-subnote">{{ row.review_meta_text }}</div>
+          <div class="venue-profile-audit-detail-value">{{ row.detail_last_touched_text }}</div>
+          <div class="venue-profile-audit-detail-note">Status: {{ row.detail_status_by_text }}</div>
+          {% if row.detail_count_by_text %}
+            <div class="venue-profile-audit-detail-subnote">Count: {{ row.detail_count_by_text }}</div>
           {% endif %}
         </div>
-        <div class="venue-profile-audit-detail-block">
-          <div class="venue-profile-audit-detail-label">Freshness</div>
-          <div class="venue-profile-audit-detail-value">{{ row.freshness_primary_text }}</div>
-          <div class="venue-profile-audit-detail-note">{{ row.freshness_secondary_text }}</div>
+        <div class="venue-profile-audit-detail-block venue-profile-audit-detail-block-network">
+          <div class="venue-profile-audit-detail-label">
+            <i class="bi bi-diagram-3" aria-hidden="true"></i>
+            <span>Cross-venue snapshot</span>
+          </div>
+          <div class="venue-profile-audit-detail-value">{{ row.network_summary_text }}</div>
+          <div class="venue-profile-audit-detail-note">
+            Tracked at {{ row.network_tracked_venues_count }} active venue{{ '' if row.network_tracked_venues_count == 1 else 's' }}
+          </div>
+          {% if row.notes_count %}
+            <div class="venue-profile-audit-detail-subnote">{{ row.notes_count }} venue note{{ '' if row.notes_count == 1 else 's' }} tagged</div>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -800,6 +961,9 @@
                 show_kind=not nested,
                 compact=True
               ) }}
+              {% if row.has_notes %}
+                {{ venue_profile_item_note_link(row) }}
+              {% endif %}
             </div>
           </div>
           <div class="venue-profile-inventory-status">
@@ -955,6 +1119,9 @@
               show_kind=not nested,
               compact=True
             ) }}
+            {% if row.has_notes %}
+              {{ venue_profile_item_note_link(row) }}
+            {% endif %}
           </div>
         </div>
         <i class="bi bi-chevron-down supply-item-toggle-icon" aria-hidden="true"></i>

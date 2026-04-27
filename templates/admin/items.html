@@ -1,86 +1,171 @@
-{% extends "base.html" %}
+{% extends "admin/layout.html" %}
 {% import "_item_macros.html" as item_ui %}
 {% import "_ui_macros.html" as ui %}
-{% block title %}Manage Items{% endblock %}
+{% import "admin/_admin_macros.html" as admin_ui %}
+{% block title %}Item Management{% endblock %}
 
-{% block content %}
+{% block admin_page %}
 {{ ui.page_header(
-  title="Manage Items",
-  subtitle="Define shared item structure once so supplies, venue assignment, and venue checks use the same language."
+  title="Item Management",
+  subtitle="Catalog and structure."
 ) }}
 
-<section class="item-structure-guide card border-0 shadow-sm mb-4">
-  <div class="card-body">
-    <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-3">
-      <div>
-        <h2 class="h5 mb-1">Item Structure Guide</h2>
-        <p class="text-muted mb-0">The catalog now separates tracked inventory lines from family organizers and presence-based assets.</p>
-      </div>
-      <div class="item-catalog-stats">
-        <span class="item-catalog-stat">{{ catalog_summary.total_items }} total items</span>
-        <span class="item-catalog-stat">{{ catalog_summary.group_parents }} families</span>
-        <span class="item-catalog-stat">{{ catalog_summary.child_items }} family members</span>
-        <span class="item-catalog-stat">{{ catalog_summary.singleton_assets }} singleton assets</span>
-      </div>
-    </div>
-    <div class="item-guide-grid">
-      <article class="item-guide-card">
-        {{ item_ui.structure_badges(tracking_mode="quantity", show_category=False, show_kind=False) }}
-        <h3 class="h6 mt-3 mb-1">Quantity item</h3>
-        <p class="text-muted small mb-0">Standard supply row with counts, par targets, and low-stock style attention.</p>
-      </article>
-      <article class="item-guide-card">
-        {{ item_ui.structure_badges(tracking_mode="singleton_asset", show_category=False, show_kind=False) }}
-        <h3 class="h6 mt-3 mb-1">Singleton asset</h3>
-        <p class="text-muted small mb-0">Presence and condition matter more than low-stock counts. Use for one-per-room assets.</p>
-      </article>
-      <article class="item-guide-card">
-        {{ item_ui.structure_badges(is_group_parent=True, show_tracking=False, show_category=False) }}
-        <h3 class="h6 mt-3 mb-1">Family organizer</h3>
-        <p class="text-muted small mb-0">Display-only parent that groups related variants like Tea, then lets staff track the child items beneath it.</p>
-      </article>
-      <article class="item-guide-card">
-        {{ item_ui.structure_badges(parent_name="Tea", show_tracking=False, show_category=False) }}
-        <h3 class="h6 mt-3 mb-1">Family member</h3>
-        <p class="text-muted small mb-0">Tracked child item that lives inside a parent family and should be shown with that family context.</p>
-      </article>
-    </div>
-  </div>
+<section class="admin-summary-grid admin-summary-grid-compact" aria-label="Item catalog summary">
+  {{ admin_ui.summary_card("Total items", catalog_summary.total_items, "bi-box-seam") }}
+  {{ admin_ui.summary_card("Active", catalog_summary.active_items, "bi-check2-circle") }}
+  {{ admin_ui.summary_card("Inactive", catalog_summary.inactive_items, "bi-pause-circle") }}
+  {{ admin_ui.summary_card("Families", catalog_summary.group_parents, "bi-diagram-3") }}
 </section>
 
-<div class="card mb-4">
-  <div class="card-body">
-    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3">
-      <div>
-        <h2 class="h5 mb-1">Add an Item</h2>
-        <p class="text-muted mb-0">Start new catalog entries on the same shared structure used throughout the app.</p>
-      </div>
-      <button
-        class="btn btn-aolrc-accent ui-control"
-        type="button"
-        data-bs-toggle="collapse"
-        data-bs-target="#addItemCollapse"
-        aria-controls="addItemCollapse"
-        aria-expanded="{{ 'true' if show_add_item_form else 'false' }}"
-      >
-        Add Item
-      </button>
-    </div>
+{% call admin_ui.panel("Structure Guide", none, "admin-panel-support") %}
+  <div class="item-catalog-stats">
+    <span class="item-catalog-stat">{{ catalog_summary.child_items }} family members</span>
+    <span class="item-catalog-stat">{{ catalog_summary.quantity_items }} quantity items</span>
+    <span class="item-catalog-stat">{{ catalog_summary.singleton_assets }} singleton assets</span>
+  </div>
+  <div class="item-guide-grid">
+    <article class="item-guide-card">
+      {{ item_ui.structure_badges(tracking_mode="quantity", show_category=False, show_kind=False) }}
+      <h3 class="h6 mt-3 mb-1">Quantity item</h3>
+      <p class="text-muted small mb-0">Standard counted supply.</p>
+    </article>
+    <article class="item-guide-card">
+      {{ item_ui.structure_badges(tracking_mode="singleton_asset", show_category=False, show_kind=False) }}
+      <h3 class="h6 mt-3 mb-1">Singleton asset</h3>
+      <p class="text-muted small mb-0">Tracked by presence and condition.</p>
+    </article>
+    <article class="item-guide-card">
+      {{ item_ui.structure_badges(is_group_parent=True, show_tracking=False, show_category=False) }}
+      <h3 class="h6 mt-3 mb-1">Family organizer</h3>
+      <p class="text-muted small mb-0">Container for child items.</p>
+    </article>
+    <article class="item-guide-card">
+      {{ item_ui.structure_badges(parent_name="Tea", show_tracking=False, show_category=False) }}
+      <h3 class="h6 mt-3 mb-1">Family member</h3>
+      <p class="text-muted small mb-0">Tracked inside a parent family.</p>
+    </article>
+  </div>
+{% endcall %}
 
-    <div class="collapse{{ ' show' if show_add_item_form else '' }} mt-3" id="addItemCollapse">
-      {% call ui.form_section("New catalog item", "Use the shared inventory structure so assignment, checks, and audit screens stay aligned.") %}
-        <form method="post" class="row g-3">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <div class="col-12 col-md-6">
-            <label class="form-label" for="item-name">Item name</label>
-            <input
-              id="item-name"
-              class="form-control ui-control"
-              name="name"
-              placeholder="Item name (e.g., Yoga Mats)"
-              value="{{ form_values.name }}"
-            >
+{% call admin_ui.region("Item Catalog") %}
+  {% call ui.toolbar("ui-toolbar-split admin-item-toolbar") %}
+    <form method="get" id="itemCatalogFilters" class="ui-toolbar-main ui-toolbar-main-3 admin-item-filter-form">
+      <div class="admin-item-filter-field admin-item-filter-search">
+        <label class="form-label" for="itemCatalogSearch">Search</label>
+        <div class="input-group">
+          <span class="input-group-text admin-item-filter-icon" aria-hidden="true">
+            <i class="bi bi-search"></i>
+          </span>
+          <input
+            id="itemCatalogSearch"
+            class="form-control ui-control"
+            type="search"
+            name="q"
+            value="{{ item_catalog.filters.q }}"
+            placeholder="Search items, families, or units"
+          >
+        </div>
+      </div>
+      <div class="admin-item-filter-field">
+        <label class="form-label" for="itemCatalogStatus">Status</label>
+        <select id="itemCatalogStatus" class="form-select ui-control" name="status">
+          {% for value, label in item_catalog.status_options %}
+            <option value="{{ value }}" {% if item_catalog.filters.status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="admin-item-filter-field">
+        <label class="form-label" for="itemCatalogStructure">Structure</label>
+        <select id="itemCatalogStructure" class="form-select ui-control" name="structure">
+          {% for value, label in item_catalog.structure_options %}
+            <option value="{{ value }}" {% if item_catalog.filters.structure == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </form>
+    <div class="ui-toolbar-actions admin-item-toolbar-actions">
+      <div class="ui-export-action-group">
+        <a
+          id="itemCatalogExportCurrent"
+          class="btn btn-outline-secondary ui-control"
+          href="{{ url_for('admin.export_item_catalog') }}"
+          data-item-catalog-export-base-href="{{ url_for('admin.export_item_catalog') }}"
+          data-item-catalog-export-scope="filtered"
+        >
+          Export View CSV
+        </a>
+        <a
+          id="itemCatalogExportFull"
+          class="btn btn-outline-secondary ui-control"
+          href="{{ url_for('admin.export_item_catalog', scope='full') }}"
+          data-item-catalog-export-base-href="{{ url_for('admin.export_item_catalog') }}"
+          data-item-catalog-export-scope="full"
+        >
+          Export All CSV
+        </a>
+      </div>
+      <div class="ui-toolbar-button-group">
+        <a
+          id="itemCatalogClear"
+          class="btn btn-outline-secondary ui-control{{ '' if item_catalog.filters.is_filtered else ' d-none' }}"
+          data-item-catalog-clear
+          href="{{ url_for('admin.items') }}"
+        >
+          Clear
+        </a>
+        <button
+          class="btn btn-aolrc-accent ui-control"
+          type="button"
+          data-bs-toggle="collapse"
+          data-bs-target="#addItemCollapse"
+          aria-controls="addItemCollapse"
+          aria-expanded="{{ 'true' if show_add_item_form else 'false' }}"
+        >
+          Add Item
+        </button>
+      </div>
+    </div>
+  {% endcall %}
+
+  <div class="collapse{{ ' show' if show_add_item_form else '' }}" id="addItemCollapse">
+    {% call admin_ui.panel("New Item", none, "admin-item-action-panel") %}
+      {% if similar_name_matches %}
+        <div class="mb-3">
+          {{ ui.state_banner(
+            "Similar item names found.",
+            "Review these, then submit again if this item is intentional.",
+            tone="warning",
+            extra_classes="mb-2"
+          ) }}
+          <div class="admin-item-cell">
+            <div class="admin-item-cell-support">
+              {% for match in similar_name_matches %}
+                <span class="me-2">{{ match.name }}{% if not match.active %} (inactive){% endif %}</span>
+              {% endfor %}
+            </div>
           </div>
+        </div>
+      {% endif %}
+      {% call ui.form_section("Item Details") %}
+        <form method="post" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="q" value="{{ item_catalog.filters.q }}" data-item-catalog-sync="q">
+        <input type="hidden" name="status" value="{{ item_catalog.filters.status }}" data-item-catalog-sync="status">
+        <input type="hidden" name="structure" value="{{ item_catalog.filters.structure }}" data-item-catalog-sync="structure">
+        <input type="hidden" name="page" value="{{ item_catalog.pagination.current_page }}" data-item-catalog-sync="page">
+        {% if similar_name_matches %}
+          <input type="hidden" name="confirm_similar_name" value="1">
+        {% endif %}
+        <div class="col-12 col-md-6">
+          <label class="form-label" for="item-name">Item name</label>
+          <input
+            id="item-name"
+            class="form-control ui-control"
+            name="name"
+            placeholder="Item name (e.g., Yoga Mats)"
+            value="{{ form_values.name }}"
+          >
+        </div>
         <div class="col-12 col-sm-6 col-md-3">
           <label class="form-label" for="item-tracking-mode">Tracking mode</label>
           <select id="item-tracking-mode" class="form-select ui-control" name="tracking_mode">
@@ -105,7 +190,43 @@
               <option value="{{ parent.id }}" {% if form_values.parent_item_id == parent.id|string %}selected{% endif %}>{{ parent.name }} (family)</option>
             {% endfor %}
           </select>
-          <div class="form-text">Only family organizer items appear here.</div>
+        </div>
+        <div class="col-12 col-sm-6 col-md-4">
+          <label class="form-label" for="item-setup-group-selection">Setup/report group</label>
+          <select id="item-setup-group-selection" class="form-select ui-control" name="setup_group_selection" data-setup-group-selection>
+            <option value="">No setup group</option>
+            {% for option in setup_group_options %}
+              <option value="{{ option.code }}" {% if form_values.setup_group_selection == option.code %}selected{% endif %}>{{ option.display }}</option>
+            {% endfor %}
+            <option value="{{ custom_setup_group_option_value }}" {% if form_values.setup_group_selection == custom_setup_group_option_value %}selected{% endif %}>Custom setup group...</option>
+          </select>
+          <div class="form-text">Separate from parent family. Use this for spreadsheet, reporting, and future export grouping.</div>
+        </div>
+        <div class="col-12 d-none" data-setup-group-custom-fields>
+          <div class="row g-3">
+            <div class="col-12 col-sm-4">
+              <label class="form-label" for="item-setup-group-code">Custom group code</label>
+              <input
+                id="item-setup-group-code"
+                class="form-control ui-control"
+                name="setup_group_code"
+                value="{{ form_values.setup_group_code }}"
+                placeholder="06"
+                maxlength="32"
+              >
+            </div>
+            <div class="col-12 col-sm-8">
+              <label class="form-label" for="item-setup-group-label">Custom group label</label>
+              <input
+                id="item-setup-group-label"
+                class="form-control ui-control"
+                name="setup_group_label"
+                value="{{ form_values.setup_group_label }}"
+                placeholder="Custom setup grouping label"
+                maxlength="120"
+              >
+            </div>
+          </div>
         </div>
         <div class="col-12 col-sm-6 col-md-2">
           <label class="form-label" for="item-sort-order">Sort order</label>
@@ -114,6 +235,37 @@
         <div class="col-12 col-sm-6 col-md-3">
           <label class="form-label" for="item-unit">Unit (optional)</label>
           <input id="item-unit" class="form-control ui-control" name="unit" value="{{ form_values.unit }}" placeholder="each, box, bottle...">
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <label class="form-label" for="item-default-par-level">Default par</label>
+          <input
+            id="item-default-par-level"
+            class="form-control ui-control"
+            type="number"
+            min="0"
+            step="1"
+            name="default_par_level"
+            value="{{ form_values.default_par_level }}"
+            placeholder="Optional"
+          >
+        </div>
+        <div class="col-12 col-sm-6 col-md-3">
+          <label class="form-label" for="item-stale-threshold-days">Item stale override</label>
+          <div class="input-group">
+            <input
+              id="item-stale-threshold-days"
+              class="form-control ui-control"
+              type="number"
+              min="1"
+              max="365"
+              step="1"
+              name="stale_threshold_days"
+              value="{{ form_values.stale_threshold_days }}"
+              placeholder="{{ global_stale_threshold_days }}"
+            >
+            <span class="input-group-text">days</span>
+          </div>
+          <div class="form-text">Leave blank to use the global {{ global_stale_threshold_days }}-day rule.</div>
         </div>
         <div class="col-12 col-sm-6 col-md-3">
           <div class="form-check mt-md-4 pt-md-2">
@@ -131,12 +283,46 @@
             </label>
           </div>
         </div>
+        <div class="col-12">
+          <div class="admin-panel admin-panel-support">
+            <div class="admin-panel-head">
+              <h3 class="admin-panel-title">Assign to Venues</h3>
+              <div class="admin-panel-subtitle">Choose where this item should start tracking immediately. Per-venue par overrides live on venue settings and Tracking Setup.</div>
+            </div>
+            <div class="admin-panel-body">
+              {% if available_venues %}
+                <div class="row g-2">
+                  {% for venue in available_venues %}
+                    <div class="col-12 col-md-6 col-xl-4">
+                      <label class="d-flex align-items-center gap-2 p-2 border rounded">
+                        <input
+                          class="form-check-input mt-0"
+                          type="checkbox"
+                          name="venue_ids"
+                          value="{{ venue.id }}"
+                          data-item-venue-checkbox
+                          {% if venue.id in form_values.selected_venue_ids %}checked{% endif %}
+                        >
+                        <span>
+                          <span class="fw-semibold">{{ venue.name }}</span>
+                          <span class="text-muted small d-block">{{ "Primary venue" if venue.is_core else "Other venue" }}</span>
+                        </span>
+                      </label>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="text-muted small">No active venues are available yet.</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
         <div class="col-12 col-md-3 ms-md-auto">
-          <button class="btn w-100 btn-aolrc-accent ui-control">Create Item</button>
+          <button class="btn w-100 btn-aolrc-accent ui-control">{{ "Create Anyway" if similar_name_matches else "Create Item" }}</button>
         </div>
         </form>
       {% endcall %}
-      <section class="item-form-summary mt-3" id="itemFormSummary" aria-live="polite">
+      <section class="item-form-summary" id="itemFormSummary" aria-live="polite">
         <div class="item-form-summary-eyebrow">How this item will behave</div>
         <h3 class="item-form-summary-title h6 mb-1" id="itemFormSummaryTitle">Standalone quantity item</h3>
         <p class="item-form-summary-text mb-0" id="itemFormSummaryText">This item will appear as a directly counted supply row.</p>
@@ -146,115 +332,44 @@
           <div class="item-form-summary-point" id="itemFormSummaryCounted"></div>
         </div>
       </section>
-    </div>
+    {% endcall %}
   </div>
-</div>
+  <div
+    id="itemCatalogResults"
+    class="admin-item-catalog-results"
+    aria-live="polite"
+    aria-busy="false"
+    data-current-page="{{ item_catalog.pagination.current_page }}"
+  >
+    {% include "admin/_item_catalog_results.html" %}
+  </div>
+{% endcall %}
 
-<div class="card">
-  <div class="card-body">
-    <h2 class="h5">Items</h2>
-    <div class="table-responsive">
-      <table class="table align-middle">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th style="width:190px;">Structure</th>
-            <th style="width:140px;">Mode</th>
-            <th style="width:130px;">Category</th>
-            <th style="width:150px;">Daily Use</th>
-            <th style="width:120px;">Active</th>
-            <th style="width:240px;">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for it, depth in item_rows %}
-          <tr>
-            <td>
-              {{ item_ui.item_heading(
-                it.name,
-                parent_name=it.parent_item.name if it.parent_item else none,
-                is_group_parent=it.is_group_parent,
-                child_count=it.child_items|length if it.is_group_parent else none
-              ) }}
-            </td>
-            <td>
-              {% if it.is_group_parent %}
-                <div class="fw-semibold">Family organizer</div>
-                <div class="small text-muted">Shown as a grouped header, not a count row</div>
-              {% elif it.parent_item %}
-                <div class="fw-semibold">Child item</div>
-                <div class="small text-muted">Tracked inside {{ it.parent_item.name }}</div>
-              {% else %}
-                <div class="fw-semibold">Direct item</div>
-                <div class="small text-muted">Standalone tracked item</div>
-              {% endif %}
-            </td>
-            <td>{{ item_ui.structure_badges(tracking_mode=it.tracking_mode, show_kind=False, show_category=False, compact=True) }}</td>
-            <td>{{ item_ui.structure_badges(item_category=(it.item_category or it.item_type), show_tracking=False, show_kind=False, compact=True) }}</td>
-            <td>
-              {% if it.is_group_parent %}
-                <div class="fw-semibold">Not counted directly</div>
-                <div class="small text-muted">Children carry the inventory</div>
-              {% elif it.tracking_mode == "singleton_asset" %}
-                <div class="fw-semibold">Presence tracked</div>
-                <div class="small text-muted">Present, damaged, or missing</div>
-              {% else %}
-                <div class="fw-semibold">Counts</div>
-                <div class="small text-muted">Count and par based</div>
-              {% endif %}
-            </td>
-            <td>
-              {% if it.active %}
-                {{ ui.chip("Active", tone="success") }}
-              {% else %}
-                {{ ui.chip("Inactive", tone="secondary") }}
-              {% endif %}
-            </td>
-            <td>
-              <a class="btn btn-sm btn-outline-primary me-1 ui-control-sm" href="{{ url_for('admin.edit_item', item_id=it.id) }}">
-                Edit
-              </a>
-              {% if it.active %}
-                <a
-                  class="btn btn-sm btn-outline-danger ui-control-sm"
-                  href="{{ url_for('admin.deactivate_item', item_id=it.id) }}"
-                >
-                  Deactivate
-                </a>
-              {% else %}
-                <form method="post"
-                      action="{{ url_for('admin.activate_item', item_id=it.id) }}"
-                      class="d-inline">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button class="btn btn-sm btn-outline-success ui-control-sm" type="submit">
-                    Activate
-                  </button>
-                </form>
-              {% endif %}
-            </td>
-          </tr>
-          {% else %}
-          {{ ui.table_empty_row(7, "No items yet.", body="Add a catalog item to start assigning shared inventory across venues.") }}
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-<script>
+<script nonce="{{ csp_nonce() }}">
   (() => {
     const trackingModeEl = document.getElementById("item-tracking-mode");
     const parentSelectEl = document.getElementById("item-parent");
+    const setupGroupSelectionEl = document.getElementById("item-setup-group-selection");
+    const customSetupGroupFieldsEl = document.querySelector("[data-setup-group-custom-fields]");
     const groupParentEl = document.getElementById("item-is-group-parent");
     const summaryTitleEl = document.getElementById("itemFormSummaryTitle");
     const summaryTextEl = document.getElementById("itemFormSummaryText");
     const trackingLineEl = document.getElementById("itemFormSummaryTracking");
     const familyLineEl = document.getElementById("itemFormSummaryFamily");
     const countedLineEl = document.getElementById("itemFormSummaryCounted");
+    const venueCheckboxes = Array.from(document.querySelectorAll("[data-item-venue-checkbox]"));
 
     function selectedParentLabel() {
       const option = parentSelectEl?.selectedOptions?.[0];
       return option && option.value ? option.textContent.replace(/\s+\(family\)\s*$/, "") : "";
+    }
+
+    function syncSetupGroupFields() {
+      if (!setupGroupSelectionEl || !customSetupGroupFieldsEl) return;
+      customSetupGroupFieldsEl.classList.toggle(
+        "d-none",
+        setupGroupSelectionEl.value !== "{{ custom_setup_group_option_value }}"
+      );
     }
 
     function syncItemSummary() {
@@ -262,8 +377,15 @@
       if (groupParentEl.checked) {
         parentSelectEl.value = "";
         parentSelectEl.disabled = true;
+        venueCheckboxes.forEach((checkbox) => {
+          checkbox.checked = false;
+          checkbox.disabled = true;
+        });
       } else {
         parentSelectEl.disabled = false;
+        venueCheckboxes.forEach((checkbox) => {
+          checkbox.disabled = false;
+        });
       }
 
       const trackingMode = trackingModeEl.value || "quantity";
@@ -300,7 +422,243 @@
     [trackingModeEl, parentSelectEl, groupParentEl].forEach((el) => {
       el?.addEventListener("change", syncItemSummary);
     });
+    setupGroupSelectionEl?.addEventListener("change", syncSetupGroupFields);
     syncItemSummary();
+    syncSetupGroupFields();
+  })();
+
+  (() => {
+    const form = document.getElementById("itemCatalogFilters");
+    const searchEl = document.getElementById("itemCatalogSearch");
+    const statusEl = document.getElementById("itemCatalogStatus");
+    const structureEl = document.getElementById("itemCatalogStructure");
+    const clearEl = document.getElementById("itemCatalogClear");
+    const resultsEl = document.getElementById("itemCatalogResults");
+    const exportLinks = Array.from(document.querySelectorAll("[data-item-catalog-export-base-href][data-item-catalog-export-scope]"));
+    const syncTargets = Array.from(document.querySelectorAll("[data-item-catalog-sync]"));
+    const debounceMs = 180;
+    let searchDebounceHandle = null;
+    let refreshController = null;
+
+    if (!form || !searchEl || !statusEl || !structureEl || !resultsEl) return;
+
+    function getCurrentPage() {
+      const page = Number(resultsEl.dataset.currentPage || "1");
+      return Number.isFinite(page) && page > 0 ? page : 1;
+    }
+
+    function buildParams({ page = 1 } = {}) {
+      const params = new URLSearchParams();
+      const query = (searchEl.value || "").trim();
+      const status = statusEl.value || "all";
+      const structure = structureEl.value || "all";
+
+      if (query) params.set("q", query);
+      if (status !== "all") params.set("status", status);
+      if (structure !== "all") params.set("structure", structure);
+      if (page > 1) params.set("page", String(page));
+      return params;
+    }
+
+    function syncHiddenState(currentPage) {
+      const values = {
+        q: (searchEl.value || "").trim(),
+        status: statusEl.value || "all",
+        structure: structureEl.value || "all",
+        page: String(currentPage || 1),
+      };
+      syncTargets.forEach((input) => {
+        const key = input.getAttribute("data-item-catalog-sync");
+        if (!key || !(key in values)) return;
+        input.value = values[key];
+      });
+    }
+
+    function syncClearState(params) {
+      if (!clearEl) return;
+      const isFiltered = Boolean(
+        (params.get("q") || "").trim()
+        || (params.get("status") || "all") !== "all"
+        || (params.get("structure") || "all") !== "all"
+      );
+      clearEl.classList.toggle("d-none", !isFiltered);
+    }
+
+    function syncExportUrls(params) {
+      if (!exportLinks.length) return;
+
+      exportLinks.forEach((link) => {
+        const baseHref = link.getAttribute("data-item-catalog-export-base-href");
+        if (!baseHref) return;
+
+        const scope = link.getAttribute("data-item-catalog-export-scope") || "filtered";
+        const nextUrl = new URL(baseHref, window.location.origin);
+        nextUrl.searchParams.set("scope", scope);
+
+        if (scope === "filtered") {
+          const query = (params.get("q") || "").trim();
+          const status = (params.get("status") || "all").trim();
+          const structure = (params.get("structure") || "all").trim();
+
+          if (query) nextUrl.searchParams.set("q", query);
+          else nextUrl.searchParams.delete("q");
+
+          if (status && status !== "all") nextUrl.searchParams.set("status", status);
+          else nextUrl.searchParams.delete("status");
+
+          if (structure && structure !== "all") nextUrl.searchParams.set("structure", structure);
+          else nextUrl.searchParams.delete("structure");
+        } else {
+          nextUrl.searchParams.delete("q");
+          nextUrl.searchParams.delete("status");
+          nextUrl.searchParams.delete("structure");
+        }
+
+        nextUrl.searchParams.delete("page");
+        link.href = `${nextUrl.pathname}${nextUrl.search}`;
+      });
+    }
+
+    function syncUrl(params, { push = false } = {}) {
+      const nextUrl = new URL(window.location.href);
+      nextUrl.search = params.toString();
+      if (push) {
+        window.history.pushState({}, "", nextUrl);
+      } else {
+        window.history.replaceState({}, "", nextUrl);
+      }
+    }
+
+    function setLoading(isLoading) {
+      resultsEl.classList.toggle("is-loading", isLoading);
+      resultsEl.setAttribute("aria-busy", isLoading ? "true" : "false");
+    }
+
+    async function refreshCatalog({ page = 1, pushState = false } = {}) {
+      const params = buildParams({ page });
+      const requestUrl = new URL(form.getAttribute("action") || window.location.pathname, window.location.origin);
+      params.forEach((value, key) => {
+        requestUrl.searchParams.set(key, value);
+      });
+      requestUrl.searchParams.set("catalog_partial", "1");
+
+      if (refreshController) {
+        refreshController.abort();
+      }
+      const controller = new AbortController();
+      refreshController = controller;
+      setLoading(true);
+
+      try {
+        const response = await fetch(requestUrl, {
+          headers: {
+            Accept: "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+          },
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to refresh item catalog (${response.status})`);
+        }
+        const payload = await response.json();
+        const currentPage = Number(payload.pagination?.current_page || 1);
+        const nextParams = buildParams({ page: currentPage });
+
+        resultsEl.innerHTML = payload.html || "";
+        resultsEl.dataset.currentPage = String(currentPage);
+        syncHiddenState(currentPage);
+        syncClearState(nextParams);
+        syncExportUrls(nextParams);
+        syncUrl(nextParams, { push: pushState });
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+        const fallbackParams = buildParams({ page });
+        window.location.assign(
+          `${window.location.pathname}${fallbackParams.toString() ? `?${fallbackParams.toString()}` : ""}`
+        );
+      } finally {
+        if (refreshController === controller) {
+          refreshController = null;
+          setLoading(false);
+        }
+      }
+    }
+
+    function queueRefresh({ resetPage = true, immediate = false, pushState = false } = {}) {
+      const nextPage = resetPage ? 1 : getCurrentPage();
+      syncClearState(buildParams({ page: nextPage }));
+      syncHiddenState(nextPage);
+      if (searchDebounceHandle) {
+        window.clearTimeout(searchDebounceHandle);
+        searchDebounceHandle = null;
+      }
+      if (immediate) {
+        refreshCatalog({ page: nextPage, pushState });
+        return;
+      }
+      searchDebounceHandle = window.setTimeout(() => {
+        refreshCatalog({ page: nextPage, pushState });
+      }, debounceMs);
+    }
+
+    function syncControlsFromLocation() {
+      const currentUrl = new URL(window.location.href);
+      searchEl.value = currentUrl.searchParams.get("q") || "";
+      statusEl.value = currentUrl.searchParams.get("status") || "all";
+      structureEl.value = currentUrl.searchParams.get("structure") || "all";
+      const page = Number(currentUrl.searchParams.get("page") || "1");
+      syncHiddenState(Number.isFinite(page) && page > 0 ? page : 1);
+      const params = buildParams({ page: Number.isFinite(page) && page > 0 ? page : 1 });
+      syncClearState(params);
+      syncExportUrls(params);
+    }
+
+    form.classList.add("is-live");
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      queueRefresh({ resetPage: true, immediate: true });
+    });
+    searchEl.addEventListener("input", () => {
+      queueRefresh({ resetPage: true, immediate: false });
+    });
+    searchEl.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      queueRefresh({ resetPage: true, immediate: true });
+    });
+    statusEl.addEventListener("change", () => {
+      queueRefresh({ resetPage: true, immediate: true });
+    });
+    structureEl.addEventListener("change", () => {
+      queueRefresh({ resetPage: true, immediate: true });
+    });
+    clearEl?.addEventListener("click", (event) => {
+      event.preventDefault();
+      searchEl.value = "";
+      statusEl.value = "all";
+      structureEl.value = "all";
+      queueRefresh({ resetPage: true, immediate: true });
+    });
+    resultsEl.addEventListener("click", (event) => {
+      const pageLink = event.target.closest("[data-item-catalog-page-link]");
+      if (!pageLink || pageLink.getAttribute("aria-disabled") === "true") return;
+      event.preventDefault();
+      const pageUrl = new URL(pageLink.href, window.location.origin);
+      const page = Number(pageUrl.searchParams.get("page") || "1");
+      refreshCatalog({
+        page: Number.isFinite(page) && page > 0 ? page : 1,
+        pushState: true,
+      });
+    });
+    window.addEventListener("popstate", () => {
+      syncControlsFromLocation();
+      refreshCatalog({
+        page: Number(new URL(window.location.href).searchParams.get("page") || "1"),
+        pushState: false,
+      });
+    });
+
+    syncControlsFromLocation();
   })();
 </script>
 {% endblock %}

@@ -1,0 +1,308 @@
+{% extends "admin/layout.html" %}
+{% import "_ui_macros.html" as ui %}
+{% import "admin/_admin_macros.html" as admin_ui %}
+{% block title %}User Control Center{% endblock %}
+
+{% set return_path = url_for('admin.users', page=user_center.pagination.current_page) %}
+
+{% block admin_page %}
+{{ ui.page_header(
+  title="User Control Center",
+  subtitle="Accounts, roles, and access.",
+  action_text="Create User",
+  action_class="btn btn-aolrc-accent ui-control",
+  action_toggle="collapse",
+  action_target="#adminCreateUserForm",
+  action_controls="adminCreateUserForm",
+  action_expanded='true' if show_add_user_form else 'false'
+) }}
+
+<div class="collapse{{ ' show' if show_add_user_form else '' }}" id="adminCreateUserForm">
+  {% call ui.form_section("Create User", "Setup link after save.", "admin-user-create-panel") %}
+    <form method="post" class="admin-user-create-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="page" value="{{ user_center.pagination.current_page }}">
+      <div>
+        <label class="form-label" for="create_user_email">Email</label>
+        <input
+          class="form-control ui-control"
+          id="create_user_email"
+          name="email"
+          type="email"
+          required
+          autocomplete="off"
+          value="{{ form_values.email }}"
+        >
+      </div>
+      <div>
+        <label class="form-label" for="create_user_display_name">Display name</label>
+        <input
+          class="form-control ui-control"
+          id="create_user_display_name"
+          name="display_name"
+          maxlength="120"
+          value="{{ form_values.display_name }}"
+        >
+      </div>
+      <div>
+        <label class="form-label" for="create_user_role">Role</label>
+        <select class="form-select ui-control" id="create_user_role" name="role">
+          {% for value, label in role_options %}
+            <option value="{{ value }}" {% if form_values.role == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="btn btn-aolrc-accent ui-control" type="submit">Create User</button>
+    </form>
+  {% endcall %}
+</div>
+
+{% call admin_ui.region("Account Health") %}
+  <section class="admin-summary-grid admin-summary-grid-compact" aria-label="User summary">
+    {{ admin_ui.summary_card("Total users", user_center.summary.total_users, "bi-people") }}
+    {{ admin_ui.summary_card("Active", user_center.summary.active_users, "bi-person-check") }}
+    {{ admin_ui.summary_card("Inactive", user_center.summary.inactive_users, "bi-person-dash") }}
+    {{ admin_ui.summary_card("Locked", user_center.summary.locked_users, "bi-lock") }}
+  </section>
+{% endcall %}
+
+{% call admin_ui.region("User Directory") %}
+  {% if user_center.pagination.total_count %}
+    <div class="admin-directory-toolbar">
+      <div class="admin-preview-meta">
+        <span>Showing {{ user_center.pagination.showing_from }}-{{ user_center.pagination.showing_to }} of {{ user_center.pagination.total_count }} user{{ "s" if user_center.pagination.total_count != 1 else "" }}</span>
+      </div>
+      {% if user_center.pagination.total_pages > 1 %}
+        <nav class="admin-pager" aria-label="User directory pages">
+          <a
+            class="admin-pager-link{{ ' is-disabled' if not user_center.pagination.has_prev else '' }}"
+            href="{{ url_for('admin.users', page=user_center.pagination.prev_page) if user_center.pagination.has_prev else '#' }}"
+            aria-disabled="{{ 'false' if user_center.pagination.has_prev else 'true' }}"
+            {% if not user_center.pagination.has_prev %}tabindex="-1"{% endif %}
+          >
+            <i class="bi bi-arrow-left" aria-hidden="true"></i>
+            <span>Previous</span>
+          </a>
+          <div class="admin-pager-status">Page {{ user_center.pagination.current_page }} of {{ user_center.pagination.total_pages }}</div>
+          <a
+            class="admin-pager-link{{ ' is-disabled' if not user_center.pagination.has_next else '' }}"
+            href="{{ url_for('admin.users', page=user_center.pagination.next_page) if user_center.pagination.has_next else '#' }}"
+            aria-disabled="{{ 'false' if user_center.pagination.has_next else 'true' }}"
+            {% if not user_center.pagination.has_next %}tabindex="-1"{% endif %}
+          >
+            <span>Next</span>
+            <i class="bi bi-arrow-right" aria-hidden="true"></i>
+          </a>
+        </nav>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <div class="d-none d-xl-block table-responsive">
+    <table class="table align-middle admin-user-table mb-0">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Role</th>
+          <th>Access</th>
+          <th>Password</th>
+          <th>Last Sign In</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in user_center.rows %}
+          <tr>
+            <td>
+              <div class="admin-user-cell">
+                <div class="admin-user-cell-title">{{ row.display_name }}</div>
+                <div class="admin-user-cell-support">{{ row.email }}</div>
+                {% if row.is_self %}
+                  <div>{{ ui.chip("You", tone="neutral", icon_class="bi-person-circle", extra_classes="ui-chip-compact") }}</div>
+                {% endif %}
+              </div>
+            </td>
+            <td>{{ admin_ui.role_chip(row) }}</td>
+            <td>
+              <div class="admin-user-cell">
+                <div class="admin-user-chip-row">
+                  {{ ui.chip(row.active_label, tone=row.active_tone, icon_class='bi-person-check' if row.is_active else 'bi-person-dash') }}
+                  {{ ui.chip(row.locked_label, tone=row.locked_tone, icon_class='bi-lock' if row.is_locked else 'bi-unlock') }}
+                </div>
+                {% if row.is_locked %}
+                  <div class="admin-user-cell-support">Locked until {{ row.locked_until_text }}</div>
+                {% elif row.failed_login_attempts %}
+                  <div class="admin-user-cell-support">{{ row.failed_login_attempts }} failed attempt{{ "s" if row.failed_login_attempts != 1 else "" }}</div>
+                {% elif not row.is_active %}
+                  <div class="admin-user-cell-support">Deactivated {{ row.deactivated_at_text }}</div>
+                {% endif %}
+              </div>
+            </td>
+            <td>
+              <div class="admin-user-cell">
+                {{ ui.chip(row.password_status_label, tone=row.password_status_tone, icon_class='bi-key') }}
+                <div class="admin-user-cell-support">{{ row.password_status_detail }}</div>
+              </div>
+            </td>
+            <td>
+              <div class="admin-user-date-cell">
+                <span class="admin-user-date-primary">{{ row.last_login_at_parts.primary }}</span>
+                {% if row.last_login_at_parts.secondary %}
+                  <span class="admin-user-date-secondary">{{ row.last_login_at_parts.secondary }}</span>
+                {% endif %}
+              </div>
+            </td>
+            <td>
+              <div class="admin-user-date-cell admin-user-date-cell-muted">
+                <span class="admin-user-date-primary">{{ row.created_at_parts.primary }}</span>
+                {% if row.created_at_parts.secondary %}
+                  <span class="admin-user-date-secondary">{{ row.created_at_parts.secondary }}</span>
+                {% endif %}
+              </div>
+            </td>
+            <td class="admin-user-actions-cell">
+              <div class="admin-user-actions admin-user-actions-desktop">
+                <a class="btn btn-sm btn-outline-secondary ui-control-sm" href="{{ row.manage_url }}">Edit</a>
+
+                <form method="post" action="{{ url_for('admin.issue_user_password_link', user_id=row.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="next" value="{{ return_path }}">
+                  <button class="btn btn-sm btn-outline-secondary ui-control-sm" type="submit">
+                    {{ "Setup Link" if row.password_status_label.startswith("Setup") else "Reset Link" }}
+                  </button>
+                </form>
+
+                {% if row.is_active and not row.is_self %}
+                  <form method="post" action="{{ url_for('admin.deactivate_user', user_id=row.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ return_path }}">
+                    <button class="btn btn-sm btn-outline-danger ui-control-sm" type="submit">Deactivate</button>
+                  </form>
+                {% elif not row.is_active %}
+                  <form method="post" action="{{ url_for('admin.activate_user', user_id=row.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ return_path }}">
+                    <button class="btn btn-sm btn-outline-success ui-control-sm" type="submit">Activate</button>
+                  </form>
+                {% endif %}
+
+                {% if row.is_locked or row.failed_login_attempts %}
+                  <form method="post" action="{{ url_for('admin.unlock_user', user_id=row.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ return_path }}">
+                    <button class="btn btn-sm btn-outline-warning ui-control-sm" type="submit">Unlock</button>
+                  </form>
+                {% endif %}
+              </div>
+              {% if row.is_self %}
+                <div class="admin-user-inline-note">You can't deactivate or demote your own account.</div>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          {{ ui.table_empty_row(7, "No users yet.") }}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="d-xl-none admin-user-card-list">
+    {% for row in user_center.rows %}
+      <article class="admin-user-card">
+        <div class="admin-user-card-head">
+          <div class="admin-user-card-identity">
+            <div class="admin-user-card-title">{{ row.display_name }}</div>
+            <div class="admin-user-card-email">{{ row.email }}</div>
+          </div>
+          <div class="admin-user-chip-row">
+            {{ admin_ui.role_chip(row) }}
+            {% if row.is_self %}
+              {{ ui.chip("You", tone="neutral", icon_class="bi-person-circle", extra_classes="ui-chip-compact") }}
+            {% endif %}
+          </div>
+        </div>
+        <div class="admin-user-card-meta">
+          <div class="admin-user-card-row">
+            <span class="admin-user-card-label">Access</span>
+            <span class="admin-user-chip-row">
+              {{ ui.chip(row.active_label, tone=row.active_tone, icon_class='bi-person-check' if row.is_active else 'bi-person-dash') }}
+              {{ ui.chip(row.locked_label, tone=row.locked_tone, icon_class='bi-lock' if row.is_locked else 'bi-unlock') }}
+            </span>
+          </div>
+          <div class="admin-user-card-row">
+            <span class="admin-user-card-label">Password</span>
+            <span>{{ ui.chip(row.password_status_label, tone=row.password_status_tone, icon_class='bi-key') }}</span>
+          </div>
+          <div class="admin-user-card-row">
+            <span class="admin-user-card-label">Detail</span>
+            <span>{{ row.password_status_detail }}</span>
+          </div>
+          <div class="admin-user-card-row">
+            <span class="admin-user-card-label">Last sign in</span>
+            <span>{{ row.last_login_at_text }}</span>
+          </div>
+          <div class="admin-user-card-row">
+            <span class="admin-user-card-label">Created</span>
+            <span>{{ row.created_at_text }}</span>
+          </div>
+          {% if row.is_locked %}
+            <div class="admin-user-card-row">
+              <span class="admin-user-card-label">Locked until</span>
+              <span>{{ row.locked_until_text }}</span>
+            </div>
+          {% elif row.failed_login_attempts %}
+            <div class="admin-user-card-row">
+              <span class="admin-user-card-label">Failed attempts</span>
+              <span>{{ row.failed_login_attempts }}</span>
+            </div>
+          {% elif not row.is_active %}
+            <div class="admin-user-card-row">
+              <span class="admin-user-card-label">Deactivated</span>
+              <span>{{ row.deactivated_at_text }}</span>
+            </div>
+          {% endif %}
+        </div>
+        <div class="admin-user-actions-mobile">
+          <a class="btn btn-outline-secondary ui-control" href="{{ row.manage_url }}">Edit User</a>
+
+          <form method="post" action="{{ url_for('admin.issue_user_password_link', user_id=row.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="next" value="{{ return_path }}">
+            <button class="btn btn-outline-secondary ui-control w-100" type="submit">
+              {{ "Setup Link" if row.password_status_label.startswith("Setup") else "Reset Link" }}
+            </button>
+          </form>
+
+          {% if row.is_active and not row.is_self %}
+            <form method="post" action="{{ url_for('admin.deactivate_user', user_id=row.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="next" value="{{ return_path }}">
+              <button class="btn btn-outline-danger ui-control w-100" type="submit">Deactivate</button>
+            </form>
+          {% elif not row.is_active %}
+            <form method="post" action="{{ url_for('admin.activate_user', user_id=row.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="next" value="{{ return_path }}">
+              <button class="btn btn-outline-success ui-control w-100" type="submit">Activate</button>
+            </form>
+          {% endif %}
+
+          {% if row.is_locked or row.failed_login_attempts %}
+            <form method="post" action="{{ url_for('admin.unlock_user', user_id=row.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="next" value="{{ return_path }}">
+              <button class="btn btn-outline-warning ui-control w-100" type="submit">Unlock</button>
+            </form>
+          {% endif %}
+        </div>
+        {% if row.is_self %}
+          <div class="admin-user-inline-note">You can't deactivate or demote your own account.</div>
+        {% endif %}
+      </article>
+    {% else %}
+      {{ ui.empty_state("No users yet.", compact=True) }}
+    {% endfor %}
+  </div>
+{% endcall %}
+{% endblock %}

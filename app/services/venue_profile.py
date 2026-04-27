@@ -2,7 +2,24 @@ from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 
 from app import db
-from app.models import Check, CheckLine, CountSession, Item, Venue, VenueItem, VenueItemCount
+from app.models import (
+    Check,
+    CountSession,
+    Item,
+    Venue,
+    VenueItem,
+    VenueNote,
+)
+from app.services.csv_exports import build_dated_csv_filename, sanitize_csv_cell
+from app.services.inventory_rules import (
+    get_default_stale_threshold_days,
+    resolve_effective_par_level,
+    resolve_effective_stale_threshold_days,
+)
+from app.services.inventory_signals import (
+    build_latest_count_signal_map,
+    build_latest_status_signal_map,
+)
 from app.services.inventory_status import (
     build_consistency_signal,
     build_overall_status_badge,
@@ -16,6 +33,44 @@ from app.services.inventory_status import (
     normalize_status,
     restock_status_meta_for_item,
     status_sort_value,
+)
+from app.services.restocking import build_restock_count_state
+from app.services.spreadsheet_compat import format_setup_group_display
+
+VENUE_INVENTORY_SEGMENTS = {"all", "needs_action", "review", "assets"}
+VENUE_INVENTORY_FILTERS = {
+    "all",
+    "count_attention",
+    "status_attention",
+    "singleton_asset",
+    "quantity",
+    "families",
+}
+VENUE_INVENTORY_SORTS = {
+    "needs_action",
+    "review_first",
+    "stalest",
+    "alphabetical",
+    "lowest_count_coverage",
+    "recent",
+}
+VENUE_INVENTORY_EXPORT_HEADERS = (
+    "Venue Name",
+    "Item Name",
+    "Setup Group Code",
+    "Setup Group Label",
+    "Tracking Mode",
+    "Category",
+    "Current Count",
+    "Effective Par",
+    "Suggested Order Qty",
+    "Over Par Qty",
+    "Current Quick Status / Last Saved Status",
+    "Last Updated",
+    "Checked By",
+    "Effective Stale Threshold",
+    "Is Stale",
+    "Note Count",
 )
 
 
@@ -33,10 +88,33 @@ def operational_item_sort_key(item):
     )
 
 
+def normalize_venue_inventory_filters(source):
+    segment = (source.get("inventory_segment") or "all").strip().lower()
+    filter_value = (source.get("inventory_filter") or "all").strip().lower()
+    sort = (source.get("inventory_sort") or "needs_action").strip().lower()
+    if segment not in VENUE_INVENTORY_SEGMENTS:
+        segment = "all"
+    if filter_value not in VENUE_INVENTORY_FILTERS:
+        filter_value = "all"
+    if sort not in VENUE_INVENTORY_SORTS:
+        sort = "needs_action"
+    return {
+        "q": (source.get("inventory_q") or "").strip(),
+        "segment": segment,
+        "filter": filter_value,
+        "sort": sort,
+    }
+
+
 def build_venue_profile_view_model(venue_id):
     venue = Venue.query.get_or_404(venue_id)
+    global_stale_threshold_days = get_default_stale_threshold_days()
+    venue_stale_threshold = resolve_effective_stale_threshold_days(
+        venue_stale_threshold_days=venue.stale_threshold_days,
+        global_stale_threshold_days=global_stale_threshold_days,
+    )
     tracked_rows = (
-        db.session.query(Item, VenueItem.expected_qty.label("par_value"))
+        db.session.query(Item, VenueItem.expected_qty.label("venue_par_override"))
         .join(VenueItem, VenueItem.item_id == Item.id)
         .options(selectinload(Item.parent_item))
         .filter(
@@ -55,6 +133,11 @@ def build_venue_profile_view_model(venue_id):
     item_ids = [item.id for item, _ in tracked_rows]
     latest_status_by_item = _build_latest_status_map(venue_id, item_ids)
     latest_count_by_item = _build_latest_count_map(venue_id, item_ids)
+    note_counts_by_item = _build_note_count_map(venue_id, item_ids)
+    network_detail_by_item = _build_network_detail_map(
+        item_ids=item_ids,
+        tracked_items=[item for item, _ in tracked_rows],
+    )
     latest_status_check_at = (
         db.session.query(func.max(Check.created_at))
         .filter(Check.venue_id == venue_id)
@@ -71,13 +154,25 @@ def build_venue_profile_view_model(venue_id):
     overall_counts = {"good": 0, "ok": 0, "low": 0, "out": 0, "not_checked": 0}
     overall_detail_counts = build_status_detail_counts()
 
-    for item, par_value in tracked_rows:
+    for item, venue_par_override in tracked_rows:
+        effective_par = resolve_effective_par_level(
+            item_default_par_level=item.default_par_level,
+            venue_par_override=venue_par_override,
+        )
+        effective_stale_threshold = resolve_effective_stale_threshold_days(
+            item_stale_threshold_days=item.stale_threshold_days,
+            venue_stale_threshold_days=venue.stale_threshold_days,
+            global_stale_threshold_days=global_stale_threshold_days,
+        )
         item_row = _build_item_row(
             item,
             venue_id=venue_id,
-            par_value=par_value,
+            par_setting=effective_par,
+            stale_threshold_setting=effective_stale_threshold,
             latest_status=latest_status_by_item.get(item.id),
             latest_count=latest_count_by_item.get(item.id),
+            notes_count=int(note_counts_by_item.get(item.id, 0) or 0),
+            network_detail=network_detail_by_item.get(item.id),
         )
         item_rows.append(item_row)
         overall_counts[item_row["status_key"]] += 1
@@ -90,12 +185,17 @@ def build_venue_profile_view_model(venue_id):
     return {
         "venue": venue,
         "summary": summary,
+        "item_rows": item_rows,
         "inventory_groups": inventory_groups,
+        "note_item_options": build_note_item_options(item_rows),
         "latest_status_check_at": latest_status_check_at,
         "latest_raw_count_at": latest_raw_count_at,
         "last_updated_at": last_updated_at,
         "last_updated_text": format_timestamp(last_updated_at),
-        "last_updated_freshness": build_signal_freshness(last_updated_at),
+        "last_updated_freshness": build_signal_freshness(
+            last_updated_at,
+            stale_threshold=venue_stale_threshold.value,
+        ),
     }
 
 
@@ -122,7 +222,9 @@ def _build_empty_view_model(venue):
     return {
         "venue": venue,
         "summary": summary,
+        "item_rows": [],
         "inventory_groups": [],
+        "note_item_options": [],
         "latest_status_check_at": None,
         "latest_raw_count_at": None,
         "last_updated_at": None,
@@ -132,49 +234,210 @@ def _build_empty_view_model(venue):
 
 
 def _build_latest_status_map(venue_id, item_ids):
-    rows = (
-        db.session.query(
-            CheckLine.item_id.label("item_id"),
-            CheckLine.status.label("status"),
-            Check.created_at.label("created_at"),
-        )
-        .join(Check, Check.id == CheckLine.check_id)
-        .filter(Check.venue_id == venue_id, CheckLine.item_id.in_(item_ids))
-        .order_by(CheckLine.item_id.asc(), Check.created_at.desc(), Check.id.desc())
-        .all()
-    )
-    latest = {}
-    for row in rows:
-        if row.item_id not in latest:
-            latest[row.item_id] = {
-                "status": row.status,
-                "updated_at": ensure_utc(row.created_at),
-            }
-    return latest
-
-
-def _build_latest_count_map(venue_id, item_ids):
-    rows = (
-        db.session.query(
-            VenueItemCount.item_id.label("item_id"),
-            VenueItemCount.raw_count.label("raw_count"),
-            VenueItemCount.updated_at.label("updated_at"),
-        )
-        .filter(VenueItemCount.venue_id == venue_id, VenueItemCount.item_id.in_(item_ids))
-        .all()
+    latest_by_pair = build_latest_status_signal_map(
+        venue_ids=[venue_id],
+        item_ids=item_ids,
     )
     return {
-        row.item_id: {
-            "raw_count": row.raw_count,
-            "updated_at": ensure_utc(row.updated_at),
-        }
-        for row in rows
+        item_id: value
+        for (resolved_venue_id, item_id), value in latest_by_pair.items()
+        if resolved_venue_id == venue_id
     }
 
 
-def _build_item_row(item, *, venue_id, par_value, latest_status, latest_count):
+def _build_latest_count_map(venue_id, item_ids):
+    latest_by_pair = build_latest_count_signal_map(
+        venue_ids=[venue_id],
+        item_ids=item_ids,
+    )
+    return {
+        item_id: value
+        for (resolved_venue_id, item_id), value in latest_by_pair.items()
+        if resolved_venue_id == venue_id
+    }
+
+
+def _build_note_count_map(venue_id, item_ids):
+    if not item_ids:
+        return {}
+
+    rows = (
+        db.session.query(
+            VenueNote.item_id.label("item_id"),
+            func.count(VenueNote.id).label("note_count"),
+        )
+        .filter(
+            VenueNote.venue_id == venue_id,
+            VenueNote.item_id.is_not(None),
+            VenueNote.item_id.in_(item_ids),
+        )
+        .group_by(VenueNote.item_id)
+        .all()
+    )
+    return {
+        row.item_id: int(row.note_count or 0)
+        for row in rows
+        if row.item_id is not None
+    }
+
+
+def _build_network_detail_map(*, item_ids, tracked_items):
+    if not item_ids:
+        return {}
+
+    tracked_by_id = {
+        item.id: item
+        for item in tracked_items
+        if item.id in item_ids
+    }
+    if not tracked_by_id:
+        return {}
+
+    assignment_rows = (
+        db.session.query(
+            VenueItem.item_id.label("item_id"),
+            VenueItem.venue_id.label("venue_id"),
+            VenueItem.expected_qty.label("venue_par_override"),
+        )
+        .join(Venue, Venue.id == VenueItem.venue_id)
+        .filter(
+            VenueItem.item_id.in_(item_ids),
+            VenueItem.active == True,
+            Venue.active == True,
+        )
+        .all()
+    )
+    if not assignment_rows:
+        return {}
+
+    active_venue_ids = sorted({int(row.venue_id) for row in assignment_rows if row.venue_id is not None})
+    if not active_venue_ids:
+        return {}
+
+    latest_status_by_pair = build_latest_status_signal_map(
+        venue_ids=active_venue_ids,
+        item_ids=item_ids,
+    )
+    latest_count_by_pair = build_latest_count_signal_map(
+        venue_ids=active_venue_ids,
+        item_ids=item_ids,
+    )
+
+    rows_by_item = {}
+    for assignment in assignment_rows:
+        rows_by_item.setdefault(int(assignment.item_id), []).append(assignment)
+
+    network = {}
+    for item_id, item in tracked_by_id.items():
+        assignments = rows_by_item.get(item_id, [])
+        venue_count = len(assignments)
+        if venue_count <= 0:
+            continue
+
+        tracking_mode = item.tracking_mode or "quantity"
+        if tracking_mode == "singleton_asset":
+            issue_count = 0
+            checked_count = 0
+            for assignment in assignments:
+                pair = (int(assignment.venue_id), item_id)
+                latest_status = latest_status_by_pair.get(pair)
+                latest_count = latest_count_by_pair.get(pair)
+                raw_count = latest_count["raw_count"] if latest_count else None
+                status_key = (
+                    normalize_singleton_status(latest_status["status"])
+                    if latest_status
+                    else infer_singleton_status_from_count(raw_count)
+                )
+                if status_key != "not_checked":
+                    checked_count += 1
+                if status_key in {"low", "out"}:
+                    issue_count += 1
+
+            if issue_count:
+                summary_text = (
+                    f'{issue_count} issue{"s" if issue_count != 1 else ""} across '
+                    f'{venue_count} venue{"s" if venue_count != 1 else ""}'
+                )
+            elif checked_count:
+                summary_text = (
+                    f'{checked_count} checked across '
+                    f'{venue_count} venue{"s" if venue_count != 1 else ""}'
+                )
+            else:
+                summary_text = (
+                    f'No checks across {venue_count} venue{"s" if venue_count != 1 else ""}'
+                )
+
+            network[item_id] = {
+                "network_tracked_venues_count": venue_count,
+                "network_summary_text": summary_text,
+            }
+            continue
+
+        total_raw_count = 0
+        counted_venues = 0
+        total_par_count = 0
+        par_venues = 0
+        for assignment in assignments:
+            pair = (int(assignment.venue_id), item_id)
+            latest_count = latest_count_by_pair.get(pair)
+            raw_count = latest_count["raw_count"] if latest_count else None
+            if raw_count is not None:
+                total_raw_count += int(raw_count)
+                counted_venues += 1
+
+            effective_par = resolve_effective_par_level(
+                item_default_par_level=item.default_par_level,
+                venue_par_override=assignment.venue_par_override,
+            )
+            if effective_par.value is not None:
+                total_par_count += int(effective_par.value)
+                par_venues += 1
+
+        if par_venues > 0:
+            if counted_venues > 0:
+                summary_text = (
+                    f"{total_raw_count} / {total_par_count} across "
+                    f'{venue_count} venue{"s" if venue_count != 1 else ""}'
+                )
+            else:
+                summary_text = (
+                    f"No counts / {total_par_count} par across "
+                    f'{venue_count} venue{"s" if venue_count != 1 else ""}'
+                )
+        elif counted_venues > 0:
+            summary_text = (
+                f"{total_raw_count} counted across "
+                f'{venue_count} venue{"s" if venue_count != 1 else ""}'
+            )
+        else:
+            summary_text = (
+                f'No counts across {venue_count} venue{"s" if venue_count != 1 else ""}'
+            )
+
+        network[item_id] = {
+            "network_tracked_venues_count": venue_count,
+            "network_summary_text": summary_text,
+        }
+
+    return network
+
+
+def _build_item_row(
+    item,
+    *,
+    venue_id,
+    par_setting,
+    stale_threshold_setting,
+    latest_status,
+    latest_count,
+    notes_count,
+    network_detail,
+):
+    par_value = par_setting.value
     raw_count = latest_count["raw_count"] if latest_count else None
     count_updated_at = latest_count["updated_at"] if latest_count else None
+    count_actor_label = (latest_count or {}).get("actor_label", "")
     derived_count = False
 
     if item.tracking_mode == "singleton_asset":
@@ -190,7 +453,14 @@ def _build_item_row(item, *, venue_id, par_value, latest_status, latest_count):
         status_key = normalize_status(latest_status["status"]) if latest_status else "not_checked"
 
     status_updated_at = latest_status["updated_at"] if latest_status else None
+    status_actor_label = (latest_status or {}).get("actor_label", "")
     status_meta = restock_status_meta_for_item(status_key, item.tracking_mode)
+    count_state = build_restock_count_state(
+        tracking_mode=item.tracking_mode,
+        raw_count=raw_count,
+        par_value=par_value,
+        status_key=status_key,
+    )
     consistency = build_consistency_signal(
         tracking_mode=item.tracking_mode,
         status_key=status_key,
@@ -198,6 +468,7 @@ def _build_item_row(item, *, venue_id, par_value, latest_status, latest_count):
         par_value=par_value,
         status_updated_at=status_updated_at,
         count_updated_at=count_updated_at,
+        stale_threshold=stale_threshold_setting.value,
     )
 
     status_freshness = consistency["status_freshness"]
@@ -240,6 +511,23 @@ def _build_item_row(item, *, venue_id, par_value, latest_status, latest_count):
         if item.tracking_mode == "singleton_asset"
         else _compact_freshness_text(count_freshness, "Count")
     )
+    last_actor_label = _resolve_last_actor_label(
+        tracking_mode=item.tracking_mode,
+        status_actor_label=status_actor_label,
+        status_updated_at=status_updated_at,
+        count_actor_label=count_actor_label,
+        count_updated_at=count_updated_at,
+    )
+    is_stale = (
+        bool(status_freshness["is_stale"])
+        or (
+            item.tracking_mode != "singleton_asset"
+            and bool(count_freshness["is_stale"])
+        )
+    )
+    status_absolute_text = format_timestamp(status_updated_at, missing_text="No status yet") if status_updated_at else "No status yet"
+    count_absolute_text = format_timestamp(count_updated_at, missing_text="No count yet") if count_updated_at else "No count yet"
+    network_detail = network_detail or {}
 
     return {
         "id": item.id,
@@ -250,8 +538,16 @@ def _build_item_row(item, *, venue_id, par_value, latest_status, latest_count):
         "family_name": item.parent_item.name if item.parent_item else item.name,
         "item_type": item.item_type,
         "item_category": item.item_category or item.item_type,
+        "setup_group_code": item.setup_group_code,
+        "setup_group_label": item.setup_group_label,
+        "setup_group_display": format_setup_group_display(item.setup_group_code, item.setup_group_label),
         "tracking_mode": item.tracking_mode or "quantity",
         "par_value": par_value,
+        "par_source": par_setting.source,
+        "effective_stale_threshold_days": stale_threshold_setting.value,
+        "stale_threshold_source": stale_threshold_setting.source,
+        "notes_count": notes_count,
+        "has_notes": notes_count > 0,
         "raw_count": raw_count,
         "count_is_derived": derived_count,
         "status_key": status_key,
@@ -264,6 +560,32 @@ def _build_item_row(item, *, venue_id, par_value, latest_status, latest_count):
         "review_meta_text": review_meta_text,
         "freshness_primary_text": freshness_primary_text,
         "freshness_secondary_text": freshness_secondary_text,
+        "next_step_label": _next_step_label(item.tracking_mode, consistency["state"]),
+        "detail_setup_text": _detail_setup_text(item.tracking_mode, format_setup_group_display(item.setup_group_code, item.setup_group_label)),
+        "detail_threshold_text": _detail_threshold_text(stale_threshold_setting.value, stale_threshold_setting.source),
+        "detail_status_by_text": _detail_provenance_text(status_absolute_text, status_actor_label),
+        "detail_count_by_text": (
+            None
+            if item.tracking_mode == "singleton_asset"
+            else _detail_provenance_text(count_absolute_text, count_actor_label)
+        ),
+        "detail_last_touched_text": (
+            f"{format_timestamp(last_signal_at, missing_text='No updates yet')} by {last_actor_label}"
+            if last_actor_label
+            else format_timestamp(last_signal_at, missing_text="No updates yet")
+        ),
+        "network_tracked_venues_count": int(network_detail.get("network_tracked_venues_count") or 1),
+        "network_summary_text": network_detail.get("network_summary_text")
+        or "Tracked at current venue only",
+        "suggested_order_qty": count_state.get("suggested_order_qty"),
+        "over_par_qty": count_state.get("over_par_qty"),
+        "count_state": count_state,
+        "current_status_label": status_meta["text"],
+        "status_actor_label": status_actor_label,
+        "count_actor_label": count_actor_label,
+        "last_actor_label": last_actor_label,
+        "is_stale": is_stale,
+        "last_updated_text": format_timestamp(last_signal_at, missing_text="No updates yet"),
         "attention_level": attention_level,
         "is_operational_issue": status_key in {"low", "out"},
         "has_review_issue": _has_review_issue(consistency["state"]),
@@ -273,8 +595,8 @@ def _build_item_row(item, *, venue_id, par_value, latest_status, latest_count):
         "is_stale_count": item.tracking_mode != "singleton_asset" and consistency["state"] == "count_stale",
         "is_stale_status": consistency["state"] == "status_stale",
         "operational_summary": status_meta["text"],
-        "count_absolute_text": format_timestamp(count_updated_at, missing_text="No count yet") if count_updated_at else "No count yet",
-        "status_absolute_text": format_timestamp(status_updated_at, missing_text="No status yet") if status_updated_at else "No status yet",
+        "count_absolute_text": count_absolute_text,
+        "status_absolute_text": status_absolute_text,
         "last_signal_at": last_signal_at,
         "last_signal_timestamp": _timestamp_sort_value(last_signal_at),
         "count_coverage_score": _count_coverage_score(item.tracking_mode, consistency["state"]),
@@ -283,6 +605,279 @@ def _build_item_row(item, *, venue_id, par_value, latest_status, latest_count):
         "secondary_action_label": None if item.tracking_mode == "singleton_asset" else "Update Status",
         "secondary_action_mode": None if item.tracking_mode == "singleton_asset" else "status",
     }
+
+
+def _next_step_label(tracking_mode, consistency_state):
+    if tracking_mode == "singleton_asset":
+        if consistency_state in {"no_status", "status_stale"}:
+            return "Run Update Status"
+        if consistency_state == "needs_review":
+            return "Reconcile asset status"
+        return "No follow-up needed"
+
+    if consistency_state == "no_count":
+        return "Run Update Count"
+    if consistency_state == "count_stale":
+        return "Refresh count"
+    if consistency_state == "no_status":
+        return "Run Update Status"
+    if consistency_state == "status_stale":
+        return "Refresh status"
+    if consistency_state == "needs_review":
+        return "Reconcile status and count"
+    return "No follow-up needed"
+
+
+def _format_source_label(source):
+    if not source:
+        return "default"
+    return str(source).replace("_", " ").strip().title()
+
+
+def _detail_threshold_text(days, source):
+    return f"{days}d threshold ({_format_source_label(source)})"
+
+
+def _detail_setup_text(tracking_mode, setup_group_display):
+    setup_label = setup_group_display or "No setup group"
+    mode_label = "Asset" if tracking_mode == "singleton_asset" else "Quantity"
+    return f"{mode_label} / {setup_label}"
+
+
+def _detail_provenance_text(timestamp_text, actor_label):
+    if actor_label:
+        return f"{timestamp_text} by {actor_label}"
+    return timestamp_text
+
+
+def _resolve_last_actor_label(
+    *,
+    tracking_mode,
+    status_actor_label,
+    status_updated_at,
+    count_actor_label,
+    count_updated_at,
+):
+    if tracking_mode == "singleton_asset":
+        return status_actor_label or count_actor_label or ""
+    if count_updated_at and (not status_updated_at or count_updated_at >= status_updated_at):
+        return count_actor_label or status_actor_label or ""
+    if status_updated_at:
+        return status_actor_label or count_actor_label or ""
+    return count_actor_label or status_actor_label or ""
+
+
+def _word_boundary_prefix(text, query):
+    if not query:
+        return False
+    import re
+
+    return bool(re.search(rf"(^|\W){re.escape(query)}", text))
+
+
+def _venue_inventory_search_rank(row, search_query):
+    if not search_query:
+        return 0
+
+    item_text = (row.get("name") or "").lower()
+    family_text = (row.get("family_name") or "").lower()
+    search_text = " ".join(
+        [
+            item_text,
+            family_text,
+            (row.get("setup_group_display") or "").lower(),
+            (row.get("current_status_label") or "").lower(),
+        ]
+    )
+    if item_text.startswith(search_query):
+        return 0
+    if _word_boundary_prefix(item_text, search_query):
+        return 1
+    if search_query in item_text:
+        return 2
+    if family_text.startswith(search_query):
+        return 3
+    if _word_boundary_prefix(family_text, search_query):
+        return 4
+    if search_query in family_text:
+        return 5
+    if search_query in search_text:
+        return 6
+    return None
+
+
+def _venue_inventory_attention_rank(row):
+    return {
+        "healthy": 0,
+        "warning": 1,
+        "critical": 2,
+    }.get((row.get("attention_level") or "healthy").strip().lower(), 0)
+
+
+def _venue_inventory_matches_segment(row, segment):
+    if segment == "all":
+        return True
+    if segment == "needs_action":
+        return bool(row.get("is_operational_issue"))
+    if segment == "review":
+        return bool(row.get("has_review_issue"))
+    if segment == "assets":
+        return row.get("tracking_mode") == "singleton_asset"
+    return True
+
+
+def _venue_inventory_matches_filter(row, filter_value):
+    if filter_value == "all":
+        return True
+    if filter_value == "count_attention":
+        return bool(row.get("has_count_gap"))
+    if filter_value == "status_attention":
+        return bool(row.get("has_status_gap"))
+    if filter_value == "singleton_asset":
+        return row.get("tracking_mode") == "singleton_asset"
+    if filter_value == "quantity":
+        return row.get("tracking_mode") == "quantity"
+    if filter_value == "families":
+        return bool(row.get("parent_item_id"))
+    return True
+
+
+def _sort_venue_inventory_rows(rows, *, search_query, sort_key):
+    def sort_key_for_row(row):
+        name_key = (row.get("name") or "").lower()
+        search_rank = _venue_inventory_search_rank(row, search_query)
+        normalized_search_rank = search_rank if search_rank is not None else 999
+
+        if sort_key == "alphabetical":
+            return (normalized_search_rank, name_key, row.get("id") or 0)
+
+        if sort_key == "review_first":
+            return (
+                normalized_search_rank,
+                0 if row.get("has_review_issue") else 1,
+                0 if row.get("is_operational_issue") else 1,
+                name_key,
+                row.get("id") or 0,
+            )
+
+        if sort_key == "stalest":
+            return (
+                normalized_search_rank,
+                row.get("last_signal_timestamp") if row.get("last_signal_timestamp") is not None else float("-inf"),
+                name_key,
+                row.get("id") or 0,
+            )
+
+        if sort_key == "lowest_count_coverage":
+            return (
+                normalized_search_rank,
+                row.get("count_coverage_score", 999),
+                name_key,
+                row.get("id") or 0,
+            )
+
+        if sort_key == "recent":
+            timestamp = row.get("last_signal_timestamp")
+            recent_rank = -(timestamp or 0)
+            return (
+                normalized_search_rank,
+                recent_rank,
+                name_key,
+                row.get("id") or 0,
+            )
+
+        timestamp = row.get("last_signal_timestamp")
+        stale_rank = timestamp if timestamp is not None else float("-inf")
+        return (
+            normalized_search_rank,
+            0 if row.get("is_operational_issue") else 1,
+            0 if row.get("has_review_issue") else 1,
+            -_venue_inventory_attention_rank(row),
+            stale_rank,
+            name_key,
+            row.get("id") or 0,
+        )
+
+    return sorted(rows, key=sort_key_for_row)
+
+
+def filter_venue_inventory_rows(item_rows, filters):
+    search_query = (filters.get("q") or "").strip().lower()
+    filtered_rows = []
+    for row in item_rows:
+        if search_query and _venue_inventory_search_rank(row, search_query) is None:
+            continue
+        if not _venue_inventory_matches_segment(row, filters.get("segment", "all")):
+            continue
+        if not _venue_inventory_matches_filter(row, filters.get("filter", "all")):
+            continue
+        filtered_rows.append(row)
+    return _sort_venue_inventory_rows(
+        filtered_rows,
+        search_query=search_query,
+        sort_key=filters.get("sort", "needs_action"),
+    )
+
+
+def build_venue_inventory_csv_rows(venue, item_rows):
+    rows = []
+    for row in item_rows:
+        rows.append(
+            {
+                "Venue Name": sanitize_csv_cell(venue.name),
+                "Item Name": sanitize_csv_cell(row.get("name") or ""),
+                "Setup Group Code": sanitize_csv_cell(row.get("setup_group_code") or ""),
+                "Setup Group Label": sanitize_csv_cell(row.get("setup_group_label") or ""),
+                "Tracking Mode": sanitize_csv_cell("Singleton Asset" if row.get("tracking_mode") == "singleton_asset" else "Quantity"),
+                "Category": sanitize_csv_cell(row.get("item_category") or ""),
+                "Current Count": "" if row.get("raw_count") is None else row.get("raw_count"),
+                "Effective Par": "" if row.get("par_value") is None else row.get("par_value"),
+                "Suggested Order Qty": (
+                    ""
+                    if row.get("suggested_order_qty") is None
+                    else int(row.get("suggested_order_qty") or 0)
+                ),
+                "Over Par Qty": (
+                    ""
+                    if row.get("over_par_qty") is None
+                    else int(row.get("over_par_qty") or 0)
+                ),
+                "Current Quick Status / Last Saved Status": sanitize_csv_cell(
+                    row.get("current_status_label") or ""
+                ),
+                "Last Updated": sanitize_csv_cell(row.get("last_updated_text") or ""),
+                "Checked By": sanitize_csv_cell(row.get("last_actor_label") or ""),
+                "Effective Stale Threshold": row.get("effective_stale_threshold_days") or "",
+                "Is Stale": "Yes" if row.get("is_stale") else "No",
+                "Note Count": int(row.get("notes_count") or 0),
+            }
+        )
+    return rows
+
+
+def build_venue_inventory_export_filename(venue, *, scope):
+    tokens = [venue.name]
+    if scope == "filtered":
+        tokens.append("filtered")
+    return build_dated_csv_filename("venue_inventory", *tokens)
+
+
+def build_note_item_options(item_rows):
+    options = []
+    for row in item_rows:
+        options.append(
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "parent_name": row["parent_name"],
+                "label": (
+                    f'{row["name"]} ({row["parent_name"]})'
+                    if row["parent_name"]
+                    else row["name"]
+                ),
+            }
+        )
+    return options
 
 
 def build_inventory_groups(item_rows):
@@ -444,6 +1039,7 @@ def _hydrate_family_group(group):
     has_singleton_children = False
     has_quantity_children = False
     latest_update_at = None
+    stale_threshold_days = None
 
     for child in children:
         status_counts[child["status_key"]] += 1
@@ -479,6 +1075,10 @@ def _hydrate_family_group(group):
                 counted_children += 1
             count_coverage_total += child["count_coverage_score"]
         latest_update_at = _max_timestamp(latest_update_at, child["last_signal_at"])
+        if stale_threshold_days is None:
+            stale_threshold_days = child["effective_stale_threshold_days"]
+        else:
+            stale_threshold_days = min(stale_threshold_days, child["effective_stale_threshold_days"])
 
     child_count = len(children)
     if has_singleton_children and not has_quantity_children:
@@ -542,7 +1142,10 @@ def _hydrate_family_group(group):
         if quantity_child_count
         else 2
     )
-    group["latest_update_freshness"] = build_signal_freshness(latest_update_at)
+    group["latest_update_freshness"] = build_signal_freshness(
+        latest_update_at,
+        stale_threshold=stale_threshold_days,
+    )
     group["last_signal_timestamp"] = _timestamp_sort_value(latest_update_at)
     group["worst_status_key"] = worst_child["status_key"]
     group["worst_status_meta"] = worst_child["status_meta"]
@@ -611,11 +1214,7 @@ def _count_coverage_score(tracking_mode, consistency_state):
 def _primary_action_label(tracking_mode, consistency_state):
     if tracking_mode == "singleton_asset":
         return "Update Asset Status"
-    if consistency_state == "no_count":
-        return "Add Count"
-    if consistency_state == "count_stale":
-        return "Refresh Count"
-    return "Open Count"
+    return "Update Count"
 
 
 def _timestamp_sort_value(value):
@@ -629,4 +1228,3 @@ def _max_timestamp(*timestamps):
         if candidate and (resolved is None or candidate > resolved):
             resolved = candidate
     return resolved
-

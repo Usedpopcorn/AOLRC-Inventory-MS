@@ -1,19 +1,20 @@
-{% extends "base.html" %}
+{% extends "admin/layout.html" %}
 {% import "_item_macros.html" as item_ui %}
 {% import "_ui_macros.html" as ui %}
+{% import "admin/_admin_macros.html" as admin_ui %}
 {% block title %}Confirm Deactivate{% endblock %}
 
-{% block content %}
+{% block admin_page %}
 {{ ui.page_header(
   title="Deactivate Item",
-  subtitle="Review the impact before removing this shared catalog item from active venue flows.",
+  subtitle="Review before you deactivate.",
   back_url=url_for('admin.items'),
   back_label="Items"
 ) }}
 
-<div class="card">
-  <div class="card-body">
-    {% call ui.form_section("Impact Summary", "You are about to deactivate this item from the shared catalog.") %}
+{% call admin_ui.region("Review") %}
+  {% call admin_ui.panel("Item", none, "admin-panel-support") %}
+    {% call ui.form_section("Deactivate") %}
       <div>
         {{ item_ui.item_heading(
           item.name,
@@ -33,8 +34,8 @@
 
       {% if venues %}
         {{ ui.state_banner(
-          "Tracked in active venues",
-          "This item is currently tracked in " ~ venues|length ~ " venue(s). Deactivating it will remove it from those venues and hide it from venue supply lists.",
+          "Tracked in venues",
+          venues|length ~ " venue(s) will lose this item.",
           tone="warning"
         ) }}
 
@@ -49,7 +50,7 @@
       {% else %}
         {{ ui.state_banner(
           "Not currently assigned",
-          "This item is not currently tracked in any venues. Deactivation will hide it from future venue supply lists.",
+          "This removes it from future venue lists.",
           tone="warning"
         ) }}
       {% endif %}
@@ -57,12 +58,12 @@
       <div class="d-flex flex-wrap gap-2">
         <form method="post" action="{{ url_for('admin.deactivate_item', item_id=item.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-danger ui-control">Deactivate anyway</button>
+          <button type="submit" class="btn btn-danger ui-control">Deactivate</button>
         </form>
 
         <a class="btn btn-outline-secondary ui-control" href="{{ url_for('admin.items') }}">Cancel</a>
       </div>
     {% endcall %}
-  </div>
-</div>
+  {% endcall %}
+{% endcall %}
 {% endblock %}

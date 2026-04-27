@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% import "_item_macros.html" as item_ui %}
+{% import "_ui_macros.html" as ui %}
+{% block title %}Create Venue{% endblock %}
+
+{% block content %}
+{{ ui.page_header(
+  title="Create Venue",
+  subtitle="Create the venue here, then decide whether it starts empty, copies another venue, or gets a manual tracked-items checklist.",
+  back_url=url_for('main.venues'),
+  back_label="Venues"
+) }}
+
+<div class="card mb-3">
+  <div class="card-body">
+    {% call ui.form_section("Venue Details", "Venue-specific settings stay here. Global defaults still live in Admin.") %}
+      <form method="post" class="row g-3" id="createVenueForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-12 col-lg-6">
+          <label class="form-label" for="venue-name">Venue name</label>
+          <input id="venue-name" class="form-control ui-control" type="text" name="name" value="{{ form_values.name }}" placeholder="e.g., Veda 5">
+        </div>
+        <div class="col-12 col-lg-3">
+          <label class="form-label" for="venue-type">Venue type</label>
+          <select id="venue-type" class="form-select ui-control" name="is_core">
+            <option value="false" {% if form_values.is_core == "false" %}selected{% endif %}>Other venue</option>
+            <option value="true" {% if form_values.is_core == "true" %}selected{% endif %}>Primary venue</option>
+          </select>
+        </div>
+        <div class="col-12 col-lg-3">
+          <label class="form-label" for="venue-stale-threshold-days">Venue stale override</label>
+          <div class="input-group">
+            <input
+              id="venue-stale-threshold-days"
+              class="form-control ui-control"
+              type="number"
+              min="1"
+              max="365"
+              step="1"
+              name="stale_threshold_days"
+              value="{{ form_values.stale_threshold_days }}"
+              placeholder="{{ global_stale_threshold_days }}"
+            >
+            <span class="input-group-text">days</span>
+          </div>
+          <div class="form-text">Leave blank to use the global {{ global_stale_threshold_days }}-day rule.</div>
+        </div>
+
+        <div class="col-12">
+          <div class="admin-panel admin-panel-support">
+            <div class="admin-panel-head">
+              <h3 class="admin-panel-title">Tracked-Item Setup</h3>
+              <div class="admin-panel-subtitle">Choose one clean starting point now. You can refine it again from Venue Settings right after creation.</div>
+            </div>
+            <div class="admin-panel-body d-flex flex-column gap-3">
+              <label class="d-flex align-items-start gap-2">
+                <input class="form-check-input mt-1" type="radio" name="setup_mode" value="empty" {% if form_values.setup_mode == "empty" %}checked{% endif %}>
+                <span>
+                  <span class="fw-semibold d-block">Start empty</span>
+                  <span class="text-muted small">Create the venue first with no tracked items assigned.</span>
+                </span>
+              </label>
+              <label class="d-flex align-items-start gap-2">
+                <input class="form-check-input mt-1" type="radio" name="setup_mode" value="copy" {% if form_values.setup_mode == "copy" %}checked{% endif %}>
+                <span>
+                  <span class="fw-semibold d-block">Copy from existing venue</span>
+                  <span class="text-muted small">Bring over tracked items and venue-item par overrides from another venue.</span>
+                </span>
+              </label>
+              <div id="copyVenueSetupPanel" class="ps-4">
+                <label class="form-label" for="copy-source-venue-id">Source venue</label>
+                <select id="copy-source-venue-id" class="form-select ui-control" name="copy_source_venue_id">
+                  <option value="">Choose a venue</option>
+                  {% for venue in copy_source_venues %}
+                    <option value="{{ venue.id }}" {% if form_values.copy_source_venue_id == venue.id|string %}selected{% endif %}>{{ venue.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+
+              <label class="d-flex align-items-start gap-2">
+                <input class="form-check-input mt-1" type="radio" name="setup_mode" value="manual" {% if form_values.setup_mode == "manual" %}checked{% endif %}>
+                <span>
+                  <span class="fw-semibold d-block">Choose tracked items manually</span>
+                  <span class="text-muted small">Start from a checklist of active direct items. Per-venue par overrides can be added later on Venue Settings.</span>
+                </span>
+              </label>
+              <div id="manualVenueSetupPanel" class="ps-4">
+                {% if tracking_rows %}
+                  <div class="row g-2">
+                    {% for row in tracking_rows %}
+                      <div class="col-12 col-md-6 col-xl-4">
+                        <label class="d-flex align-items-center gap-2 p-2 border rounded">
+                          <input
+                            class="form-check-input mt-0"
+                            type="checkbox"
+                            name="item_ids"
+                            value="{{ row.id }}"
+                            {% if row.is_selected %}checked{% endif %}
+                          >
+                          <span class="flex-grow-1">
+                            {{ item_ui.item_heading(row.name, parent_name=row.parent_name, compact=True) }}
+                            <span class="text-muted small d-block">
+                              Default par: {{ row.default_par_level if row.default_par_level is not none else "Not set" }}
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <div class="text-muted small">No active direct items are available yet.</div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-12 d-flex justify-content-end">
+          <button class="btn btn-aolrc-accent ui-control" type="submit">Create Venue</button>
+        </div>
+      </form>
+    {% endcall %}
+  </div>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+  (() => {
+    const modeInputs = Array.from(document.querySelectorAll('input[name="setup_mode"]'));
+    const copyPanel = document.getElementById("copyVenueSetupPanel");
+    const manualPanel = document.getElementById("manualVenueSetupPanel");
+
+    function syncSetupPanels() {
+      const selectedMode = modeInputs.find((input) => input.checked)?.value || "empty";
+      if (copyPanel) copyPanel.classList.toggle("d-none", selectedMode !== "copy");
+      if (manualPanel) manualPanel.classList.toggle("d-none", selectedMode !== "manual");
+    }
+
+    modeInputs.forEach((input) => input.addEventListener("change", syncSetupPanels));
+    syncSetupPanels();
+  })();
+</script>
+{% endblock %}

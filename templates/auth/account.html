@@ -3,10 +3,20 @@
 {% block title %}Account{% endblock %}
 
 {% block content %}
-{{ ui.page_header(
+{% call ui.page_header(
   title="My Account",
   subtitle="Manage your profile and password."
-) }}
+) %}
+  {% if current_user.role == "admin" %}
+    {{ ui.chip("Admin", tone="danger", icon_class="bi-shield-lock") }}
+  {% elif current_user.role == "staff" %}
+    {{ ui.chip("Staff", tone="primary", icon_class="bi-person-badge") }}
+  {% else %}
+    {{ ui.chip("Viewer", tone="secondary", icon_class="bi-eye") }}
+  {% endif %}
+  {{ ui.chip("Last sign in: " ~ (current_user.last_login_at.strftime("%Y-%m-%d %I:%M %p") if current_user.last_login_at else "Never"), tone="neutral", icon_class="bi-clock-history") }}
+  {{ ui.chip("Password updated: " ~ (current_user.password_changed_at.strftime("%Y-%m-%d %I:%M %p") if current_user.password_changed_at else "Not recorded"), tone="neutral", icon_class="bi-key") }}
+{% endcall %}
 
 <div class="row g-3">
   <div class="col-12 col-lg-4">
@@ -70,6 +80,46 @@
             <input class="form-control ui-control" id="confirm_password" name="confirm_password" type="password" required minlength="8" autocomplete="new-password">
           </div>
           <button class="btn btn-aolrc-accent ui-control align-self-start" type="submit">Update Password</button>
+      </form>
+    {% endcall %}
+
+    {% call ui.form_section("Custom Settings", "Choose the theme used across the app. The selected theme also carries onto sign-in and password pages in this browser.") %}
+      <form method="post" action="{{ url_for('auth.update_custom_settings') }}" class="d-flex flex-column gap-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <fieldset class="account-theme-picker">
+          <legend class="form-label mb-2">Color theme</legend>
+          <div class="account-theme-option-grid">
+            {% for option in theme_options %}
+              <label class="account-theme-option account-theme-option-{{ option.value }}">
+                <input
+                  class="account-theme-radio"
+                  type="radio"
+                  name="theme_preference"
+                  value="{{ option.value }}"
+                  {{ 'checked' if current_theme_preference == option.value else '' }}
+                >
+                <span class="account-theme-card">
+                  <span class="account-theme-preview" aria-hidden="true">
+                    <span class="account-theme-preview-shell">
+                      <span class="account-theme-preview-topbar"></span>
+                      <span class="account-theme-preview-heading"></span>
+                      <span class="account-theme-preview-chip"></span>
+                      <span class="account-theme-preview-button"></span>
+                    </span>
+                  </span>
+                  <span class="account-theme-copy">
+                    <span class="account-theme-label">{{ option.label }}</span>
+                    <span class="account-theme-description">{{ option.description }}</span>
+                  </span>
+                  <span class="account-theme-indicator" aria-hidden="true">
+                    <i class="bi bi-check-circle-fill"></i>
+                  </span>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+        </fieldset>
+        <button class="btn btn-aolrc-accent ui-control align-self-start" type="submit">Save Settings</button>
       </form>
     {% endcall %}
   </div>

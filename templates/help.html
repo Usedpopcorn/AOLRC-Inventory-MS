@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% import "_ui_macros.html" as ui %}
+{% block title %}Help{% endblock %}
+
+{% block content %}
+{% call ui.page_header(
+  title="Help and Workflow Guide",
+  subtitle="Reference how each part of the app is designed to be used with a workbook-style guide layout."
+) %}
+  {{ ui.chip("Read-first", tone="primary", icon_class="bi-book") }}
+  {{ ui.chip("Workbook format", tone="secondary", icon_class="bi-journal-richtext") }}
+  {{ ui.chip("Draft structure", tone="neutral", icon_class="bi-layout-text-window-reverse") }}
+{% endcall %}
+
+<div class="row g-3">
+  <div class="col-12">
+    {{ ui.state_banner(
+      title="Guide content in progress",
+      body="This page is intentionally a scaffold for now. Replace sample copy with the full operational guide over time.",
+      tone="muted",
+      icon_class="bi-journal-text"
+    ) }}
+  </div>
+
+  <div class="col-12 d-lg-none">
+    <section class="ui-surface-card p-3" role="navigation" aria-label="Help workbook sections">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <i class="bi bi-list-ul text-aolrc-purple" aria-hidden="true"></i>
+        <h2 class="h6 mb-0">On this page</h2>
+      </div>
+      <div class="row g-2">
+        <div class="col-12 col-sm-6">
+          <a class="btn btn-outline-secondary ui-control-sm w-100 text-start" href="#app-navigation-overview">App Navigation Overview</a>
+        </div>
+        <div class="col-12 col-sm-6">
+          <a class="btn btn-outline-secondary ui-control-sm w-100 text-start" href="#daily-check-workflows">Daily Check Workflows</a>
+        </div>
+        <div class="col-12 col-sm-6">
+          <a class="btn btn-outline-secondary ui-control-sm w-100 text-start" href="#status-vs-count-logic">Status vs Count Logic</a>
+        </div>
+        <div class="col-12 col-sm-6">
+          <a class="btn btn-outline-secondary ui-control-sm w-100 text-start" href="#venue-and-inventory-workflows">Venue and Inventory Workflows</a>
+        </div>
+        <div class="col-12 col-sm-6">
+          <a class="btn btn-outline-secondary ui-control-sm w-100 text-start" href="#admin-actions-and-guardrails">Admin Actions and Guardrails</a>
+        </div>
+        <div class="col-12 col-sm-6">
+          <a class="btn btn-outline-secondary ui-control-sm w-100 text-start" href="#troubleshooting-and-faq">Troubleshooting and FAQ</a>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="col-12 col-lg-4 col-xl-3 d-none d-lg-block">
+    <aside class="ui-surface-card p-3 position-sticky top-0" aria-label="Help workbook navigation">
+      <div class="small text-uppercase text-muted fw-semibold mb-2">Workbook Sections</div>
+      <nav class="nav flex-column gap-1">
+        <a class="nav-link py-1 px-0" href="#app-navigation-overview">App Navigation Overview</a>
+        <a class="nav-link py-1 px-0" href="#daily-check-workflows">Daily Check Workflows</a>
+        <a class="nav-link py-1 px-0" href="#status-vs-count-logic">Status vs Count Logic</a>
+        <a class="nav-link py-1 px-0" href="#venue-and-inventory-workflows">Venue and Inventory Workflows</a>
+        <a class="nav-link py-1 px-0" href="#admin-actions-and-guardrails">Admin Actions and Guardrails</a>
+        <a class="nav-link py-1 px-0" href="#troubleshooting-and-faq">Troubleshooting and FAQ</a>
+      </nav>
+      <hr>
+      <p class="small text-muted mb-0">
+        Keep this page as a living handbook. Add short workflow steps first, then detailed references.
+      </p>
+    </aside>
+  </div>
+
+  <div class="col-12 col-lg-8 col-xl-9 d-grid gap-3">
+    <section id="app-navigation-overview">
+    {% call ui.form_section("App Navigation Overview", "Use this section to orient new team members to the core areas of the app.") %}
+      <p class="mb-2">
+        Add a concise walkthrough of where to find Dashboard, Venues, Supplies, Orders, Account, and Admin.
+      </p>
+      <ul class="mb-0 ps-3">
+        <li>Explain which pages are read-focused versus update-focused.</li>
+        <li>Call out role expectations for viewer, staff, and admin users.</li>
+        <li>Link to deeper sections in this guide once content is finalized.</li>
+      </ul>
+    {% endcall %}
+    </section>
+
+    <section id="daily-check-workflows">
+    {% call ui.form_section("Daily Check Workflows", "Document the expected sequence for status checks and count checks across venues.") %}
+      <p class="mb-2">
+        Use this section to describe what a complete daily check looks like from start to finish.
+      </p>
+      <ul class="mb-0 ps-3">
+        <li>How to choose status mode versus count mode.</li>
+        <li>How to review stale signals and missing checks.</li>
+        <li>How updates surface back on dashboard and venue pages.</li>
+      </ul>
+    {% endcall %}
+    </section>
+
+    <section id="status-vs-count-logic">
+    {% call ui.form_section("Status vs Count Logic", "Capture the decision rules that determine when each tracking method should be used.") %}
+      <p class="mb-2">
+        Add practical examples that clarify when to use condition status versus raw quantity counts.
+      </p>
+      <ul class="mb-0 ps-3">
+        <li>Status-only flows for condition-based tracking.</li>
+        <li>Count-based flows for par and replenishment comparisons.</li>
+        <li>How singleton assets differ from quantity-tracked supplies.</li>
+      </ul>
+    {% endcall %}
+    </section>
+
+    <section id="venue-and-inventory-workflows">
+    {% call ui.form_section("Venue and Inventory Workflows", "Describe the expected workflow for venue setup, profile updates, and ongoing inventory maintenance.") %}
+      <p class="mb-2">
+        Use this section to map how venue profile pages, notes, and inventory details work together.
+      </p>
+      <ul class="mb-0 ps-3">
+        <li>How setup groups and item hierarchy influence review flow.</li>
+        <li>How venue notes support handoffs between shifts.</li>
+        <li>How to resolve common inventory data mismatches.</li>
+      </ul>
+    {% endcall %}
+    </section>
+
+    <section id="admin-actions-and-guardrails">
+    {% call ui.form_section("Admin Actions and Guardrails", "Reserve this area for management workflows and policy-level controls.") %}
+      <p class="mb-2">
+        Document admin-only actions, ownership boundaries, and recommended checks before making system-wide changes.
+      </p>
+      <ul class="mb-0 ps-3">
+        <li>User access and role management expectations.</li>
+        <li>Tracking setup governance and rollout steps.</li>
+        <li>Audit/history review habits and escalation workflow.</li>
+      </ul>
+    {% endcall %}
+    </section>
+
+    <section id="troubleshooting-and-faq">
+    {% call ui.form_section("Troubleshooting and FAQ", "Keep a short, practical list of recurring issues and first-response steps.") %}
+      <p class="mb-2">
+        Add high-frequency support questions and link each one to a short resolution checklist.
+      </p>
+      <ul class="mb-0 ps-3">
+        <li>What to check first if updates are not appearing.</li>
+        <li>How to verify route access when controls are missing.</li>
+        <li>How to report product feedback and bugs with context.</li>
+      </ul>
+    {% endcall %}
+    </section>
+  </div>
+</div>
+{% endblock %}
