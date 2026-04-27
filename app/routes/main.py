@@ -255,6 +255,16 @@ def normalize_activity_sort(value):
     return normalized
 
 
+def normalize_activity_actor_user_id(value):
+    raw_value = (value or "").strip()
+    if not raw_value or not raw_value.isdigit():
+        return None
+    parsed_value = int(raw_value)
+    if parsed_value <= 0:
+        return None
+    return parsed_value
+
+
 def format_activity_timestamp(value):
     if value is None:
         return "Unknown time"
@@ -388,6 +398,8 @@ def build_activity_page(
     end_date=None,
     sort="newest",
     page=1,
+    actor_user_id=None,
+    page_size=None,
 ):
     requested_page = max(int(page or 1), 1)
 
@@ -403,6 +415,7 @@ def build_activity_page(
             Check.created_at.label("changed_at"),
             Venue.name.label("venue_name"),
             Item.name.label("item_name"),
+            Check.user_id.label("actor_user_id"),
             status_actor_name.label("actor_name"),
             previous_status.label("old_status_key"),
             CheckLine.status.label("new_status_key"),
@@ -425,6 +438,8 @@ def build_activity_page(
             status_inner.c.old_status_key != status_inner.c.new_status_key,
         )
     )
+    if actor_user_id is not None:
+        status_events = status_events.where(status_inner.c.actor_user_id == actor_user_id)
 
     count_actor_name = activity_actor_name_expr(User.display_name, User.email)
     previous_raw_count = func.lag(CountLine.raw_count).over(
@@ -438,6 +453,7 @@ def build_activity_page(
             CountSession.created_at.label("changed_at"),
             Venue.name.label("venue_name"),
             Item.name.label("item_name"),
+            CountSession.user_id.label("actor_user_id"),
             count_actor_name.label("actor_name"),
             cast(literal(None), String).label("old_status_key"),
             cast(literal(None), String).label("new_status_key"),
@@ -457,6 +473,8 @@ def build_activity_page(
             count_inner.c.old_raw_count != count_inner.c.new_raw_count,
         )
     )
+    if actor_user_id is not None:
+        count_events = count_events.where(count_inner.c.actor_user_id == actor_user_id)
 
     activity_events = union_all(status_events, count_events).subquery()
     filtered_activity = select(activity_events)
@@ -507,9 +525,10 @@ def build_activity_page(
         select(func.count()).select_from(filtered_subquery)
     ).scalar_one()
 
-    total_pages = max((total_count + ACTIVITY_PAGE_SIZE - 1) // ACTIVITY_PAGE_SIZE, 1) if total_count else 1
+    effective_page_size = max(int(page_size or ACTIVITY_PAGE_SIZE), 1)
+    total_pages = max((total_count + effective_page_size - 1) // effective_page_size, 1) if total_count else 1
     current_page = min(requested_page, total_pages) if total_count else 1
-    offset = (current_page - 1) * ACTIVITY_PAGE_SIZE
+    offset = (current_page - 1) * effective_page_size
 
     type_sort_rank = case(
         (filtered_subquery.c.type_key == "status", 0),
@@ -566,7 +585,7 @@ def build_activity_page(
         )
 
     page_rows = db.session.execute(
-        select(filtered_subquery).order_by(*order_by).offset(offset).limit(ACTIVITY_PAGE_SIZE)
+        select(filtered_subquery).order_by(*order_by).offset(offset).limit(effective_page_size)
     ).mappings().all()
     serialized_rows = [serialize_activity_row(row) for row in page_rows]
 
@@ -575,7 +594,7 @@ def build_activity_page(
     return {
         "rows": serialized_rows,
         "total_count": total_count,
-        "page_size": ACTIVITY_PAGE_SIZE,
+        "page_size": effective_page_size,
         "current_page": current_page,
         "total_pages": total_pages,
         "has_prev": current_page > 1,
@@ -589,6 +608,9 @@ def parse_activity_request_args(args):
     activity_search = (args.get("activity_q", "") or "").strip()
     activity_type = normalize_activity_type(args.get("activity_type", "all"))
     activity_sort = normalize_activity_sort(args.get("activity_sort", "newest"))
+    activity_actor_user_id = normalize_activity_actor_user_id(
+        args.get("activity_actor_user_id", "")
+    )
     activity_start_date = parse_activity_date(args.get("activity_start", ""))
     activity_end_date = parse_activity_date(args.get("activity_end", ""))
     activity_start_date, activity_end_date = normalize_activity_date_range(
@@ -603,6 +625,7 @@ def parse_activity_request_args(args):
         "search": activity_search,
         "type": activity_type,
         "sort": activity_sort,
+        "actor_user_id": activity_actor_user_id,
         "start_date": activity_start_date,
         "end_date": activity_end_date,
         "page": activity_page,
@@ -613,6 +636,8 @@ def build_activity_base_params(activity_filters):
     params = {"tab": "activity"}
     if activity_filters["search"]:
         params["activity_q"] = activity_filters["search"]
+    if activity_filters["actor_user_id"] is not None:
+        params["activity_actor_user_id"] = activity_filters["actor_user_id"]
     if activity_filters["type"] != "all":
         params["activity_type"] = activity_filters["type"]
     if activity_filters["sort"] != "newest":
@@ -662,6 +687,7 @@ def serialize_activity_filters(activity_filters):
         "search": activity_filters["search"],
         "type": activity_filters["type"],
         "sort": activity_filters["sort"],
+        "actor_user_id": activity_filters["actor_user_id"],
         "start_date": activity_filters["start_date"].isoformat() if activity_filters["start_date"] else "",
         "end_date": activity_filters["end_date"].isoformat() if activity_filters["end_date"] else "",
     }
@@ -1243,6 +1269,7 @@ def dashboard():
         k in request.args
         for k in (
             "activity_q",
+            "activity_actor_user_id",
             "activity_type",
             "activity_sort",
             "activity_start",
@@ -1258,6 +1285,7 @@ def dashboard():
         activity_page_data = build_activity_page(
             search=activity_filters["search"],
             activity_type=activity_filters["type"],
+            actor_user_id=activity_filters["actor_user_id"],
             start_date=activity_filters["start_date"],
             end_date=activity_filters["end_date"],
             sort=activity_filters["sort"],
@@ -1366,6 +1394,11 @@ def dashboard():
         activity_rows=activity_rows,
         activity_loaded=should_load_activity,
         activity_filters=serialize_activity_filters(activity_filters),
+        activity_actor_filter_user=(
+            db.session.get(User, activity_filters["actor_user_id"])
+            if activity_filters["actor_user_id"] is not None
+            else None
+        ),
         activity_pagination=activity_pagination,
         restock_filters={
             "statuses": restock_statuses,
@@ -1385,6 +1418,7 @@ def dashboard_activity_rows():
     activity_page_data = build_activity_page(
         search=activity_filters["search"],
         activity_type=activity_filters["type"],
+        actor_user_id=activity_filters["actor_user_id"],
         start_date=activity_filters["start_date"],
         end_date=activity_filters["end_date"],
         sort=activity_filters["sort"],

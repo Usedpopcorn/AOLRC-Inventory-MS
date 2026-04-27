@@ -1,5 +1,7 @@
 import hashlib
-from datetime import timedelta
+from datetime import datetime, timedelta
+from pathlib import Path
+import secrets
 
 from flask import (
     Blueprint,
@@ -13,6 +15,7 @@ from flask import (
 )
 from flask_login import current_user, login_required, login_user, logout_user
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 
 from app import ACTIVE_UI_THEME_SESSION_KEY, AUTH_SESSION_VERSION_SESSION_KEY, db
 from app.models import (
@@ -53,12 +56,12 @@ AUTH_THROTTLE_MESSAGE = "Too many attempts. Please wait a few minutes and try ag
 ACCOUNT_THEME_OPTIONS = (
     {
         "description": "Keep the existing AOLRC purple primary with the shared gold accent.",
-        "label": "Default Purple",
+        "label": "Purple",
         "value": "purple",
     },
     {
         "description": "Swap in the warm blue primary while keeping the shared gold accent.",
-        "label": "Warm Blue",
+        "label": "Blue",
         "value": "blue",
     },
 )
@@ -78,6 +81,39 @@ def _build_account_initials(user):
     if len(parts) == 1:
         return parts[0][:2].upper()
     return (parts[0][0] + parts[1][0]).upper()
+
+
+def _avatar_upload_dir():
+    upload_dir = current_app.config.get("AVATAR_UPLOAD_DIR")
+    if upload_dir:
+        return Path(upload_dir)
+    return Path(current_app.static_folder) / "uploads" / "avatars"
+
+
+def _avatar_web_prefix():
+    return (current_app.config.get("AVATAR_WEB_PREFIX") or "uploads/avatars").strip("/")
+
+
+def _avatar_url_for_user(user):
+    filename = (user.avatar_filename or "").strip()
+    if not filename:
+        return None
+    return url_for("static", filename=f"{_avatar_web_prefix()}/{filename}")
+
+
+def _is_allowed_avatar_file(filename):
+    if "." not in filename:
+        return False
+    ext = filename.rsplit(".", 1)[1].lower()
+    return ext in {"jpg", "jpeg", "png", "webp"}
+
+
+def _build_account_activity(user_id, full_history=False, page=1):
+    from app.routes.main import build_activity_page
+
+    if full_history:
+        return build_activity_page(actor_user_id=user_id, page=page)
+    return build_activity_page(actor_user_id=user_id, page=1, page_size=6)
 
 
 def _is_user_locked(user, now=None):
@@ -556,14 +592,81 @@ def reset_password(token):
 @auth_bp.get("/account")
 @login_required
 def account():
+    recent_activity_data = _build_account_activity(
+        current_user.id,
+        full_history=False,
+        page=1,
+    )
+    activity_search_seed = (current_user.display_name or current_user.email or "").strip()
+    dashboard_activity_url = url_for(
+        "main.dashboard",
+        tab="activity",
+        activity_actor_user_id=current_user.id,
+        activity_q=activity_search_seed,
+    )
+
     return render_template(
         "auth/account.html",
         avatar_initials=_build_account_initials(current_user),
+        avatar_url=_avatar_url_for_user(current_user),
+        recent_activity_rows=recent_activity_data["rows"],
+        dashboard_activity_url=dashboard_activity_url,
         current_theme_preference=normalize_theme_preference(
             getattr(current_user, "theme_preference", None)
         ),
         theme_options=ACCOUNT_THEME_OPTIONS,
     )
+
+
+@auth_bp.post("/account/avatar")
+@login_required
+def upload_avatar():
+    file_obj = request.files.get("avatar")
+    if file_obj is None or not (file_obj.filename or "").strip():
+        flash("Please choose an image to upload.", "error")
+        return redirect(url_for("auth.account"))
+
+    original_name = secure_filename(file_obj.filename or "")
+    if not original_name or not _is_allowed_avatar_file(original_name):
+        flash("Please upload a JPG, JPEG, PNG, or WEBP image.", "error")
+        return redirect(url_for("auth.account"))
+
+    extension = original_name.rsplit(".", 1)[1].lower()
+    safe_name = f"user_{current_user.id}_{secrets.token_hex(8)}.{extension}"
+
+    upload_dir = _avatar_upload_dir()
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    old_filename = (current_user.avatar_filename or "").strip()
+    file_obj.save(upload_dir / safe_name)
+
+    if old_filename and old_filename != safe_name:
+        old_path = upload_dir / old_filename
+        if old_path.exists():
+            old_path.unlink()
+
+    current_user.avatar_filename = safe_name
+    current_user.avatar_updated_at = datetime.utcnow()
+    db.session.commit()
+    flash("Profile picture updated.", "success")
+    return redirect(url_for("auth.account"))
+
+
+@auth_bp.post("/account/avatar/remove")
+@login_required
+def remove_avatar():
+    upload_dir = _avatar_upload_dir()
+    old_filename = (current_user.avatar_filename or "").strip()
+    if old_filename:
+        old_path = upload_dir / old_filename
+        if old_path.exists():
+            old_path.unlink()
+
+    current_user.avatar_filename = None
+    current_user.avatar_updated_at = None
+    db.session.commit()
+    flash("Profile picture removed.", "success")
+    return redirect(url_for("auth.account"))
 
 
 @auth_bp.post("/account/profile")
