@@ -31,11 +31,29 @@ def _env_csv(name):
 
 def _default_trusted_hosts():
     hosts = {"localhost", "127.0.0.1", "::1"}
-    app_base_url = (os.getenv("APP_BASE_URL") or "").strip()
-    if app_base_url:
-        parsed = urlparse(app_base_url)
-        if parsed.hostname:
-            hosts.add(parsed.hostname.lower())
+
+    def add_host_from_value(raw_value, *, is_url=True):
+        value = (raw_value or "").strip()
+        if not value:
+            return
+        if is_url or "://" in value:
+            parsed = urlparse(value)
+            if parsed.hostname:
+                hosts.add(parsed.hostname.lower())
+            return
+        hosts.add(value.lower())
+
+    add_host_from_value(os.getenv("APP_BASE_URL"))
+    add_host_from_value(os.getenv("RENDER_EXTERNAL_URL"))
+    add_host_from_value(os.getenv("RENDER_EXTERNAL_HOSTNAME"), is_url=False)
+
+    # Render free services usually serve from <service>.onrender.com.
+    render_service_name = (os.getenv("RENDER_SERVICE_NAME") or "").strip().lower()
+    if render_service_name:
+        hosts.add(f"{render_service_name}.onrender.com")
+    if _env_flag("RENDER", default=False):
+        hosts.add(".onrender.com")
+
     return sorted(hosts)
 
 
