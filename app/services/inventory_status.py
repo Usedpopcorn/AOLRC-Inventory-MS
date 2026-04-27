@@ -207,7 +207,12 @@ def build_overall_status_badge(total_tracked, counts, detail_counts=None):
     if checked_count > 0 and counts["ok"] > 0 and (counts["ok"] * 2 >= checked_count):
         return {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
     if counts["good"] > 0:
-        return {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
+        good_has_partial_attention = counts["ok"] > 0 or counts["not_checked"] > 0
+        return {
+            "key": "good",
+            "text": "Good*" if good_has_partial_attention else "Good",
+            "icon_class": "bi-check-circle-fill",
+        }
     if checked_count > 0 and counts["ok"] > 0:
         return {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
     return {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}

@@ -20,10 +20,11 @@
   {{- value }} {{ quantity_unit_label(item, value) -}}
 {%- endmacro %}
 
-{% macro check_row(it, latest_status, latest_counts, effective_par_by_item, is_view_only, nested=False, hidden=False) -%}
+{% macro check_row(it, latest_status, latest_counts, effective_par_by_item, note_counts_by_item, is_view_only, nested=False, hidden=False) -%}
   {% set current_status = latest_status[it.id] %}
   {% set last_count = latest_counts[it.id] %}
   {% set par_value = effective_par_by_item[it.id] %}
+  {% set note_count = note_counts_by_item.get(it.id, 0) %}
   <div
     class="quick-check-row quick-check-entry-row supply-status-row inventory-row-shell{{ ' quick-check-row-child' if nested else '' }}"
     data-name="{{ (it.name ~ ' ' ~ (it.parent_item.name if it.parent_item else ''))|lower }}"
@@ -41,12 +42,30 @@
     {{ 'hidden' if hidden else '' }}
   >
     <div class="quick-check-row-main">
-      {{ item_ui.item_heading(
-        it.name,
-        parent_name=it.parent_item.name if (it.parent_item and not nested) else none,
-        note="Presence-tracked asset" if it.tracking_mode == "singleton_asset" else none,
-        compact=True
-      ) }}
+      <div class="quick-check-row-heading">
+        <div class="quick-check-row-heading-copy">
+          {{ item_ui.item_heading(
+            it.name,
+            parent_name=it.parent_item.name if (it.parent_item and not nested) else none,
+            note="Presence-tracked asset" if it.tracking_mode == "singleton_asset" else none,
+            compact=True
+          ) }}
+        </div>
+        {% if current_user.is_staff %}
+          <button
+            type="button"
+            class="icon-btn-plain icon-btn-sm venue-profile-row-note-action quick-check-row-note-action"
+            data-quick-check-note-button
+            data-item-id="{{ it.id }}"
+            data-item-name="{{ it.name }}"
+            data-note-count="{{ note_count }}"
+            aria-label="Add note for {{ it.name }}{% if note_count %}. {{ note_count }} existing note{{ '' if note_count == 1 else 's' }}.{% endif %}"
+            title="{{ 'Add note' if note_count == 0 else 'Add note (' ~ note_count ~ ' existing)' }}"
+          >
+            <i class="bi {{ 'bi-journal-text' if note_count else 'bi-journal-plus' }}" aria-hidden="true"></i>
+          </button>
+        {% endif %}
+      </div>
       {% if it.tracking_mode == "singleton_asset" %}
         <div class="mt-2">
           {{ item_ui.structure_badges(
@@ -230,7 +249,7 @@
   <div class="card">
     <div class="card-body quick-check-layout{% if is_counts_mode %} quick-check-layout-raw{% endif %}" id="quickCheckLayout">
       {% call ui.toolbar("quick-check-toolbar mb-3") %}
-        <div class="ui-toolbar-main ui-toolbar-main-2 quick-check-controls">
+        <div class="ui-toolbar-main ui-toolbar-main-3 quick-check-controls">
           <div class="quick-check-controls-field">
             <label class="visually-hidden" for="supplySearch">Search supplies</label>
             <input
@@ -240,6 +259,17 @@
               placeholder="Search supplies..."
               aria-label="Search supplies"
             >
+          </div>
+          <div class="quick-check-controls-field quick-check-sort-field">
+            <label class="visually-hidden" for="supplySort">Sort supplies</label>
+            <select
+              id="supplySort"
+              class="form-select ui-control"
+              aria-label="Sort supplies"
+            >
+              <option value="default" {% if selected_sort == "default" %}selected{% endif %}>Default order</option>
+              <option value="priority" {% if selected_sort == "priority" %}selected{% endif %}>Priority first</option>
+            </select>
           </div>
           <div class="mode-select-wrap">
             <span class="visually-hidden" id="check_mode_label">Check mode</span>
@@ -281,6 +311,7 @@
             data-kind="{{ group.kind }}"
             data-name="{{ group.search_text }}"
             data-family-name="{{ group.family_name|lower if group.kind == 'family' else group.item.name|lower }}"
+            data-current-status="{{ group.worst_status_key if group.kind == 'family' else latest_status[group.item.id] }}"
           >
             {% if group.kind == "family" %}
               <button
@@ -330,11 +361,11 @@
               </button>
               <div class="quick-check-family-children inventory-tree-children" id="{{ group.id }}-children" hidden>
                 {% for it in group.children %}
-                  {{ check_row(it, latest_status, latest_counts, effective_par_by_item, is_view_only, nested=True, hidden=True) }}
+                  {{ check_row(it, latest_status, latest_counts, effective_par_by_item, note_counts_by_item, is_view_only, nested=True, hidden=True) }}
                 {% endfor %}
               </div>
             {% else %}
-              {{ check_row(group.item, latest_status, latest_counts, effective_par_by_item, is_view_only) }}
+              {{ check_row(group.item, latest_status, latest_counts, effective_par_by_item, note_counts_by_item, is_view_only) }}
             {% endif %}
           </section>
         {% endfor %}
@@ -385,6 +416,112 @@
   </div>
 </div>
 
+{% if current_user.is_staff %}
+<div
+  class="modal fade"
+  id="quickCheckNoteModal"
+  tabindex="-1"
+  aria-labelledby="quickCheckNoteModalLabel"
+  aria-hidden="true"
+>
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable supply-notes-modal-dialog">
+    <div
+      class="modal-content supply-notes-modal-content"
+      data-quick-check-note-endpoint="{{ url_for('venue_items.quick_check_create_note', venue_id=venue.id) }}"
+    >
+      <div class="modal-header supply-notes-modal-header">
+        <div class="supply-notes-modal-heading">
+          <h2 class="modal-title supply-notes-modal-title" id="quickCheckNoteModalLabel">Add Item Note</h2>
+          <p class="supply-notes-modal-subtitle mb-0" id="quickCheckNoteModalSubtitle">
+            Save item-specific venue context without leaving this quick check.
+          </p>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body supply-notes-modal-body">
+        <div
+          id="quickCheckNoteFeedback"
+          class="ui-state-banner ui-state-banner-danger ui-state-banner-compact d-none"
+          role="alert"
+          aria-live="polite"
+        >
+          <div class="ui-state-banner-icon" aria-hidden="true">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+          </div>
+          <div class="ui-state-banner-copy">
+            <div class="ui-state-banner-title" id="quickCheckNoteFeedbackTitle">Could not save note</div>
+            <div class="ui-state-banner-body" id="quickCheckNoteFeedbackBody"></div>
+          </div>
+        </div>
+
+        <section class="venue-note-composer-panel supply-note-composer-panel supply-note-compose-panel quick-check-note-compose-panel">
+          <div class="supply-note-compose-head">
+            <h3 class="h6 mb-1" id="quickCheckNoteItemName">Tracked item</h3>
+            <p class="text-muted small mb-0" id="quickCheckNoteItemMeta">
+              This note will be attached to the current venue and tagged to the selected item.
+            </p>
+          </div>
+          <form
+            method="post"
+            action="{{ url_for('venue_items.quick_check_create_note', venue_id=venue.id) }}"
+            class="venue-note-composer"
+            id="quickCheckNoteForm"
+          >
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="item_id" id="quickCheckNoteItemId" value="">
+
+            <div class="venue-note-composer-grid supply-note-composer-grid">
+              <div class="venue-note-composer-field supply-note-item-field">
+                <label class="form-label mb-0" for="quickCheckNoteScope">Note scope</label>
+                <input
+                  id="quickCheckNoteScope"
+                  class="form-control ui-control"
+                  type="text"
+                  value=""
+                  readonly
+                >
+              </div>
+              <div class="venue-note-composer-field venue-note-composer-field-title">
+                <label class="form-label mb-0" for="quickCheckNoteTitle">Title</label>
+                <input
+                  id="quickCheckNoteTitle"
+                  name="title"
+                  class="form-control ui-control"
+                  maxlength="{{ note_title_max_length }}"
+                  placeholder="Note title"
+                >
+              </div>
+            </div>
+
+            <textarea
+              id="quickCheckNoteBody"
+              name="body"
+              rows="4"
+              class="form-control ui-control-area"
+              maxlength="{{ note_body_max_length }}"
+              placeholder="Write note details..."
+            ></textarea>
+            <div class="text-muted small">
+              Up to {{ note_title_max_length }} characters for the title and {{ "{:,}".format(note_body_max_length) }} characters for the note body.
+            </div>
+
+            <div class="supply-note-compose-actions">
+              <button type="button" class="btn btn-outline-secondary ui-control" data-bs-dismiss="modal">
+                Cancel
+              </button>
+              <button class="btn btn-aolrc-accent ui-control" type="submit" id="quickCheckNoteSubmitBtn">
+                Save Note
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="quickCheckNoteLiveRegion" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+{% endif %}
+
 <script nonce="{{ csp_nonce() }}">
   (() => {
     const quickCheckForm = document.getElementById("quick-check-form");
@@ -392,6 +529,8 @@
     const modeInput = document.getElementById("check_mode");
     const modeToggleButtons = Array.from(document.querySelectorAll("[data-mode-toggle]"));
     const supplySearchEl = document.getElementById("supplySearch");
+    const supplySortEl = document.getElementById("supplySort");
+    const suppliesListEl = document.getElementById("suppliesList");
     const emptyFilteredEl = document.getElementById("suppliesFilteredEmpty");
     const overallStatusPill = document.getElementById("overallStatusPill");
     const overallStatusIcon = document.getElementById("overallStatusIcon");
@@ -416,6 +555,32 @@
         keyboard: false,
       })
       : null;
+    const quickCheckNoteModalEl = document.getElementById("quickCheckNoteModal");
+    const quickCheckNoteModalContent = quickCheckNoteModalEl?.querySelector("[data-quick-check-note-endpoint]");
+    const quickCheckNoteModalEndpoint = quickCheckNoteModalContent?.getAttribute("data-quick-check-note-endpoint") || "";
+    const quickCheckNoteModalTitle = document.getElementById("quickCheckNoteModalLabel");
+    const quickCheckNoteModalSubtitle = document.getElementById("quickCheckNoteModalSubtitle");
+    const quickCheckNoteItemName = document.getElementById("quickCheckNoteItemName");
+    const quickCheckNoteItemMeta = document.getElementById("quickCheckNoteItemMeta");
+    const quickCheckNoteForm = document.getElementById("quickCheckNoteForm");
+    const quickCheckNoteItemIdInput = document.getElementById("quickCheckNoteItemId");
+    const quickCheckNoteScopeInput = document.getElementById("quickCheckNoteScope");
+    const quickCheckNoteTitleInput = document.getElementById("quickCheckNoteTitle");
+    const quickCheckNoteBodyInput = document.getElementById("quickCheckNoteBody");
+    const quickCheckNoteSubmitBtn = document.getElementById("quickCheckNoteSubmitBtn");
+    const quickCheckNoteFeedback = document.getElementById("quickCheckNoteFeedback");
+    const quickCheckNoteFeedbackTitle = document.getElementById("quickCheckNoteFeedbackTitle");
+    const quickCheckNoteFeedbackBody = document.getElementById("quickCheckNoteFeedbackBody");
+    const quickCheckNoteLiveRegion = document.getElementById("quickCheckNoteLiveRegion");
+    const quickCheckNoteButtons = Array.from(
+      document.querySelectorAll("[data-quick-check-note-button]")
+    );
+    const quickCheckNoteModalDismissButtons = Array.from(
+      quickCheckNoteModalEl?.querySelectorAll("[data-bs-dismiss='modal']") || []
+    );
+    const quickCheckNoteModal = quickCheckNoteModalEl && window.bootstrap?.Modal
+      ? window.bootstrap.Modal.getOrCreateInstance(quickCheckNoteModalEl)
+      : null;
     const guardedLinks = Array.from(
       document.querySelectorAll(".ui-back-link, [data-quickcheck-next-link]")
     );
@@ -428,7 +593,11 @@
     let pendingGuardAction = null;
     let manualModalBackdrop = null;
     let isManualModalOpen = false;
+    let manualQuickCheckNoteBackdrop = null;
+    let isManualQuickCheckNoteOpen = false;
+    let isSubmittingQuickCheck = false;
     let skipNextPopstate = false;
+    let activeQuickCheckNoteButton = null;
 
     function getGroups() {
       return Array.from(document.querySelectorAll(".quick-check-group"));
@@ -455,8 +624,16 @@
       return value === "raw_counts" ? "raw_counts" : "status";
     }
 
+    function normalizeQuickCheckSort(value) {
+      return value === "priority" ? "priority" : "default";
+    }
+
     function getActiveMode() {
       return normalizeQuickCheckMode(modeInput?.value || "status");
+    }
+
+    function getActiveSortMode() {
+      return normalizeQuickCheckSort(supplySortEl?.value || "default");
     }
 
     function getModeLabel(mode) {
@@ -477,13 +654,15 @@
       const nextUrl = new URL(window.location.href);
       const mode = getActiveMode();
       const query = (supplySearchEl?.value || "").trim();
+      const sortMode = getActiveSortMode();
 
       if (mode !== "status") nextUrl.searchParams.set("mode", mode);
       else nextUrl.searchParams.delete("mode");
 
       if (query) nextUrl.searchParams.set("supply_q", query);
       else nextUrl.searchParams.delete("supply_q");
-      nextUrl.searchParams.delete("supply_sort");
+      if (sortMode !== "default") nextUrl.searchParams.set("supply_sort", sortMode);
+      else nextUrl.searchParams.delete("supply_sort");
       nextUrl.searchParams.delete("focus_item_id");
 
       return nextUrl;
@@ -586,6 +765,152 @@
       pendingGuardAction = null;
     }
 
+    function parseQuickCheckNoteCount(value) {
+      const parsed = Number.parseInt(value || "", 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    }
+
+    function buildQuickCheckNoteAriaLabel(itemName, noteCount) {
+      if (noteCount > 0) {
+        return `Add note for ${itemName}. ${noteCount} existing note${noteCount === 1 ? "" : "s"}.`;
+      }
+      return `Add note for ${itemName}`;
+    }
+
+    function buildQuickCheckNoteTitle(noteCount) {
+      return noteCount > 0 ? `Add note (${noteCount} existing)` : "Add note";
+    }
+
+    function updateQuickCheckNoteButton(button, noteCount, itemName) {
+      if (!button) return;
+
+      const resolvedItemName = itemName || button.dataset.itemName || "Tracked item";
+      const resolvedNoteCount = Math.max(0, parseQuickCheckNoteCount(String(noteCount)));
+      button.dataset.itemName = resolvedItemName;
+      button.dataset.noteCount = String(resolvedNoteCount);
+      button.setAttribute(
+        "aria-label",
+        buildQuickCheckNoteAriaLabel(resolvedItemName, resolvedNoteCount)
+      );
+      button.title = buildQuickCheckNoteTitle(resolvedNoteCount);
+
+      const icon = button.querySelector("i");
+      if (!icon) return;
+      icon.classList.remove("bi-journal-plus", "bi-journal-text");
+      icon.classList.add(resolvedNoteCount > 0 ? "bi-journal-text" : "bi-journal-plus");
+    }
+
+    function clearQuickCheckNoteFeedback() {
+      if (!quickCheckNoteFeedback) return;
+      quickCheckNoteFeedback.classList.add("d-none");
+      if (quickCheckNoteFeedbackTitle) {
+        quickCheckNoteFeedbackTitle.textContent = "Could not save note";
+      }
+      if (quickCheckNoteFeedbackBody) {
+        quickCheckNoteFeedbackBody.textContent = "";
+      }
+    }
+
+    function showQuickCheckNoteFeedback(message, title = "Could not save note") {
+      if (!quickCheckNoteFeedback) return;
+      if (quickCheckNoteFeedbackTitle) {
+        quickCheckNoteFeedbackTitle.textContent = title;
+      }
+      if (quickCheckNoteFeedbackBody) {
+        quickCheckNoteFeedbackBody.textContent = message;
+      }
+      quickCheckNoteFeedback.classList.remove("d-none");
+    }
+
+    function resetQuickCheckNoteForm() {
+      quickCheckNoteForm?.reset();
+      clearQuickCheckNoteFeedback();
+      if (quickCheckNoteSubmitBtn) {
+        quickCheckNoteSubmitBtn.disabled = false;
+        quickCheckNoteSubmitBtn.textContent = "Save Note";
+      }
+    }
+
+    function showQuickCheckNoteModal() {
+      if (!quickCheckNoteModalEl) return;
+      if (quickCheckNoteModal) {
+        quickCheckNoteModal.show();
+        return;
+      }
+
+      isManualQuickCheckNoteOpen = true;
+      quickCheckNoteModalEl.style.display = "block";
+      quickCheckNoteModalEl.removeAttribute("aria-hidden");
+      quickCheckNoteModalEl.setAttribute("aria-modal", "true");
+      quickCheckNoteModalEl.classList.add("show");
+      document.body.classList.add("modal-open");
+
+      if (!manualQuickCheckNoteBackdrop) {
+        manualQuickCheckNoteBackdrop = document.createElement("div");
+        manualQuickCheckNoteBackdrop.className = "modal-backdrop fade show";
+        document.body.appendChild(manualQuickCheckNoteBackdrop);
+      }
+
+      window.setTimeout(() => quickCheckNoteTitleInput?.focus(), 0);
+    }
+
+    function hideQuickCheckNoteModal() {
+      if (quickCheckNoteModal) {
+        quickCheckNoteModal.hide();
+        return;
+      }
+
+      if (!quickCheckNoteModalEl) return;
+      isManualQuickCheckNoteOpen = false;
+      quickCheckNoteModalEl.classList.remove("show");
+      quickCheckNoteModalEl.style.display = "none";
+      quickCheckNoteModalEl.setAttribute("aria-hidden", "true");
+      quickCheckNoteModalEl.removeAttribute("aria-modal");
+      document.body.classList.remove("modal-open");
+      if (manualQuickCheckNoteBackdrop) {
+        manualQuickCheckNoteBackdrop.remove();
+        manualQuickCheckNoteBackdrop = null;
+      }
+      resetQuickCheckNoteForm();
+      if (activeQuickCheckNoteButton) {
+        activeQuickCheckNoteButton.focus();
+      }
+      activeQuickCheckNoteButton = null;
+    }
+
+    function primeQuickCheckNoteModal(button) {
+      if (!button) return;
+
+      activeQuickCheckNoteButton = button;
+      const itemId = button.dataset.itemId || "";
+      const itemName = button.dataset.itemName || "Tracked item";
+      const noteCount = parseQuickCheckNoteCount(button.dataset.noteCount);
+
+      resetQuickCheckNoteForm();
+      if (quickCheckNoteModalTitle) {
+        quickCheckNoteModalTitle.textContent = `Add Note for ${itemName}`;
+      }
+      if (quickCheckNoteModalSubtitle) {
+        quickCheckNoteModalSubtitle.textContent = noteCount > 0
+          ? `${noteCount} existing venue note${noteCount === 1 ? "" : "s"} already live on this item.`
+          : "Save item-specific venue context without leaving this quick check.";
+      }
+      if (quickCheckNoteItemName) {
+        quickCheckNoteItemName.textContent = itemName;
+      }
+      if (quickCheckNoteItemMeta) {
+        quickCheckNoteItemMeta.textContent = noteCount > 0
+          ? "New notes stay tagged to this venue item and will appear in the venue profile notes area."
+          : "This note will be attached to the current venue and tagged to the selected item.";
+      }
+      if (quickCheckNoteItemIdInput) {
+        quickCheckNoteItemIdInput.value = itemId;
+      }
+      if (quickCheckNoteScopeInput) {
+        quickCheckNoteScopeInput.value = itemName;
+      }
+    }
+
     function normalizeSelectableStatus(value, allowBlank = false) {
       const normalized = (value || "").toLowerCase();
       if (allowBlank && normalized === "") return "";
@@ -617,6 +942,85 @@
     function getCurrentCountValue(row) {
       const raw = (row?.dataset.currentCount || "").trim();
       return raw === "" ? null : raw;
+    }
+
+    function getOriginalOrderValue(element) {
+      const parsed = Number.parseInt(element?.dataset.originalOrder || "", 10);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function getSavedStatusPriorityRank(element) {
+      const normalized = normalizeSelectableStatus(element?.dataset.currentStatus || "not_checked");
+      return {
+        out: 0,
+        low: 1,
+        not_checked: 2,
+        ok: 3,
+        good: 4,
+      }[normalized] ?? 2;
+    }
+
+    function ensureOriginalSortMarkers() {
+      getGroups().forEach((groupEl, groupIndex) => {
+        if (!groupEl.dataset.originalOrder) {
+          groupEl.dataset.originalOrder = String(groupIndex);
+        }
+
+        const childRows = Array.from(groupEl.querySelectorAll(".quick-check-entry-row"));
+        childRows.forEach((row, rowIndex) => {
+          if (!row.dataset.originalOrder) {
+            row.dataset.originalOrder = String(rowIndex);
+          }
+        });
+      });
+    }
+
+    function sortElementsByPriority(elements) {
+      elements.sort((firstEl, secondEl) => {
+        const priorityDiff =
+          getSavedStatusPriorityRank(firstEl) - getSavedStatusPriorityRank(secondEl);
+        if (priorityDiff !== 0) return priorityDiff;
+        return getOriginalOrderValue(firstEl) - getOriginalOrderValue(secondEl);
+      });
+    }
+
+    function sortElementsByOriginalOrder(elements) {
+      elements.sort(
+        (firstEl, secondEl) => getOriginalOrderValue(firstEl) - getOriginalOrderValue(secondEl)
+      );
+    }
+
+    function applyQuickCheckSort() {
+      ensureOriginalSortMarkers();
+      const sortMode = getActiveSortMode();
+      const groups = getGroups();
+      if (!groups.length) return;
+
+      const orderedGroups = groups.slice();
+      if (sortMode === "priority") {
+        sortElementsByPriority(orderedGroups);
+      } else {
+        sortElementsByOriginalOrder(orderedGroups);
+      }
+
+      if (suppliesListEl) {
+        orderedGroups.forEach((groupEl) => suppliesListEl.appendChild(groupEl));
+      }
+
+      orderedGroups.forEach((groupEl) => {
+        if (groupEl.dataset.kind !== "family") return;
+
+        const childrenWrap = groupEl.querySelector(".quick-check-family-children");
+        if (!childrenWrap) return;
+
+        const childRows = Array.from(childrenWrap.querySelectorAll(".quick-check-entry-row"));
+        if (sortMode === "priority") {
+          sortElementsByPriority(childRows);
+        } else {
+          sortElementsByOriginalOrder(childRows);
+        }
+        childRows.forEach((row) => childrenWrap.appendChild(row));
+      });
     }
 
     function getPendingCountValue(row) {
@@ -1187,11 +1591,18 @@
         updateFamilySummary(groupEl);
       });
 
+      applyQuickCheckSort();
       if (emptyFilteredEl) emptyFilteredEl.classList.toggle("d-none", visibleCount > 0);
     }
 
     const initialQuery = initialUrl.searchParams.get("supply_q");
     if (initialQuery !== null) supplySearchEl.value = initialQuery;
+    if (supplySortEl) {
+      supplySortEl.value = normalizeQuickCheckSort(
+        initialUrl.searchParams.get("supply_sort") || supplySortEl.value
+      );
+    }
+    ensureOriginalSortMarkers();
     installHistoryGuard();
 
     function focusAndHighlightSelectedItem() {
@@ -1264,6 +1675,13 @@
       });
     });
 
+    quickCheckNoteButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        primeQuickCheckNoteModal(button);
+        showQuickCheckNoteModal();
+      });
+    });
+
     document.querySelectorAll("[data-family-toggle]").forEach((button) => {
       button.addEventListener("click", () => {
         const groupEl = button.closest(".quick-check-group-family");
@@ -1323,6 +1741,13 @@
       syncQuickCheckUrl();
     });
 
+    if (supplySortEl) {
+      supplySortEl.addEventListener("change", () => {
+        applyQuickCheckView();
+        syncQuickCheckUrl();
+      });
+    }
+
     document.querySelectorAll(".count-input").forEach((inputEl) => {
       const handleCountInput = () => {
         hasTouchedCountSelection = true;
@@ -1343,11 +1768,29 @@
       });
     }
 
+    if (quickCheckNoteModalEl) {
+      quickCheckNoteModalEl.addEventListener("hidden.bs.modal", () => {
+        resetQuickCheckNoteForm();
+        if (activeQuickCheckNoteButton) {
+          activeQuickCheckNoteButton.focus();
+        }
+        activeQuickCheckNoteButton = null;
+      });
+    }
+
     unsavedModalDismissButtons.forEach((button) => {
       button.addEventListener("click", (event) => {
         if (unsavedModal) return;
         event.preventDefault();
         hideUnsavedModal();
+      });
+    });
+
+    quickCheckNoteModalDismissButtons.forEach((button) => {
+      button.addEventListener("click", (event) => {
+        if (quickCheckNoteModal) return;
+        event.preventDefault();
+        hideQuickCheckNoteModal();
       });
     });
 
@@ -1359,12 +1802,77 @@
       });
     }
 
+    if (quickCheckNoteModalEl && !quickCheckNoteModal) {
+      quickCheckNoteModalEl.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        hideQuickCheckNoteModal();
+      });
+    }
+
     if (unsavedModalDiscardBtn) {
       unsavedModalDiscardBtn.addEventListener("click", () => {
         const action = pendingGuardAction;
         hideUnsavedModal();
         discardPendingChanges();
         runGuardedAction(action);
+      });
+    }
+
+    if (quickCheckNoteForm) {
+      quickCheckNoteForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        clearQuickCheckNoteFeedback();
+
+        if (!quickCheckNoteModalEndpoint) {
+          showQuickCheckNoteFeedback("The note form is missing its save endpoint. Refresh and try again.");
+          return;
+        }
+
+        if (quickCheckNoteSubmitBtn) {
+          quickCheckNoteSubmitBtn.disabled = true;
+          quickCheckNoteSubmitBtn.textContent = "Saving...";
+        }
+
+        try {
+          const response = await fetch(quickCheckNoteModalEndpoint, {
+            method: "POST",
+            headers: {
+              "Accept": "application/json",
+            },
+            body: new FormData(quickCheckNoteForm),
+          });
+          const contentType = (response.headers.get("content-type") || "").toLowerCase();
+          const payload = contentType.includes("application/json")
+            ? await response.json()
+            : null;
+
+          if (!response.ok || !payload || payload.status !== "success") {
+            showQuickCheckNoteFeedback(
+              payload?.error || "Your session may have expired. Refresh the page and try again."
+            );
+            return;
+          }
+
+          if (activeQuickCheckNoteButton) {
+            updateQuickCheckNoteButton(
+              activeQuickCheckNoteButton,
+              payload.note_count || 1,
+              payload.item_name
+            );
+          }
+          if (quickCheckNoteLiveRegion) {
+            quickCheckNoteLiveRegion.textContent = `${payload.message || "Note added."} ${payload.item_name || "Tracked item"}.`;
+          }
+          hideQuickCheckNoteModal();
+        } catch (error) {
+          showQuickCheckNoteFeedback("Could not reach the server. Try again in a moment.");
+        } finally {
+          if (quickCheckNoteSubmitBtn) {
+            quickCheckNoteSubmitBtn.disabled = false;
+            quickCheckNoteSubmitBtn.textContent = "Save Note";
+          }
+        }
       });
     }
 
@@ -1397,17 +1905,19 @@
     });
 
     window.addEventListener("beforeunload", (event) => {
-      if (!hasUnsavedChanges()) return;
+      if (isSubmittingQuickCheck || !hasUnsavedChanges()) return;
       event.preventDefault();
       event.returnValue = "";
     });
 
     quickCheckForm.addEventListener("submit", (event) => {
+      isSubmittingQuickCheck = false;
       syncAllStatusInputs();
 
       if (getActiveMode() === "status") {
         if (getPendingStatusCount() > 0) {
           hideSelectionWarning();
+          isSubmittingQuickCheck = true;
           return;
         }
         event.preventDefault();
@@ -1417,6 +1927,7 @@
 
       if (getPendingCountRowCount() + getPendingStatusCount({ singletonOnly: true }) > 0) {
         hideSelectionWarning();
+        isSubmittingQuickCheck = true;
         return;
       }
 

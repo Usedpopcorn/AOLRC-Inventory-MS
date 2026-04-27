@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from werkzeug.security import generate_password_hash
 
-from app import db
+from app import ACTIVE_UI_THEME_SESSION_KEY, db
 from app.models import AccountAuditEvent, PasswordActionToken, User
 from app.services.account_security import (
     AccountManagementError,
@@ -34,12 +34,13 @@ def create_user(
     role="viewer",
     active=True,
     display_name=None,
+    theme_preference=None,
     force_password_change=False,
     locked_until=None,
     failed_login_attempts=0,
 ):
     now = datetime.now(timezone.utc)
-    user = User(
+    user_kwargs = dict(
         email=email,
         display_name=display_name,
         password_hash=generate_password_hash(password),
@@ -51,6 +52,11 @@ def create_user(
         locked_until=locked_until,
         failed_login_attempts=failed_login_attempts,
         deactivated_at=None if active else now,
+    )
+    if theme_preference is not None:
+        user_kwargs["theme_preference"] = theme_preference
+    user = User(
+        **user_kwargs,
     )
     db.session.add(user)
     db.session.flush()
@@ -74,6 +80,14 @@ def login_with_password(client, email, password, *, next_path=None, remote_addr=
         environ_overrides={"REMOTE_ADDR": remote_addr} if remote_addr else None,
         follow_redirects=False,
     )
+
+
+def assert_theme_attr(response, expected_theme):
+    assert f'data-theme="{expected_theme}"'.encode() in response.data
+
+
+def assert_checked_theme(response_text, theme):
+    assert re.search(rf'value="{theme}"\s+checked', response_text) is not None
 
 
 def test_validate_new_password_requires_special_character(app):
@@ -357,6 +371,122 @@ def test_forgot_password_for_unknown_email_stays_generic(client, app):
 
     with app.app_context():
         assert PasswordActionToken.query.count() == 0
+
+
+def test_users_default_theme_preference_is_purple_and_account_page_reflects_it(client, app):
+    with app.app_context():
+        created_user = create_user(
+            email="theme-default@example.com",
+            password="Theme!123",
+            display_name="Theme Default",
+        )
+        db.session.commit()
+        assert created_user.theme_preference == "purple"
+
+    quick_login(client, "admin")
+    response = client.get("/account")
+
+    assert response.status_code == 200
+    assert_theme_attr(response, "purple")
+    assert_checked_theme(response.get_data(as_text=True), "purple")
+
+    with app.app_context():
+        admin_user = User.query.filter_by(email="admin@example.com").first()
+        assert admin_user is not None
+        assert admin_user.theme_preference == "purple"
+
+
+def test_account_custom_settings_updates_theme_preference_and_session(client, app):
+    quick_login(client, "admin")
+
+    response = client.post(
+        "/account/custom-settings",
+        data={"theme_preference": "blue"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"Custom settings updated." in response.data
+    assert_theme_attr(response, "blue")
+    assert_checked_theme(response.get_data(as_text=True), "blue")
+
+    with client.session_transaction() as session_state:
+        assert session_state[ACTIVE_UI_THEME_SESSION_KEY] == "blue"
+
+    with app.app_context():
+        admin_user = User.query.filter_by(email="admin@example.com").first()
+        assert admin_user is not None
+        assert admin_user.theme_preference == "blue"
+
+
+def test_invalid_theme_preference_is_rejected_without_mutation(client, app):
+    quick_login(client, "admin")
+
+    response = client.post(
+        "/account/custom-settings",
+        data={"theme_preference": "sunset"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"Theme selection is invalid." in response.data
+    assert_theme_attr(response, "purple")
+    assert_checked_theme(response.get_data(as_text=True), "purple")
+
+    with client.session_transaction() as session_state:
+        assert session_state[ACTIVE_UI_THEME_SESSION_KEY] == "purple"
+
+    with app.app_context():
+        admin_user = User.query.filter_by(email="admin@example.com").first()
+        assert admin_user is not None
+        assert admin_user.theme_preference == "purple"
+
+
+def test_login_logout_and_auth_pages_preserve_theme_hint(client, app):
+    with app.app_context():
+        create_user(
+            email="blue-theme@example.com",
+            password="BlueTheme!1",
+            display_name="Blue Theme",
+            theme_preference="blue",
+        )
+        db.session.commit()
+
+    login_response = login_with_password(client, "blue-theme@example.com", "BlueTheme!1")
+
+    assert login_response.status_code == 302
+    assert login_response.headers["Location"].endswith("/dashboard")
+
+    with client.session_transaction() as session_state:
+        assert session_state[ACTIVE_UI_THEME_SESSION_KEY] == "blue"
+
+    account_response = client.get("/account")
+    assert account_response.status_code == 200
+    assert_theme_attr(account_response, "blue")
+    assert_checked_theme(account_response.get_data(as_text=True), "blue")
+
+    logout_response = client.post("/logout", follow_redirects=True)
+    assert logout_response.status_code == 200
+    assert_theme_attr(logout_response, "blue")
+
+    with client.session_transaction() as session_state:
+        assert session_state[ACTIVE_UI_THEME_SESSION_KEY] == "blue"
+
+    forgot_password_page = client.get("/forgot-password")
+    assert forgot_password_page.status_code == 200
+    assert_theme_attr(forgot_password_page, "blue")
+
+    request_response = client.post(
+        "/forgot-password",
+        data={"email": "blue-theme@example.com"},
+        follow_redirects=True,
+    )
+    assert request_response.status_code == 200
+    reset_path = extract_reset_path(request_response.get_data(as_text=True))
+
+    reset_page = client.get(reset_path)
+    assert reset_page.status_code == 200
+    assert_theme_attr(reset_page, "blue")
 
 
 def test_seed_dev_auth_command_upserts_known_users(app):

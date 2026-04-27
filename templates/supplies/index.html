@@ -289,6 +289,8 @@
     const suppliesMobileList = document.querySelector(".supply-mobile-list");
     const suppliesExportLinks = Array.from(document.querySelectorAll("[data-supplies-export-base-href][data-supplies-export-scope]"));
     const supplySearchDebounceMs = 200;
+    const supplyNumberFitMinScale = 0.72;
+    const supplyNumberFitStep = 0.04;
     const quickFilterLabels = {
       missing_counts: "Missing counts",
       below_par: "Below par",
@@ -299,6 +301,7 @@
     };
 
     let supplySearchDebounceHandle = null;
+    let supplyNumberFitRafId = null;
 
     function getSelectedQuickFilters() {
       return suppliesQuickFilterInputs
@@ -693,6 +696,72 @@
       });
     }
 
+    function disposeSupplyNumberTooltip(numberEl) {
+      if (!window.bootstrap?.Tooltip) return;
+      const existing = window.bootstrap.Tooltip.getInstance(numberEl);
+      if (existing) existing.dispose();
+    }
+
+    function fitSupplyNumber(numberEl) {
+      if (!numberEl) return;
+
+      numberEl.classList.remove("is-overflow-truncated");
+      numberEl.style.setProperty("--supply-fit-font-size", "1em");
+      disposeSupplyNumberTooltip(numberEl);
+      numberEl.removeAttribute("title");
+      numberEl.removeAttribute("data-bs-toggle");
+      numberEl.removeAttribute("data-bs-placement");
+      numberEl.removeAttribute("data-bs-trigger");
+      numberEl.removeAttribute("data-bs-title");
+
+      if (numberEl.offsetParent === null) return;
+      if (numberEl.clientWidth <= 0 && numberEl.parentElement?.clientWidth <= 0) return;
+
+      let scale = 1;
+      while (scale > supplyNumberFitMinScale && numberEl.scrollWidth > numberEl.clientWidth + 1) {
+        scale = Math.max(supplyNumberFitMinScale, Number((scale - supplyNumberFitStep).toFixed(2)));
+        numberEl.style.setProperty("--supply-fit-font-size", `${scale}em`);
+      }
+
+      if (numberEl.scrollWidth <= numberEl.clientWidth + 1) return;
+
+      numberEl.classList.add("is-overflow-truncated");
+      const fullValue = numberEl.dataset.supplyFitFullValue || numberEl.textContent.trim();
+      numberEl.setAttribute("title", fullValue);
+      numberEl.setAttribute("data-bs-toggle", "tooltip");
+      numberEl.setAttribute("data-bs-placement", "top");
+      numberEl.setAttribute("data-bs-trigger", "hover focus");
+      numberEl.setAttribute("data-bs-title", fullValue);
+
+      if (window.bootstrap?.Tooltip) {
+        const tooltip = window.bootstrap.Tooltip.getOrCreateInstance(numberEl, {
+          trigger: "hover focus",
+          placement: "top",
+          container: "body",
+          boundary: "viewport",
+        });
+        if (tooltip?.setContent) {
+          tooltip.setContent({ ".tooltip-inner": fullValue });
+        }
+      }
+    }
+
+    function applySupplyNumberOverflowBehavior() {
+      document.querySelectorAll(".js-supply-fit-number").forEach((numberEl) => {
+        fitSupplyNumber(numberEl);
+      });
+    }
+
+    function queueSupplyNumberOverflowBehavior() {
+      if (supplyNumberFitRafId !== null) {
+        window.cancelAnimationFrame(supplyNumberFitRafId);
+      }
+      supplyNumberFitRafId = window.requestAnimationFrame(() => {
+        supplyNumberFitRafId = null;
+        applySupplyNumberOverflowBehavior();
+      });
+    }
+
     function renderActiveFilters() {
       if (!suppliesActiveFilters || !suppliesActiveFilterList) return;
 
@@ -770,6 +839,7 @@
       updateSuppliesResultCount(visibleCount);
       renderActiveFilters();
       syncSupplyUrl();
+      queueSupplyNumberOverflowBehavior();
     }
 
     function queueSupplyLiveView(immediate = false) {
@@ -839,6 +909,10 @@
         syncFamilyExpandedState(groupEl.dataset.groupId, !isExpanded);
         applySupplyLiveView();
       });
+    });
+
+    window.addEventListener("resize", () => {
+      queueSupplyNumberOverflowBehavior();
     });
 
     suppliesTable?.addEventListener("click", (event) => {

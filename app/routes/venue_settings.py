@@ -53,6 +53,31 @@ def parse_selected_ids(raw_values):
     return selected_ids
 
 
+def resolve_tracking_override_submission(raw_values, *, existing_override):
+    values = [((value or "").strip()) for value in (raw_values or [])]
+    if not values:
+        return ""
+    if len(values) == 1:
+        return values[0]
+
+    existing_raw = "" if existing_override is None else str(existing_override)
+    if existing_raw in values:
+        changed_values = [value for value in values if value != existing_raw]
+        if len(changed_values) == 1:
+            return changed_values[0]
+        if changed_values:
+            return changed_values[-1]
+    return values[-1]
+
+
+def get_submitted_par_override_values(form_data, item_id):
+    values = []
+    values.extend(form_data.getlist(f"par_override_{item_id}"))  # Backward compatibility
+    values.extend(form_data.getlist(f"par_override_desktop_{item_id}"))
+    values.extend(form_data.getlist(f"par_override_mobile_{item_id}"))
+    return values
+
+
 def fetch_trackable_items():
     return (
         Item.query.options(selectinload(Item.parent_item))
@@ -89,12 +114,21 @@ def build_details_form_values(venue, source=None):
 
 def parse_tracking_form(trackable_items):
     selected_item_ids = parse_selected_ids(request.form.getlist("item_ids"))
+    existing_overrides = {
+        link.item_id: link.expected_qty
+        for link in venue_item_query(request.view_args["venue_id"])
+        if link.active
+    }
     par_overrides = {}
     errors = []
     for item in trackable_items:
         try:
+            submitted_raw_value = resolve_tracking_override_submission(
+                get_submitted_par_override_values(request.form, item.id),
+                existing_override=existing_overrides.get(item.id),
+            )
             par_overrides[item.id] = normalize_optional_tracking_value(
-                request.form.get(f"par_override_{item.id}"),
+                submitted_raw_value,
                 field_label=f"Par override for {item.name}",
             )
         except InventoryRuleError as exc:
@@ -175,8 +209,101 @@ def settings(venue_id):
     def settings_self_url():
         return url_for("venue_settings.settings", venue_id=venue.id, next=next_path)
 
+    def save_combined_settings():
+        nonlocal details_form_values, tracking_rows
+        details_form_values = build_details_form_values(venue, source=request.form)
+        new_name = details_form_values["name"]
+        is_active = details_form_values["active"] == "true"
+        selected_item_ids, par_overrides, tracking_errors = parse_tracking_form(trackable_items)
+        tracking_rows = build_tracking_rows(
+            venue=venue,
+            trackable_items=trackable_items,
+            selected_item_ids=selected_item_ids,
+            par_overrides=par_overrides,
+        )
+
+        errors = []
+        try:
+            stale_threshold_days = normalize_optional_threshold_days(
+                request.form.get("stale_threshold_days"),
+                field_label="Venue stale threshold",
+            )
+        except InventoryRuleError as exc:
+            errors.append(str(exc))
+            stale_threshold_days = venue.stale_threshold_days
+
+        if not new_name:
+            errors.append("Venue name cannot be blank.")
+        else:
+            exists = Venue.query.filter(Venue.name == new_name, Venue.id != venue.id).first()
+            if exists:
+                errors.append("Another venue already has that name.")
+
+        errors.extend(tracking_errors)
+        if errors:
+            for error in errors:
+                flash(error, "error")
+            return None
+
+        changed_fields = []
+        if venue.name != new_name:
+            changed_fields.append("name")
+        if bool(venue.active) != bool(is_active):
+            changed_fields.append("visibility")
+        if venue.stale_threshold_days != stale_threshold_days:
+            changed_fields.append("stale threshold")
+
+        tracking_summary = sync_venue_tracked_items(
+            venue=venue,
+            selected_item_ids=selected_item_ids,
+            par_overrides={item_id: par_overrides.get(item_id) for item_id in selected_item_ids},
+        )
+
+        venue.name = new_name
+        venue.active = is_active
+        venue.stale_threshold_days = stale_threshold_days
+
+        details_changed = bool(changed_fields)
+        tracking_changed = any(tracking_summary.values())
+        if details_changed:
+            log_inventory_admin_event(
+                "venue_updated",
+                actor=current_user,
+                subject_type="venue",
+                subject_id=venue.id,
+                subject_label=venue.name,
+                details={"changed_fields": changed_fields},
+            )
+        if tracking_changed:
+            log_inventory_admin_event(
+                "venue_tracking_updated",
+                actor=current_user,
+                subject_type="venue",
+                subject_id=venue.id,
+                subject_label=venue.name,
+                details=tracking_summary,
+            )
+
+        if details_changed or tracking_changed:
+            db.session.commit()
+            if details_changed and tracking_changed:
+                flash("Venue settings and tracked items saved.", "success")
+            elif details_changed:
+                flash("Venue settings saved.", "success")
+            else:
+                flash("Tracked items saved.", "success")
+        else:
+            db.session.rollback()
+            flash("No venue changes were needed.", "success")
+        return redirect(settings_self_url())
+
     if request.method == "POST":
         action = request.form.get("action")
+
+        if action == "save_all":
+            combined_response = save_combined_settings()
+            if combined_response is not None:
+                return combined_response
 
         if action == "save":
             details_form_values = build_details_form_values(venue, source=request.form)

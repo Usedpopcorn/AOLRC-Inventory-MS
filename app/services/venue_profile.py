@@ -134,6 +134,10 @@ def build_venue_profile_view_model(venue_id):
     latest_status_by_item = _build_latest_status_map(venue_id, item_ids)
     latest_count_by_item = _build_latest_count_map(venue_id, item_ids)
     note_counts_by_item = _build_note_count_map(venue_id, item_ids)
+    network_detail_by_item = _build_network_detail_map(
+        item_ids=item_ids,
+        tracked_items=[item for item, _ in tracked_rows],
+    )
     latest_status_check_at = (
         db.session.query(func.max(Check.created_at))
         .filter(Check.venue_id == venue_id)
@@ -168,6 +172,7 @@ def build_venue_profile_view_model(venue_id):
             latest_status=latest_status_by_item.get(item.id),
             latest_count=latest_count_by_item.get(item.id),
             notes_count=int(note_counts_by_item.get(item.id, 0) or 0),
+            network_detail=network_detail_by_item.get(item.id),
         )
         item_rows.append(item_row)
         overall_counts[item_row["status_key"]] += 1
@@ -276,6 +281,148 @@ def _build_note_count_map(venue_id, item_ids):
     }
 
 
+def _build_network_detail_map(*, item_ids, tracked_items):
+    if not item_ids:
+        return {}
+
+    tracked_by_id = {
+        item.id: item
+        for item in tracked_items
+        if item.id in item_ids
+    }
+    if not tracked_by_id:
+        return {}
+
+    assignment_rows = (
+        db.session.query(
+            VenueItem.item_id.label("item_id"),
+            VenueItem.venue_id.label("venue_id"),
+            VenueItem.expected_qty.label("venue_par_override"),
+        )
+        .join(Venue, Venue.id == VenueItem.venue_id)
+        .filter(
+            VenueItem.item_id.in_(item_ids),
+            VenueItem.active == True,
+            Venue.active == True,
+        )
+        .all()
+    )
+    if not assignment_rows:
+        return {}
+
+    active_venue_ids = sorted({int(row.venue_id) for row in assignment_rows if row.venue_id is not None})
+    if not active_venue_ids:
+        return {}
+
+    latest_status_by_pair = build_latest_status_signal_map(
+        venue_ids=active_venue_ids,
+        item_ids=item_ids,
+    )
+    latest_count_by_pair = build_latest_count_signal_map(
+        venue_ids=active_venue_ids,
+        item_ids=item_ids,
+    )
+
+    rows_by_item = {}
+    for assignment in assignment_rows:
+        rows_by_item.setdefault(int(assignment.item_id), []).append(assignment)
+
+    network = {}
+    for item_id, item in tracked_by_id.items():
+        assignments = rows_by_item.get(item_id, [])
+        venue_count = len(assignments)
+        if venue_count <= 0:
+            continue
+
+        tracking_mode = item.tracking_mode or "quantity"
+        if tracking_mode == "singleton_asset":
+            issue_count = 0
+            checked_count = 0
+            for assignment in assignments:
+                pair = (int(assignment.venue_id), item_id)
+                latest_status = latest_status_by_pair.get(pair)
+                latest_count = latest_count_by_pair.get(pair)
+                raw_count = latest_count["raw_count"] if latest_count else None
+                status_key = (
+                    normalize_singleton_status(latest_status["status"])
+                    if latest_status
+                    else infer_singleton_status_from_count(raw_count)
+                )
+                if status_key != "not_checked":
+                    checked_count += 1
+                if status_key in {"low", "out"}:
+                    issue_count += 1
+
+            if issue_count:
+                summary_text = (
+                    f'{issue_count} issue{"s" if issue_count != 1 else ""} across '
+                    f'{venue_count} venue{"s" if venue_count != 1 else ""}'
+                )
+            elif checked_count:
+                summary_text = (
+                    f'{checked_count} checked across '
+                    f'{venue_count} venue{"s" if venue_count != 1 else ""}'
+                )
+            else:
+                summary_text = (
+                    f'No checks across {venue_count} venue{"s" if venue_count != 1 else ""}'
+                )
+
+            network[item_id] = {
+                "network_tracked_venues_count": venue_count,
+                "network_summary_text": summary_text,
+            }
+            continue
+
+        total_raw_count = 0
+        counted_venues = 0
+        total_par_count = 0
+        par_venues = 0
+        for assignment in assignments:
+            pair = (int(assignment.venue_id), item_id)
+            latest_count = latest_count_by_pair.get(pair)
+            raw_count = latest_count["raw_count"] if latest_count else None
+            if raw_count is not None:
+                total_raw_count += int(raw_count)
+                counted_venues += 1
+
+            effective_par = resolve_effective_par_level(
+                item_default_par_level=item.default_par_level,
+                venue_par_override=assignment.venue_par_override,
+            )
+            if effective_par.value is not None:
+                total_par_count += int(effective_par.value)
+                par_venues += 1
+
+        if par_venues > 0:
+            if counted_venues > 0:
+                summary_text = (
+                    f"{total_raw_count} / {total_par_count} across "
+                    f'{venue_count} venue{"s" if venue_count != 1 else ""}'
+                )
+            else:
+                summary_text = (
+                    f"No counts / {total_par_count} par across "
+                    f'{venue_count} venue{"s" if venue_count != 1 else ""}'
+                )
+        elif counted_venues > 0:
+            summary_text = (
+                f"{total_raw_count} counted across "
+                f'{venue_count} venue{"s" if venue_count != 1 else ""}'
+            )
+        else:
+            summary_text = (
+                f'No counts across {venue_count} venue{"s" if venue_count != 1 else ""}'
+            )
+
+        network[item_id] = {
+            "network_tracked_venues_count": venue_count,
+            "network_summary_text": summary_text,
+        }
+
+    return network
+
+
 def _build_item_row(
     item,
     *,
@@ -285,6 +432,7 @@ def _build_item_row(
     latest_status,
     latest_count,
     notes_count,
+    network_detail,
 ):
     par_value = par_setting.value
     raw_count = latest_count["raw_count"] if latest_count else None
@@ -377,6 +525,9 @@ def _build_item_row(
             and bool(count_freshness["is_stale"])
         )
     )
+    status_absolute_text = format_timestamp(status_updated_at, missing_text="No status yet") if status_updated_at else "No status yet"
+    count_absolute_text = format_timestamp(count_updated_at, missing_text="No count yet") if count_updated_at else "No count yet"
+    network_detail = network_detail or {}
 
     return {
         "id": item.id,
@@ -409,6 +560,23 @@ def _build_item_row(
         "review_meta_text": review_meta_text,
         "freshness_primary_text": freshness_primary_text,
         "freshness_secondary_text": freshness_secondary_text,
+        "next_step_label": _next_step_label(item.tracking_mode, consistency["state"]),
+        "detail_setup_text": _detail_setup_text(item.tracking_mode, format_setup_group_display(item.setup_group_code, item.setup_group_label)),
+        "detail_threshold_text": _detail_threshold_text(stale_threshold_setting.value, stale_threshold_setting.source),
+        "detail_status_by_text": _detail_provenance_text(status_absolute_text, status_actor_label),
+        "detail_count_by_text": (
+            None
+            if item.tracking_mode == "singleton_asset"
+            else _detail_provenance_text(count_absolute_text, count_actor_label)
+        ),
+        "detail_last_touched_text": (
+            f"{format_timestamp(last_signal_at, missing_text='No updates yet')} by {last_actor_label}"
+            if last_actor_label
+            else format_timestamp(last_signal_at, missing_text="No updates yet")
+        ),
+        "network_tracked_venues_count": int(network_detail.get("network_tracked_venues_count") or 1),
+        "network_summary_text": network_detail.get("network_summary_text")
+        or "Tracked at current venue only",
         "suggested_order_qty": count_state.get("suggested_order_qty"),
         "over_par_qty": count_state.get("over_par_qty"),
         "count_state": count_state,
@@ -427,8 +595,8 @@ def _build_item_row(
         "is_stale_count": item.tracking_mode != "singleton_asset" and consistency["state"] == "count_stale",
         "is_stale_status": consistency["state"] == "status_stale",
         "operational_summary": status_meta["text"],
-        "count_absolute_text": format_timestamp(count_updated_at, missing_text="No count yet") if count_updated_at else "No count yet",
-        "status_absolute_text": format_timestamp(status_updated_at, missing_text="No status yet") if status_updated_at else "No status yet",
+        "count_absolute_text": count_absolute_text,
+        "status_absolute_text": status_absolute_text,
         "last_signal_at": last_signal_at,
         "last_signal_timestamp": _timestamp_sort_value(last_signal_at),
         "count_coverage_score": _count_coverage_score(item.tracking_mode, consistency["state"]),
@@ -437,6 +605,49 @@ def _build_item_row(
         "secondary_action_label": None if item.tracking_mode == "singleton_asset" else "Update Status",
         "secondary_action_mode": None if item.tracking_mode == "singleton_asset" else "status",
     }
+
+
+def _next_step_label(tracking_mode, consistency_state):
+    if tracking_mode == "singleton_asset":
+        if consistency_state in {"no_status", "status_stale"}:
+            return "Run Update Status"
+        if consistency_state == "needs_review":
+            return "Reconcile asset status"
+        return "No follow-up needed"
+
+    if consistency_state == "no_count":
+        return "Run Update Count"
+    if consistency_state == "count_stale":
+        return "Refresh count"
+    if consistency_state == "no_status":
+        return "Run Update Status"
+    if consistency_state == "status_stale":
+        return "Refresh status"
+    if consistency_state == "needs_review":
+        return "Reconcile status and count"
+    return "No follow-up needed"
+
+
+def _format_source_label(source):
+    if not source:
+        return "default"
+    return str(source).replace("_", " ").strip().title()
+
+
+def _detail_threshold_text(days, source):
+    return f"{days}d threshold ({_format_source_label(source)})"
+
+
+def _detail_setup_text(tracking_mode, setup_group_display):
+    setup_label = setup_group_display or "No setup group"
+    mode_label = "Asset" if tracking_mode == "singleton_asset" else "Quantity"
+    return f"{mode_label} / {setup_label}"
+
+
+def _detail_provenance_text(timestamp_text, actor_label):
+    if actor_label:
+        return f"{timestamp_text} by {actor_label}"
+    return timestamp_text
 
 
 def _resolve_last_actor_label(
@@ -1003,11 +1214,7 @@ def _count_coverage_score(tracking_mode, consistency_state):
 def _primary_action_label(tracking_mode, consistency_state):
     if tracking_mode == "singleton_asset":
         return "Update Asset Status"
-    if consistency_state == "no_count":
-        return "Add Count"
-    if consistency_state == "count_stale":
-        return "Refresh Count"
-    return "Open Count"
+    return "Update Count"
 
 
 def _timestamp_sort_value(value):

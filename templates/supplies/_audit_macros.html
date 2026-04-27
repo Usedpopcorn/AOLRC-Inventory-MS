@@ -341,11 +341,11 @@
                     </td>
                     <td class="text-end">
                       <a
-                        class="btn btn-sm btn-aolrc-primary"
+                        class="btn btn-sm {{ 'btn-aolrc-primary' if row.tracking_mode == 'singleton_asset' else 'btn-aolrc-primary-muted' }}"
                         data-supplies-base-href="{{ url_for('venue_items.quick_check', venue_id=venue_row.venue_id, mode='status' if row.tracking_mode == 'singleton_asset' else 'raw_counts', focus_item_id=row.id) }}"
                         href="{{ url_for('venue_items.quick_check', venue_id=venue_row.venue_id, mode='status' if row.tracking_mode == 'singleton_asset' else 'raw_counts', focus_item_id=row.id, next=request.full_path) }}"
                       >
-                        {{ "Open Check" if row.tracking_mode == "singleton_asset" else "Open Count" }}
+                        {{ "Open Check" if row.tracking_mode == "singleton_asset" else "Update Count" }}
                       </a>
                     </td>
                   </tr>
@@ -394,11 +394,11 @@
             <div class="supply-mobile-venue-top">
               <div class="fw-semibold">{{ venue_row.venue_name }}</div>
               <a
-                class="btn btn-sm btn-aolrc-primary supply-mobile-venue-action"
+                class="btn btn-sm {{ 'btn-aolrc-primary' if row.tracking_mode == 'singleton_asset' else 'btn-aolrc-primary-muted' }} supply-mobile-venue-action"
                 data-supplies-base-href="{{ url_for('venue_items.quick_check', venue_id=venue_row.venue_id, mode='status' if row.tracking_mode == 'singleton_asset' else 'raw_counts', focus_item_id=row.id) }}"
                 href="{{ url_for('venue_items.quick_check', venue_id=venue_row.venue_id, mode='status' if row.tracking_mode == 'singleton_asset' else 'raw_counts', focus_item_id=row.id, next=request.full_path) }}"
               >
-                {{ "Open Check" if row.tracking_mode == "singleton_asset" else "Open Count" }}
+                {{ "Open Check" if row.tracking_mode == "singleton_asset" else "Update Count" }}
               </a>
             </div>
             <div class="supply-mobile-venue-grid">

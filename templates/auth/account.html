@@ -82,6 +82,46 @@
           <button class="btn btn-aolrc-accent ui-control align-self-start" type="submit">Update Password</button>
       </form>
     {% endcall %}
+
+    {% call ui.form_section("Custom Settings", "Choose the theme used across the app. The selected theme also carries onto sign-in and password pages in this browser.") %}
+      <form method="post" action="{{ url_for('auth.update_custom_settings') }}" class="d-flex flex-column gap-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <fieldset class="account-theme-picker">
+          <legend class="form-label mb-2">Color theme</legend>
+          <div class="account-theme-option-grid">
+            {% for option in theme_options %}
+              <label class="account-theme-option account-theme-option-{{ option.value }}">
+                <input
+                  class="account-theme-radio"
+                  type="radio"
+                  name="theme_preference"
+                  value="{{ option.value }}"
+                  {{ 'checked' if current_theme_preference == option.value else '' }}
+                >
+                <span class="account-theme-card">
+                  <span class="account-theme-preview" aria-hidden="true">
+                    <span class="account-theme-preview-shell">
+                      <span class="account-theme-preview-topbar"></span>
+                      <span class="account-theme-preview-heading"></span>
+                      <span class="account-theme-preview-chip"></span>
+                      <span class="account-theme-preview-button"></span>
+                    </span>
+                  </span>
+                  <span class="account-theme-copy">
+                    <span class="account-theme-label">{{ option.label }}</span>
+                    <span class="account-theme-description">{{ option.description }}</span>
+                  </span>
+                  <span class="account-theme-indicator" aria-hidden="true">
+                    <i class="bi bi-check-circle-fill"></i>
+                  </span>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+        </fieldset>
+        <button class="btn btn-aolrc-accent ui-control align-self-start" type="submit">Save Settings</button>
+      </form>
+    {% endcall %}
   </div>
 </div>
 {% endblock %}

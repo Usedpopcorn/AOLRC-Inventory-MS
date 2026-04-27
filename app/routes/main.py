@@ -33,7 +33,11 @@ from app.services.inventory_rules import (
     resolve_effective_stale_threshold_days,
     sync_venue_tracked_items,
 )
-from app.services.inventory_status import normalize_status
+from app.services.inventory_signals import (
+    build_latest_count_signal_map,
+    build_latest_status_signal_map,
+)
+from app.services.inventory_status import normalize_singleton_status, normalize_status
 from app.services.notes import (
     NOTE_BODY_MAX_LENGTH,
     NOTE_TITLE_MAX_LENGTH,
@@ -117,9 +121,9 @@ def normalize_note_search_query(value):
     return (value or "").strip()
 
 
-def load_valid_venue_note_item_ids(venue_id):
+def load_valid_venue_note_items(venue_id):
     rows = (
-        db.session.query(Item.id)
+        db.session.query(Item.id, Item.name)
         .join(VenueItem, VenueItem.item_id == Item.id)
         .filter(
             VenueItem.venue_id == venue_id,
@@ -129,7 +133,11 @@ def load_valid_venue_note_item_ids(venue_id):
         )
         .all()
     )
-    return {row[0] for row in rows}
+    return {row.id: row.name for row in rows}
+
+
+def load_valid_venue_note_item_ids(venue_id):
+    return set(load_valid_venue_note_items(venue_id))
 
 
 def normalize_venue_note_item_id(raw_value, valid_item_ids):
@@ -224,7 +232,12 @@ def build_overall_status_badge(total_tracked, counts, detail_counts=None):
     if checked_count > 0 and counts["ok"] > 0 and (counts["ok"] * 2 >= checked_count):
         return {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
     if counts["good"] > 0:
-        return {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
+        good_has_partial_attention = counts["ok"] > 0 or counts["not_checked"] > 0
+        return {
+            "key": "good",
+            "text": "Good*" if good_has_partial_attention else "Good",
+            "icon_class": "bi-check-circle-fill",
+        }
     return {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
 
 
@@ -823,24 +836,26 @@ def build_venue_rows(include_inactive=False):
         return []
 
     venue_ids = [v.id for v in venues]
-    tracked_totals = {
-        row.venue_id: row.total_tracked
-        for row in (
-            db.session.query(
-                VenueItem.venue_id.label("venue_id"),
-                func.count(VenueItem.item_id).label("total_tracked"),
-            )
-            .join(Item, Item.id == VenueItem.item_id)
-            .filter(
-                VenueItem.venue_id.in_(venue_ids),
-                VenueItem.active == True,
-                Item.active == True,
-                Item.is_group_parent == False,
-            )
-            .group_by(VenueItem.venue_id)
-            .all()
+    tracked_item_rows = (
+        db.session.query(
+            VenueItem.venue_id.label("venue_id"),
+            VenueItem.item_id.label("item_id"),
+            Item.tracking_mode.label("tracking_mode"),
         )
-    }
+        .join(Item, Item.id == VenueItem.item_id)
+        .filter(
+            VenueItem.venue_id.in_(venue_ids),
+            VenueItem.active == True,
+            Item.active == True,
+            Item.is_group_parent == False,
+        )
+        .all()
+    )
+    tracked_totals = {}
+    tracked_item_ids = set()
+    for row in tracked_item_rows:
+        tracked_totals[row.venue_id] = int(tracked_totals.get(row.venue_id, 0) or 0) + 1
+        tracked_item_ids.add(row.item_id)
 
     notes_count_map = {
         row.venue_id: row.notes_count
@@ -855,87 +870,58 @@ def build_venue_rows(include_inactive=False):
         )
     }
 
-    latest_check_sq = (
-        db.session.query(
-            Check.venue_id.label("venue_id"),
-            func.max(Check.id).label("latest_check_id"),
-        )
-        .filter(Check.venue_id.in_(venue_ids))
-        .group_by(Check.venue_id)
-        .subquery()
-    )
-
     latest_status_counts = {}
     latest_status_detail_counts = {}
     latest_singleton_current_totals = {}
-    for row in (
-        db.session.query(
-            latest_check_sq.c.venue_id.label("venue_id"),
-            CheckLine.status.label("status"),
-            Item.tracking_mode.label("tracking_mode"),
-            func.count(CheckLine.id).label("status_count"),
+    latest_quantity_count_totals = {}
+    latest_status_by_pair = {}
+    latest_count_by_pair = {}
+    if tracked_item_ids:
+        tracked_item_id_list = sorted(tracked_item_ids)
+        latest_status_by_pair = build_latest_status_signal_map(
+            venue_ids=venue_ids,
+            item_ids=tracked_item_id_list,
         )
-        .join(CheckLine, CheckLine.check_id == latest_check_sq.c.latest_check_id)
-        .join(
-            VenueItem,
-            and_(
-                VenueItem.venue_id == latest_check_sq.c.venue_id,
-                VenueItem.item_id == CheckLine.item_id,
-                VenueItem.active == True,
-            ),
+        latest_count_by_pair = build_latest_count_signal_map(
+            venue_ids=venue_ids,
+            item_ids=tracked_item_id_list,
         )
-        .join(Item, Item.id == VenueItem.item_id)
-        .filter(Item.active == True, Item.is_group_parent == False)
-        .group_by(latest_check_sq.c.venue_id, CheckLine.status, Item.tracking_mode)
-        .all()
-    ):
-        normalized_status = normalize_status(row.status)
-        latest_status_counts.setdefault(row.venue_id, {}).setdefault(normalized_status, 0)
-        latest_status_counts[row.venue_id][normalized_status] += row.status_count
-        if row.tracking_mode == "singleton_asset" and normalized_status in {"good", "low"}:
-            latest_singleton_current_totals.setdefault(row.venue_id, 0)
-            latest_singleton_current_totals[row.venue_id] += row.status_count
+
+    for row in tracked_item_rows:
+        counts = latest_status_counts.setdefault(
+            row.venue_id,
+            {"good": 0, "ok": 0, "low": 0, "out": 0, "not_checked": 0},
+        )
+        status_signal = latest_status_by_pair.get((row.venue_id, row.item_id))
+        if row.tracking_mode == "singleton_asset":
+            normalized_status = (
+                normalize_singleton_status(status_signal["status"])
+                if status_signal
+                else "not_checked"
+            )
+        else:
+            normalized_status = normalize_status(status_signal["status"]) if status_signal else "not_checked"
+
+        counts[normalized_status] += 1
+
         if normalized_status in {"low", "out"}:
             detail_counts = latest_status_detail_counts.setdefault(row.venue_id, build_status_detail_counts())
             suffix = "singleton" if row.tracking_mode == "singleton_asset" else "quantity"
-            detail_counts[f"{normalized_status}_{suffix}"] += row.status_count
+            detail_counts[f"{normalized_status}_{suffix}"] += 1
 
-    latest_count_sq = (
-        db.session.query(
-            CountSession.venue_id.label("venue_id"),
-            func.max(CountSession.id).label("latest_count_id"),
-        )
-        .filter(CountSession.venue_id.in_(venue_ids))
-        .group_by(CountSession.venue_id)
-        .subquery()
-    )
+        if row.tracking_mode == "singleton_asset":
+            if normalized_status in {"good", "low"}:
+                latest_singleton_current_totals[row.venue_id] = (
+                    int(latest_singleton_current_totals.get(row.venue_id, 0) or 0) + 1
+                )
+            continue
 
-    latest_quantity_count_totals = {
-        row.venue_id: int(row.total_count or 0)
-        for row in (
-            db.session.query(
-                latest_count_sq.c.venue_id.label("venue_id"),
-                func.coalesce(func.sum(CountLine.raw_count), 0).label("total_count"),
+        count_signal = latest_count_by_pair.get((row.venue_id, row.item_id))
+        if count_signal and count_signal["raw_count"] is not None:
+            latest_quantity_count_totals[row.venue_id] = (
+                int(latest_quantity_count_totals.get(row.venue_id, 0) or 0)
+                + int(count_signal["raw_count"] or 0)
             )
-            .join(CountLine, CountLine.count_session_id == latest_count_sq.c.latest_count_id)
-            .join(
-                VenueItem,
-                and_(
-                    VenueItem.venue_id == latest_count_sq.c.venue_id,
-                    VenueItem.item_id == CountLine.item_id,
-                    VenueItem.active == True,
-                ),
-            )
-            .join(Item, Item.id == VenueItem.item_id)
-            .filter(
-                Item.active == True,
-                Item.is_group_parent == False,
-                Item.tracking_mode != "singleton_asset",
-            )
-            .group_by(latest_count_sq.c.venue_id)
-            .all()
-        )
-    }
 
     par_value_expr = func.coalesce(VenueItem.expected_qty, Item.default_par_level)
     par_totals_map = {
@@ -1020,16 +1006,10 @@ def build_venue_rows(include_inactive=False):
             continue
 
         venue_status_counts = latest_status_counts.get(v.id)
-        if not venue_status_counts:
-            counts["not_checked"] = total_tracked
+        if venue_status_counts:
+            counts = venue_status_counts.copy()
         else:
-            for status, count in venue_status_counts.items():
-                if status in counts:
-                    counts[status] = count
-
-            counted = sum(counts.values())
-            if counted < total_tracked:
-                counts["not_checked"] += (total_tracked - counted)
+            counts["not_checked"] = total_tracked
 
         badge = build_overall_status_badge(total_tracked, counts, detail_counts)
         quantity_current_total = latest_quantity_count_totals.get(v.id, 0)
@@ -1194,6 +1174,12 @@ def serialize_restock_row(row, next_path):
 @main_bp.route("/")
 def home():
     return redirect(url_for("main.dashboard"))
+
+
+@main_bp.route("/help")
+@roles_required("viewer", "staff", "admin")
+def help_page():
+    return render_template("help.html")
 
 
 @main_bp.route("/dashboard")
@@ -1901,6 +1887,64 @@ def venue_detail(venue_id):
         venue_inventory_export_base_url=url_for("main.export_venue_inventory", venue_id=venue.id),
         restock_status_options=RESTOCK_STATUS_META,
         update_status_url=url_for("venue_items.quick_check", venue_id=venue.id, next=request.full_path),
+    )
+
+
+@main_bp.post("/venues/<int:venue_id>/notes/inline")
+@roles_required("staff", "admin")
+def create_venue_note_inline(venue_id):
+    venue = Venue.query.get_or_404(venue_id)
+    valid_note_items = load_valid_venue_note_items(venue.id)
+    note_item_id = normalize_venue_note_item_id(
+        request.form.get("item_id"),
+        set(valid_note_items),
+    )
+    if note_item_id is None:
+        return (
+            jsonify(
+                {
+                    "error": "Select a tracked venue item before adding a note.",
+                    "code": "invalid_item",
+                }
+            ),
+            400,
+        )
+
+    title = (request.form.get("title") or "").strip()
+    body = (request.form.get("body") or "").strip()
+    validation_error = validate_note_fields(title, body)
+    if validation_error:
+        return jsonify({"error": validation_error, "code": "validation_error"}), 400
+
+    db.session.add(
+        VenueNote(
+            venue_id=venue.id,
+            author_user_id=current_user.id,
+            item_id=note_item_id,
+            title=title,
+            body=body,
+        )
+    )
+    db.session.commit()
+
+    note_count = (
+        db.session.query(func.count(VenueNote.id))
+        .filter(
+            VenueNote.venue_id == venue.id,
+            VenueNote.item_id == note_item_id,
+        )
+        .scalar()
+        or 0
+    )
+
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Note added.",
+            "item_id": note_item_id,
+            "item_name": valid_note_items.get(note_item_id, "Tracked item"),
+            "note_count": int(note_count),
+        }
     )
 
 

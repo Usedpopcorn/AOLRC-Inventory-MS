@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% import "_inventory_macros.html" as inventory_ui %}
+{% import "_inventory_macros.html" as inventory_ui with context %}
 {% import "_ui_macros.html" as ui %}
 {% block title %}{{ venue.name }}{% endblock %}
 
@@ -27,6 +27,11 @@
         subtitle="Status-first venue overview with inventory health, audit context, and room for venue files.",
         back_url=back_url,
         back_label=back_label,
+        title_action_href=url_for('venue_settings.settings', venue_id=venue.id, next=request.full_path) if current_user.is_admin else None,
+        title_action_class="icon-btn-plain icon-btn-sm venue-directory-settings-btn venue-profile-settings-btn",
+        title_action_icon_class="bi-gear",
+        title_action_aria_label="Open settings for " ~ venue.name if current_user.is_admin else None,
+        title_action_title="Settings" if current_user.is_admin else None,
         action_text="Open Venue Check",
         action_href=update_status_url,
         action_class="btn btn-aolrc-primary ui-control venue-directory-action-btn venue-profile-update-btn",
@@ -54,16 +59,6 @@
             <i class="bi bi-clock-history"></i> {{ venue_profile.last_updated_freshness.text }}
           </div>
         </div>
-        {% if current_user.is_admin %}
-          <a
-            class="icon-btn-plain icon-btn-sm venue-directory-settings-btn venue-profile-settings-btn"
-            href="{{ url_for('venue_settings.settings', venue_id=venue.id, next=request.full_path) }}"
-            aria-label="Open settings for {{ venue.name }}"
-            title="Settings"
-          >
-            <i class="bi bi-gear"></i>
-          </a>
-        {% endif %}
       {% endcall %}
       <div class="venue-profile-last-update text-muted small">Last overall update: {{ venue_profile.last_updated_text }}</div>
     </div>
@@ -410,6 +405,26 @@
           {% endif %}
 
           <div
+            id="venueNoteRefreshBanner"
+            class="ui-state-banner ui-state-banner-info ui-state-banner-compact d-none mb-3"
+            role="status"
+            aria-live="polite"
+          >
+            <div class="ui-state-banner-icon" aria-hidden="true">
+              <i class="bi bi-arrow-repeat"></i>
+            </div>
+            <div class="ui-state-banner-copy">
+              <div class="ui-state-banner-title" id="venueNoteRefreshBannerTitle">New note added</div>
+              <div class="ui-state-banner-body">
+                <span id="venueNoteRefreshBannerBody">Refresh the notes tab to load the latest note history.</span>
+                <a id="venueNoteRefreshLink" class="btn btn-link p-0 align-baseline ms-1" href="{{ url_for('main.venue_detail', venue_id=venue.id, next=back_url, profile_tab='notes') }}">
+                  Refresh notes
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <div
             class="venue-note-list-shell"
             id="venueNotesListShell"
             data-note-list-shell
@@ -570,6 +585,120 @@
     </div>
   </div>
 
+  {% if current_user.is_staff %}
+    <div
+      class="modal fade"
+      id="venueInlineNoteModal"
+      tabindex="-1"
+      aria-labelledby="venueInlineNoteModalLabel"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable supply-notes-modal-dialog">
+        <div
+          class="modal-content supply-notes-modal-content"
+          data-venue-inline-note-endpoint="{{ url_for('main.create_venue_note_inline', venue_id=venue.id) }}"
+        >
+          <div class="modal-header supply-notes-modal-header">
+            <div class="supply-notes-modal-heading">
+              <h2 class="modal-title supply-notes-modal-title" id="venueInlineNoteModalLabel">Add Item Note</h2>
+              <p class="supply-notes-modal-subtitle mb-0" id="venueInlineNoteModalSubtitle">
+                Save item-specific venue context without leaving the overview.
+              </p>
+              <a
+                id="venueInlineNoteOpenFeedLink"
+                class="venue-inline-note-open-feed-link d-none"
+                href="{{ url_for('main.venue_detail', venue_id=venue.id, next=back_url, profile_tab='notes') }}"
+              >
+                <i class="bi bi-journal-text" aria-hidden="true"></i>
+                <span>Open notes feed</span>
+              </a>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body supply-notes-modal-body">
+            <div
+              id="venueInlineNoteFeedback"
+              class="ui-state-banner ui-state-banner-danger ui-state-banner-compact d-none"
+              role="alert"
+              aria-live="polite"
+            >
+              <div class="ui-state-banner-icon" aria-hidden="true">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+              </div>
+              <div class="ui-state-banner-copy">
+                <div class="ui-state-banner-title" id="venueInlineNoteFeedbackTitle">Could not save note</div>
+                <div class="ui-state-banner-body" id="venueInlineNoteFeedbackBody"></div>
+              </div>
+            </div>
+
+            <section class="venue-note-composer-panel supply-note-composer-panel supply-note-compose-panel">
+              <div class="supply-note-compose-head">
+                <h3 class="h6 mb-1" id="venueInlineNoteItemName">Tracked item</h3>
+                <p class="text-muted small mb-0" id="venueInlineNoteItemMeta">
+                  This note will be attached to the current venue and tagged to the selected item.
+                </p>
+              </div>
+              <form
+                method="post"
+                action="{{ url_for('main.create_venue_note_inline', venue_id=venue.id) }}"
+                class="venue-note-composer"
+                id="venueInlineNoteForm"
+              >
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="item_id" id="venueInlineNoteItemId" value="">
+
+                <div class="venue-note-composer-grid supply-note-composer-grid">
+                  <div class="venue-note-composer-field supply-note-item-field">
+                    <label class="form-label mb-0" for="venueInlineNoteScope">Note scope</label>
+                    <input
+                      id="venueInlineNoteScope"
+                      class="form-control ui-control"
+                      type="text"
+                      value=""
+                      readonly
+                    >
+                  </div>
+                  <div class="venue-note-composer-field venue-note-composer-field-title">
+                    <label class="form-label mb-0" for="venueInlineNoteTitle">Title</label>
+                    <input
+                      id="venueInlineNoteTitle"
+                      name="title"
+                      class="form-control ui-control"
+                      maxlength="{{ note_title_max_length }}"
+                      placeholder="Note title"
+                    >
+                  </div>
+                </div>
+
+                <textarea
+                  id="venueInlineNoteBody"
+                  name="body"
+                  rows="4"
+                  class="form-control ui-control-area"
+                  maxlength="{{ note_body_max_length }}"
+                  placeholder="Write note details..."
+                ></textarea>
+                <div class="text-muted small">
+                  Up to {{ note_title_max_length }} characters for the title and {{ "{:,}".format(note_body_max_length) }} characters for the note body.
+                </div>
+
+                <div class="supply-note-compose-actions">
+                  <button type="button" class="btn btn-outline-secondary ui-control" data-bs-dismiss="modal">
+                    Cancel
+                  </button>
+                  <button class="btn btn-aolrc-accent ui-control" type="submit" id="venueInlineNoteSubmitBtn">
+                    Save Note
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="venueInlineNoteLiveRegion" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+  {% endif %}
+
   {% for note in note_rows %}
     <div class="modal fade" id="viewNoteModal{{ note.id }}" tabindex="-1" aria-labelledby="viewNoteModalLabel{{ note.id }}" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered">
@@ -700,6 +829,6 @@
       setActiveTabFromUrl();
     })();
   </script>
-  <script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/venue_profile_notes.js') }}"></script>
+  <script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/venue_profile_notes.js', v='20260427a') }}"></script>
   <script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/venue_profile_overview.js') }}"></script>
 {% endblock %}

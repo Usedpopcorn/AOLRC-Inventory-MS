@@ -257,6 +257,38 @@ def test_build_restock_rows_priority_switches_between_status_and_count_modes(app
     assert counts_mode_rows[0]["item_name"] == "Aprons"
 
 
+def test_build_restock_rows_status_priority_places_not_checked_before_good(app):
+    with app.app_context():
+        venue = Venue(name="Fir House", active=True)
+        db.session.add(venue)
+        db.session.flush()
+        good_item = create_tracked_item(
+            venue,
+            "A - Good Item",
+            default_par_level=4,
+            sort_order=1,
+        )
+        unchecked_item = create_tracked_item(
+            venue,
+            "Z - Not Checked Item",
+            default_par_level=4,
+            sort_order=2,
+        )
+        add_status_check(
+            venue,
+            [(good_item, "good"), (unchecked_item, "not_checked")],
+            created_at=datetime.now(timezone.utc) - timedelta(days=1),
+        )
+        db.session.commit()
+
+        status_mode_rows = build_restock_rows(sort="status_priority", mode="status")["rows"]
+
+    assert [row["item_name"] for row in status_mode_rows[:2]] == [
+        "Z - Not Checked Item",
+        "A - Good Item",
+    ]
+
+
 def test_build_restock_rows_counts_mode_orders_noncomparable_rows_after_comparable(app):
     with app.app_context():
         venue = Venue(name="Cedar Lodge", active=True)

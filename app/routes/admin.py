@@ -248,6 +248,31 @@ def parse_selected_ids(raw_values):
     return selected_ids
 
 
+def resolve_tracking_override_submission(raw_values, *, existing_override):
+    values = [((value or "").strip()) for value in (raw_values or [])]
+    if not values:
+        return ""
+    if len(values) == 1:
+        return values[0]
+
+    existing_raw = "" if existing_override is None else str(existing_override)
+    if existing_raw in values:
+        changed_values = [value for value in values if value != existing_raw]
+        if len(changed_values) == 1:
+            return changed_values[0]
+        if changed_values:
+            return changed_values[-1]
+    return values[-1]
+
+
+def get_submitted_par_override_values(form_data, venue_id):
+    values = []
+    values.extend(form_data.getlist(f"par_override_{venue_id}"))  # Backward compatibility
+    values.extend(form_data.getlist(f"par_override_desktop_{venue_id}"))
+    values.extend(form_data.getlist(f"par_override_mobile_{venue_id}"))
+    return values
+
+
 def fetch_active_venues():
     return Venue.query.filter(Venue.active == True).order_by(Venue.name.asc()).all()
 
@@ -654,10 +679,15 @@ def parse_item_payload(existing_item=None):
     if is_group_parent and parent_item_id not in (None, "invalid"):
         errors.append("Group parent items cannot also belong to a parent family.")
 
-    if existing_item and parent_item_id not in (None, "invalid"):
+    has_children = False
+    if existing_item is not None:
         has_children = Item.query.filter(Item.parent_item_id == existing_item.id).first() is not None
+
+    if existing_item and parent_item_id not in (None, "invalid"):
         if has_children:
             errors.append("Items with children cannot be moved under another parent.")
+    if existing_item and has_children and not is_group_parent:
+        errors.append("Items with children must remain marked as group parents.")
 
     active_venue_ids = {venue.id for venue in fetch_active_venues()}
     invalid_venue_ids = [venue_id for venue_id in selected_venue_ids if venue_id not in active_venue_ids]
@@ -665,18 +695,17 @@ def parse_item_payload(existing_item=None):
         errors.append("One or more selected venues are no longer available.")
 
     if is_group_parent:
+        # Family organizers cannot be tracked directly. Normalize the submitted
+        # form state here and let sync_item_venue_assignments deactivate any
+        # existing VenueItem links during save so history can remain intact.
         tracking_mode = "quantity"
         parent_item_id = None
         default_par_level = None
         selected_venue_ids = []
+        form_values["tracking_mode"] = tracking_mode
+        form_values["parent_item_id"] = ""
+        form_values["default_par_level"] = ""
         form_values["selected_venue_ids"] = []
-    elif existing_item and existing_item.is_group_parent and selected_venue_ids:
-        errors.append("Family organizers cannot be assigned directly to venues.")
-
-    if existing_item and is_group_parent:
-        has_links = VenueItem.query.filter(VenueItem.item_id == existing_item.id).first() is not None
-        if has_links:
-            errors.append("Items with venue assignments cannot become family organizers.")
 
     payload = {
         "name": name,
@@ -908,12 +937,21 @@ def tracking_setup():
             flash("Select an item to manage tracking assignments.", "error")
         else:
             selected_venue_ids = parse_selected_ids(request.form.getlist("venue_ids"))
+            existing_overrides = {
+                row["id"]: (None if row["par_override"] == "" else int(row["par_override"]))
+                for row in tracking_setup_view["venue_rows"]
+                if row.get("is_selected")
+            }
             par_overrides = {}
             errors = []
             for venue in tracking_setup_view["venues"]:
                 try:
+                    submitted_raw_value = resolve_tracking_override_submission(
+                        get_submitted_par_override_values(request.form, venue.id),
+                        existing_override=existing_overrides.get(venue.id),
+                    )
                     par_overrides[venue.id] = normalize_optional_tracking_value(
-                        request.form.get(f"par_override_{venue.id}"),
+                        submitted_raw_value,
                         field_label=f"Par override for {venue.name}",
                     )
                 except InventoryRuleError as exc:

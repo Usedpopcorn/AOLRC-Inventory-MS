@@ -4,7 +4,7 @@ import pytest
 
 os.environ.setdefault("FLASK_ENV", "development")
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
-os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 from app import create_app, db  # noqa: E402
 from app.services.rate_limits import rate_limiter  # noqa: E402

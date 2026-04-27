@@ -32,6 +32,14 @@ docker compose up --build
 
 App URL: `http://127.0.0.1:5000/dashboard`
 
+### Prepare SQLite + Docker + Migration Status
+
+```powershell
+.\scripts\prepare_sqlite_workflow.ps1
+```
+
+This enforces branch-safe SQLite config, runs migration checks, recreates the Docker `web` service, and verifies local dummy auth users so the browser session is ready without manual cleanup steps.
+
 ## Standard Validation Commands
 
 ### Repo Validation
@@ -74,9 +82,10 @@ The lint step is currently scoped to repo automation and test files so it stays 
 1. Read [AGENTS.md](AGENTS.md) and the shared UI docs before touching templates or CSS.
 2. Run `.\scripts\dev_shell.ps1` before tool-heavy local work so `rg` and the repo Python tools resolve correctly.
 3. Use Docker for normal app runtime and shared workflow parity.
-4. Use `.\scripts\check.ps1` before and after substantial changes.
-5. Use `pytest` for fast regression checks that do not depend on Supabase.
-6. Keep feature-branch DB experiments on local SQLite rather than the shared Supabase database.
+4. Run `.\scripts\prepare_sqlite_workflow.ps1` before browser verification to enforce SQLite + migration parity.
+5. Use `.\scripts\check.ps1` before commit/push to catch git/test/lint issues early.
+6. Use `pytest` for fast regression checks that do not depend on Supabase.
+7. Keep feature-branch DB experiments on local SQLite rather than the shared Supabase database.
 
 ## Important Repo Docs
 

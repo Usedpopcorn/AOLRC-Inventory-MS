@@ -28,54 +28,6 @@
 
 <div class="card mb-3">
   <div class="card-body">
-    {% call ui.form_section("Venue Details", "Save name, visibility, and the venue-level stale override here.") %}
-      <form method="post" class="row g-3">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="action" value="save">
-        <input type="hidden" name="next" value="{{ back_url }}">
-
-        <div class="col-lg-6">
-          <label class="form-label" for="venue-name">Venue name</label>
-          <input id="venue-name" class="form-control ui-control" name="name" value="{{ details_form_values.name }}">
-        </div>
-
-        <div class="col-lg-3">
-          <label class="form-label" for="venue-active">Visibility</label>
-          <select id="venue-active" class="form-select ui-control" name="active">
-            <option value="true" {% if details_form_values.active == "true" %}selected{% endif %}>Show on dashboard</option>
-            <option value="false" {% if details_form_values.active == "false" %}selected{% endif %}>Hide from dashboard</option>
-          </select>
-        </div>
-
-        <div class="col-lg-3">
-          <label class="form-label" for="venue-stale-threshold-days">Venue stale override</label>
-          <div class="input-group">
-            <input
-              id="venue-stale-threshold-days"
-              class="form-control ui-control"
-              type="number"
-              min="1"
-              max="365"
-              step="1"
-              name="stale_threshold_days"
-              value="{{ details_form_values.stale_threshold_days }}"
-              placeholder="{{ global_stale_threshold_days }}"
-            >
-            <span class="input-group-text">days</span>
-          </div>
-          <div class="form-text">Leave blank to use the global {{ global_stale_threshold_days }}-day rule unless an item override wins first.</div>
-        </div>
-
-        <div class="col-12 d-flex justify-content-end">
-          <button class="btn btn-aolrc-accent ui-control" type="submit">Save Settings</button>
-        </div>
-      </form>
-    {% endcall %}
-  </div>
-</div>
-
-<div class="card mb-3">
-  <div class="card-body">
     {% call ui.form_section("Copy Tracked Setup", "Replace this venue's tracked-item setup with another venue, then fine-tune it below.") %}
       <form method="post" class="row g-3 align-items-end">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -98,14 +50,58 @@
   </div>
 </div>
 
-<div class="card">
-  <div class="card-body">
-    {% call ui.form_section("Tracked Items", "Assign items here and optionally override par for this venue only. Blank overrides fall back to the item default.") %}
-      <form method="post" class="d-flex flex-column gap-3">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="action" value="save_tracking">
-        <input type="hidden" name="next" value="{{ back_url }}">
+<form method="post" class="d-flex flex-column gap-3">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="action" value="save_all">
+  <input type="hidden" name="next" value="{{ back_url }}">
 
+  <div class="card mb-0">
+    <div class="card-body">
+      {% call ui.form_section("Venue Details", "Save name, visibility, and the venue-level stale override here.") %}
+        <div class="row g-3">
+          <div class="col-lg-6">
+            <label class="form-label" for="venue-name">Venue name</label>
+            <input id="venue-name" class="form-control ui-control" name="name" value="{{ details_form_values.name }}">
+          </div>
+
+          <div class="col-lg-3">
+            <label class="form-label" for="venue-active">Visibility</label>
+            <select id="venue-active" class="form-select ui-control" name="active">
+              <option value="true" {% if details_form_values.active == "true" %}selected{% endif %}>Show on dashboard</option>
+              <option value="false" {% if details_form_values.active == "false" %}selected{% endif %}>Hide from dashboard</option>
+            </select>
+          </div>
+
+          <div class="col-lg-3">
+            <label class="form-label" for="venue-stale-threshold-days">Venue stale override</label>
+            <div class="input-group">
+              <input
+                id="venue-stale-threshold-days"
+                class="form-control ui-control"
+                type="number"
+                min="1"
+                max="365"
+                step="1"
+                name="stale_threshold_days"
+                value="{{ details_form_values.stale_threshold_days }}"
+                placeholder="{{ global_stale_threshold_days }}"
+              >
+              <span class="input-group-text">days</span>
+            </div>
+            <div class="form-text">Leave blank to use the global {{ global_stale_threshold_days }}-day rule unless an item override wins first.</div>
+          </div>
+
+          <div class="col-12 d-flex justify-content-end">
+            <button class="btn btn-aolrc-accent ui-control" type="submit">Save All Changes</button>
+          </div>
+        </div>
+      {% endcall %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      {% call ui.form_section("Tracked Items", "Assign items here and optionally override par for this venue only. Blank overrides fall back to the item default.") %}
         {% if tracking_rows %}
           <div class="table-responsive d-none d-lg-block">
             <table class="table align-middle">
@@ -135,7 +131,7 @@
                         type="number"
                         min="0"
                         step="1"
-                        name="par_override_{{ row.id }}"
+                        name="par_override_desktop_{{ row.id }}"
                         value="{{ row.par_override }}"
                         placeholder="Use item default"
                       >
@@ -172,7 +168,7 @@
                       type="number"
                       min="0"
                       step="1"
-                      name="par_override_{{ row.id }}"
+                      name="par_override_mobile_{{ row.id }}"
                       value="{{ row.par_override }}"
                       placeholder="Use item default"
                     >
@@ -188,13 +184,13 @@
           </div>
 
           <div class="d-flex justify-content-end">
-            <button class="btn btn-aolrc-accent ui-control" type="submit">Save Tracked Items</button>
+            <button class="btn btn-aolrc-accent ui-control" type="submit">Save All Changes</button>
           </div>
         {% else %}
           {{ ui.empty_state("No active items are available to assign.", body="Create or reactivate catalog items first, then come back here to track them in this venue.") }}
         {% endif %}
-      </form>
-    {% endcall %}
+      {% endcall %}
+    </div>
   </div>
-</div>
+</form>
 {% endblock %}

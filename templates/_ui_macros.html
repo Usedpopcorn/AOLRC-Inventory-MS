@@ -53,6 +53,12 @@
   back_label=None,
   title_href=None,
   title_link_classes="",
+  title_action_href=None,
+  title_action_label=None,
+  title_action_class="",
+  title_action_icon_class=None,
+  title_action_aria_label=None,
+  title_action_title=None,
   action_text=None,
   action_href=None,
   action_form_id=None,
@@ -63,6 +69,12 @@
   action_controls=None,
   action_expanded=None,
   action_title=None,
+  support_action_href=None,
+  support_action_label=None,
+  support_action_class="",
+  support_action_icon_class=None,
+  support_action_aria_label=None,
+  support_action_title=None,
   section_classes=""
 ) -%}
   <section class="ui-page-header{{ ' ' ~ section_classes if section_classes else '' }}">
@@ -74,38 +86,72 @@
     <div class="ui-page-header-main">
       <div class="ui-page-header-top">
         <div class="ui-page-header-copy">
-          <h1 class="h3 mb-0 fw-bold text-aolrc-purple page-heading ui-page-title">
-            {% if title_href %}
-              <a class="ui-page-title-link {{ title_link_classes }}" href="{{ title_href }}">
-                {{ title }}
+          <div class="ui-page-title-row">
+            <h1 class="h3 mb-0 fw-bold text-aolrc-purple page-heading ui-page-title">
+              {% if title_href %}
+                <a class="ui-page-title-link {{ title_link_classes }}" href="{{ title_href }}">
+                  {{ title }}
+                </a>
+              {% else %}
+                <span>{{ title }}</span>
+              {% endif %}
+            </h1>
+            {% if title_action_href %}
+              <a
+                class="{{ title_action_class }}"
+                href="{{ title_action_href }}"
+                {% if title_action_title %}title="{{ title_action_title }}"{% endif %}
+                {% if title_action_aria_label %}aria-label="{{ title_action_aria_label }}"{% endif %}
+              >
+                {% if title_action_icon_class %}
+                  <i class="bi {{ title_action_icon_class }}" aria-hidden="true"></i>
+                {% endif %}
+                {% if title_action_label %}
+                  <span>{{ title_action_label }}</span>
+                {% endif %}
               </a>
-            {% else %}
-              <span>{{ title }}</span>
             {% endif %}
-          </h1>
+          </div>
           {% if subtitle %}
             <div class="text-muted ui-page-subtitle">{{ subtitle }}</div>
           {% endif %}
         </div>
-        {% if action_text %}
+        {% if support_action_href or action_text %}
           <div class="ui-page-header-actions">
-            {% if action_href %}
-              <a class="{{ action_class }}" href="{{ action_href }}"{% if action_title %} title="{{ action_title }}"{% endif %}>
-                {{ action_text }}
-              </a>
-            {% else %}
-              <button
-                class="{{ action_class }}"
-                type="{{ action_button_type or ('submit' if action_form_id else 'button') }}"
-                {% if action_form_id %}form="{{ action_form_id }}"{% endif %}
-                {% if action_toggle %}data-bs-toggle="{{ action_toggle }}"{% endif %}
-                {% if action_target %}data-bs-target="{{ action_target }}"{% endif %}
-                {% if action_controls %}aria-controls="{{ action_controls }}"{% endif %}
-                {% if action_expanded is not none %}aria-expanded="{{ action_expanded }}"{% endif %}
-                {% if action_title %}title="{{ action_title }}"{% endif %}
+            {% if support_action_href %}
+              <a
+                class="{{ support_action_class }}"
+                href="{{ support_action_href }}"
+                {% if support_action_title %}title="{{ support_action_title }}"{% endif %}
+                {% if support_action_aria_label %}aria-label="{{ support_action_aria_label }}"{% endif %}
               >
-                {{ action_text }}
-              </button>
+                {% if support_action_icon_class %}
+                  <i class="bi {{ support_action_icon_class }}" aria-hidden="true"></i>
+                {% endif %}
+                {% if support_action_label %}
+                  <span>{{ support_action_label }}</span>
+                {% endif %}
+              </a>
+            {% endif %}
+            {% if action_text %}
+              {% if action_href %}
+                <a class="{{ action_class }}" href="{{ action_href }}"{% if action_title %} title="{{ action_title }}"{% endif %}>
+                  {{ action_text }}
+                </a>
+              {% else %}
+                <button
+                  class="{{ action_class }}"
+                  type="{{ action_button_type or ('submit' if action_form_id else 'button') }}"
+                  {% if action_form_id %}form="{{ action_form_id }}"{% endif %}
+                  {% if action_toggle %}data-bs-toggle="{{ action_toggle }}"{% endif %}
+                  {% if action_target %}data-bs-target="{{ action_target }}"{% endif %}
+                  {% if action_controls %}aria-controls="{{ action_controls }}"{% endif %}
+                  {% if action_expanded is not none %}aria-expanded="{{ action_expanded }}"{% endif %}
+                  {% if action_title %}title="{{ action_title }}"{% endif %}
+                >
+                  {{ action_text }}
+                </button>
+              {% endif %}
             {% endif %}
           </div>
         {% endif %}

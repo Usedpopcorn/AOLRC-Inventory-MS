@@ -1,6 +1,8 @@
 import json
 from datetime import datetime, timedelta, timezone
 
+from werkzeug.datastructures import MultiDict
+
 from app import db
 from app.models import InventoryAdminEvent, InventoryPolicy, Item, Venue, VenueItem
 from app.services.admin_hub import build_admin_history_view_model
@@ -381,6 +383,173 @@ def test_item_edit_preserves_existing_venue_par_overrides_without_override_paylo
     assert tracking_event is None
 
 
+def test_item_edit_can_convert_tracked_item_to_group_parent_in_one_save(client, app):
+    quick_login(client)
+
+    with app.app_context():
+        venue_one = Venue(name="Tea Venue One", active=True)
+        venue_two = Venue(name="Tea Venue Two", active=True)
+        item = create_direct_item("Promotion Tea", default_par_level=8)
+        db.session.add_all([venue_one, venue_two])
+        db.session.flush()
+        db.session.add_all(
+            [
+                VenueItem(venue_id=venue_one.id, item_id=item.id, expected_qty=6, active=True),
+                VenueItem(venue_id=venue_two.id, item_id=item.id, expected_qty=4, active=True),
+            ]
+        )
+        db.session.commit()
+        item_id = item.id
+
+    response = client.post(
+        f"/admin/items/{item_id}/edit",
+        data={
+            "name": "Promotion Tea",
+            "tracking_mode": "quantity",
+            "item_category": "consumable",
+            "parent_item_id": "",
+            "is_group_parent": "1",
+            "active": "1",
+            "unit": "",
+            "sort_order": "0",
+            "default_par_level": "8",
+            "stale_threshold_days": "",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/admin/items")
+
+    with app.app_context():
+        item = db.session.get(Item, item_id)
+        links = VenueItem.query.filter_by(item_id=item_id).order_by(VenueItem.venue_id.asc()).all()
+        tracking_event = (
+            InventoryAdminEvent.query.filter_by(event_type="item_tracking_updated").first()
+        )
+
+    assert item.is_group_parent is True
+    assert item.parent_item_id is None
+    assert item.default_par_level is None
+    assert len(links) == 2
+    assert all(link.active is False for link in links)
+    assert tracking_event is not None
+    assert json.loads(tracking_event.details_json)["removed_count"] == 2
+
+
+def test_item_edit_can_promote_item_with_inactive_assignment_history_to_group_parent(client, app):
+    quick_login(client)
+
+    with app.app_context():
+        venue = Venue(name="Former Tea Venue", active=True)
+        item = create_direct_item("Archived Assignment Tea")
+        db.session.add(venue)
+        db.session.flush()
+        db.session.add(VenueItem(venue_id=venue.id, item_id=item.id, expected_qty=3, active=True))
+        db.session.commit()
+        item_id = item.id
+        venue_id = venue.id
+
+    untrack_response = client.post(
+        f"/admin/items/{item_id}/edit",
+        data={
+            "name": "Archived Assignment Tea",
+            "tracking_mode": "quantity",
+            "item_category": "consumable",
+            "parent_item_id": "",
+            "active": "1",
+            "unit": "",
+            "sort_order": "0",
+            "default_par_level": "",
+            "stale_threshold_days": "",
+        },
+        follow_redirects=False,
+    )
+
+    assert untrack_response.status_code == 302
+
+    promote_response = client.post(
+        f"/admin/items/{item_id}/edit",
+        data={
+            "name": "Archived Assignment Tea",
+            "tracking_mode": "quantity",
+            "item_category": "consumable",
+            "parent_item_id": "",
+            "is_group_parent": "1",
+            "active": "1",
+            "unit": "",
+            "sort_order": "0",
+            "default_par_level": "",
+            "stale_threshold_days": "",
+        },
+        follow_redirects=False,
+    )
+
+    assert promote_response.status_code == 302
+    assert promote_response.headers["Location"].endswith("/admin/items")
+
+    with app.app_context():
+        item = db.session.get(Item, item_id)
+        link = VenueItem.query.filter_by(item_id=item_id, venue_id=venue_id).first()
+
+    assert item.is_group_parent is True
+    assert link is not None
+    assert link.active is False
+
+
+def test_item_edit_prevents_parent_items_with_children_from_becoming_direct_items(client, app):
+    quick_login(client)
+
+    with app.app_context():
+        parent = Item(
+            name="Tea Family Parent",
+            item_type="consumable",
+            tracking_mode="quantity",
+            item_category="consumable",
+            is_group_parent=True,
+            active=True,
+        )
+        db.session.add(parent)
+        db.session.flush()
+        child = Item(
+            name="Tea Family Child",
+            item_type="consumable",
+            tracking_mode="quantity",
+            item_category="consumable",
+            parent_item_id=parent.id,
+            is_group_parent=False,
+            active=True,
+        )
+        db.session.add(child)
+        db.session.commit()
+        parent_id = parent.id
+
+    response = client.post(
+        f"/admin/items/{parent_id}/edit",
+        data={
+            "name": "Tea Family Parent",
+            "tracking_mode": "quantity",
+            "item_category": "consumable",
+            "parent_item_id": "",
+            "active": "1",
+            "unit": "",
+            "sort_order": "0",
+            "default_par_level": "",
+            "stale_threshold_days": "",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"Items with children must remain marked as group parents." in response.data
+    assert b"Item updated." not in response.data
+
+    with app.app_context():
+        parent = db.session.get(Item, parent_id)
+
+    assert parent.is_group_parent is True
+
+
 def test_item_create_requires_confirmation_for_similar_names(client, app):
     quick_login(client)
 
@@ -612,6 +781,110 @@ def test_venue_settings_save_stale_override_and_tracking_overrides(client, app):
     assert "venue_tracking_updated" in event_types
 
 
+def test_venue_settings_save_all_updates_details_and_tracking_in_one_submit(client, app):
+    quick_login(client)
+
+    with app.app_context():
+        venue = Venue(name="Save All Venue", active=True)
+        tea = create_direct_item("Save All Tea", default_par_level=6)
+        db.session.add(venue)
+        db.session.commit()
+        venue_id = venue.id
+        tea_id = tea.id
+
+    response = client.post(
+        f"/venues/{venue_id}/settings",
+        data={
+            "action": "save_all",
+            "name": "Save All Venue Updated",
+            "active": "false",
+            "stale_threshold_days": "9",
+            "item_ids": [str(tea_id)],
+            f"par_override_desktop_{tea_id}": "16",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+
+    with app.app_context():
+        venue = db.session.get(Venue, venue_id)
+        link = VenueItem.query.filter_by(venue_id=venue_id, item_id=tea_id, active=True).first()
+
+    assert venue is not None
+    assert venue.name == "Save All Venue Updated"
+    assert venue.active is False
+    assert venue.stale_threshold_days == 9
+    assert link is not None
+    assert link.expected_qty == 16
+
+
+def test_venue_settings_renders_matching_top_and_bottom_save_all_buttons(client, app):
+    quick_login(client)
+
+    with app.app_context():
+        venue = Venue(name="Button Layout Venue", active=True)
+        tea = create_direct_item("Button Layout Tea", default_par_level=6)
+        db.session.add_all([venue, tea])
+        db.session.flush()
+        db.session.add(
+            VenueItem(
+                venue_id=venue.id,
+                item_id=tea.id,
+                expected_qty=12,
+                active=True,
+            )
+        )
+        db.session.commit()
+        venue_id = venue.id
+
+    response = client.get(f"/venues/{venue_id}/settings")
+    assert response.status_code == 200
+    assert response.data.count(b'action" value="save_all"') == 1
+    assert response.data.count(b">Save All Changes<") == 2
+    assert response.data.count(b'class="btn btn-aolrc-accent ui-control" type="submit"') >= 2
+
+
+def test_venue_settings_prefers_changed_override_when_duplicate_form_values_post(client, app):
+    quick_login(client)
+
+    with app.app_context():
+        venue = Venue(name="Duplicate Override Venue", active=True)
+        tea = create_direct_item("Duplicate Override Item", default_par_level=6)
+        db.session.add(venue)
+        db.session.flush()
+        db.session.add(
+            VenueItem(
+                venue_id=venue.id,
+                item_id=tea.id,
+                expected_qty=6,
+                active=True,
+            )
+        )
+        db.session.commit()
+        venue_id = venue.id
+        tea_id = tea.id
+
+    response = client.post(
+        f"/venues/{venue_id}/settings",
+        data=MultiDict(
+            [
+                ("action", "save_tracking"),
+                ("item_ids", str(tea_id)),
+                (f"par_override_desktop_{tea_id}", "6"),
+                (f"par_override_mobile_{tea_id}", "11"),
+            ]
+        ),
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+
+    with app.app_context():
+        link = VenueItem.query.filter_by(venue_id=venue_id, item_id=tea_id, active=True).first()
+
+    assert link is not None
+    assert link.expected_qty == 11
+
+
 def test_bulk_tracking_setup_updates_relationships_and_overrides(client, app):
     quick_login(client)
 
@@ -650,6 +923,49 @@ def test_bulk_tracking_setup_updates_relationships_and_overrides(client, app):
     assert links[venue_one_id].expected_qty == 7
     assert links[venue_two_id].expected_qty is None
     assert event is not None
+
+
+def test_bulk_tracking_setup_prefers_changed_override_when_duplicate_form_values_post(client, app):
+    quick_login(client)
+
+    with app.app_context():
+        item = create_direct_item("Bulk Duplicate Override Item", default_par_level=4)
+        venue = Venue(name="Bulk Duplicate Venue", active=True)
+        db.session.add_all([item, venue])
+        db.session.flush()
+        db.session.add(
+            VenueItem(
+                venue_id=venue.id,
+                item_id=item.id,
+                expected_qty=7,
+                active=True,
+            )
+        )
+        db.session.commit()
+        item_id = item.id
+        venue_id = venue.id
+
+    response = client.post(
+        "/admin/tracking-setup",
+        data=MultiDict(
+            [
+                ("item_id", str(item_id)),
+                ("venue_ids", str(venue_id)),
+                (f"par_override_desktop_{venue_id}", "7"),
+                (f"par_override_mobile_{venue_id}", "11"),
+            ]
+        ),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith(f"/admin/tracking-setup?item_id={item_id}")
+
+    with app.app_context():
+        link = VenueItem.query.filter_by(item_id=item_id, venue_id=venue_id, active=True).first()
+
+    assert link is not None
+    assert link.expected_qty == 11
 
 
 def test_venue_profile_applies_par_and_stale_precedence(app):

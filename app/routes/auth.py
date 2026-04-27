@@ -14,8 +14,12 @@ from flask import (
 from flask_login import current_user, login_required, login_user, logout_user
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from app import AUTH_SESSION_VERSION_SESSION_KEY, db
-from app.models import User
+from app import ACTIVE_UI_THEME_SESSION_KEY, AUTH_SESSION_VERSION_SESSION_KEY, db
+from app.models import (
+    User,
+    VALID_THEME_PREFERENCES,
+    normalize_theme_preference,
+)
 from app.security import get_client_ip, is_safe_redirect_target
 from app.services.account_security import (
     AccountManagementError,
@@ -46,6 +50,18 @@ DEV_QUICK_LOGIN_ROLE_MAP = {
 }
 GENERIC_LOGIN_FAILURE_MESSAGE = "Invalid credentials or account unavailable."
 AUTH_THROTTLE_MESSAGE = "Too many attempts. Please wait a few minutes and try again."
+ACCOUNT_THEME_OPTIONS = (
+    {
+        "description": "Keep the existing AOLRC purple primary with the shared gold accent.",
+        "label": "Default Purple",
+        "value": "purple",
+    },
+    {
+        "description": "Swap in the warm blue primary while keeping the shared gold accent.",
+        "label": "Warm Blue",
+        "value": "blue",
+    },
+)
 
 
 def _is_dev_quick_login_enabled():
@@ -128,6 +144,9 @@ def _record_failed_login(user):
 def _finish_login(user):
     login_user(user)
     session[AUTH_SESSION_VERSION_SESSION_KEY] = int(user.session_version or 1)
+    session[ACTIVE_UI_THEME_SESSION_KEY] = normalize_theme_preference(
+        getattr(user, "theme_preference", None)
+    )
 
 
 def _reset_login_failure_state(user):
@@ -540,6 +559,10 @@ def account():
     return render_template(
         "auth/account.html",
         avatar_initials=_build_account_initials(current_user),
+        current_theme_preference=normalize_theme_preference(
+            getattr(current_user, "theme_preference", None)
+        ),
+        theme_options=ACCOUNT_THEME_OPTIONS,
     )
 
 
@@ -555,6 +578,21 @@ def update_profile():
     current_user.display_name = display_name or None
     db.session.commit()
     flash("Profile updated.", "success")
+    return redirect(url_for("auth.account"))
+
+
+@auth_bp.post("/account/custom-settings")
+@login_required
+def update_custom_settings():
+    selected_theme = (request.form.get("theme_preference") or "").strip().lower()
+    if selected_theme not in VALID_THEME_PREFERENCES:
+        flash("Theme selection is invalid.", "error")
+        return redirect(url_for("auth.account"))
+
+    current_user.theme_preference = selected_theme
+    db.session.commit()
+    session[ACTIVE_UI_THEME_SESSION_KEY] = selected_theme
+    flash("Custom settings updated.", "success")
     return redirect(url_for("auth.account"))
 
 

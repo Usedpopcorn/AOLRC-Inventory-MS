@@ -453,7 +453,7 @@
                 <button
                   id="restockFiltersToggle"
                   type="button"
-                  class="btn btn-primary restock-toolbar-btn"
+                  class="btn btn-aolrc-primary restock-toolbar-btn"
                   data-bs-toggle="collapse"
                   data-bs-target="#restockFilters"
                   aria-expanded="false"
@@ -923,7 +923,7 @@
         const restockLoadMoreRetry = document.getElementById("restockLoadMoreRetry");
         const restockLoadMoreSentinel = document.getElementById("restockLoadMoreSentinel");
         const restockSearchDebounceMs = 200;
-        const restockStatusRank = { out: 0, low: 1, ok: 2, good: 3, not_checked: 4 };
+        const restockStatusRank = { out: 0, low: 1, ok: 2, not_checked: 3, good: 4 };
         const restockCountBucketRank = { comparable: 0, no_count: 1, no_par: 2, singleton: 3 };
         const restockCountPriorityRank = { out: 0, low: 1, ok: 2, good: 3 };
 
