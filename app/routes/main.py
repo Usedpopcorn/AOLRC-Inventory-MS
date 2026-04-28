@@ -1,6 +1,6 @@
 from datetime import datetime, time, timedelta, timezone
 
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import current_user
 from sqlalchemy import Integer, String, and_, case, cast, func, literal, or_, select, union_all
 from sqlalchemy.orm import selectinload
@@ -15,6 +15,7 @@ from app.models import (
     Item,
     User,
     Venue,
+    VenueFile,
     VenueItem,
     VenueNote,
 )
@@ -33,7 +34,11 @@ from app.services.inventory_rules import (
     resolve_effective_stale_threshold_days,
     sync_venue_tracked_items,
 )
-from app.services.inventory_status import normalize_status
+from app.services.inventory_signals import (
+    build_latest_count_signal_map,
+    build_latest_status_signal_map,
+)
+from app.services.inventory_status import normalize_singleton_status, normalize_status
 from app.services.notes import (
     NOTE_BODY_MAX_LENGTH,
     NOTE_TITLE_MAX_LENGTH,
@@ -55,6 +60,19 @@ from app.services.venue_profile import (
     build_venue_profile_view_model,
     filter_venue_inventory_rows,
     normalize_venue_inventory_filters,
+)
+from app.services.venue_files import (
+    VENUE_FILE_ACCEPT,
+    VenueFileError,
+    allowed_extensions_label,
+    build_venue_file_row,
+    build_venue_file_rows,
+    delete_stored_venue_file,
+    format_file_size,
+    read_csv_preview,
+    read_text_preview,
+    save_uploaded_venue_file,
+    stored_file_path,
 )
 
 main_bp = Blueprint("main", __name__)
@@ -117,9 +135,9 @@ def normalize_note_search_query(value):
     return (value or "").strip()
 
 
-def load_valid_venue_note_item_ids(venue_id):
+def load_valid_venue_note_items(venue_id):
     rows = (
-        db.session.query(Item.id)
+        db.session.query(Item.id, Item.name)
         .join(VenueItem, VenueItem.item_id == Item.id)
         .filter(
             VenueItem.venue_id == venue_id,
@@ -129,7 +147,11 @@ def load_valid_venue_note_item_ids(venue_id):
         )
         .all()
     )
-    return {row[0] for row in rows}
+    return {row.id: row.name for row in rows}
+
+
+def load_valid_venue_note_item_ids(venue_id):
+    return set(load_valid_venue_note_items(venue_id))
 
 
 def normalize_venue_note_item_id(raw_value, valid_item_ids):
@@ -224,7 +246,12 @@ def build_overall_status_badge(total_tracked, counts, detail_counts=None):
     if checked_count > 0 and counts["ok"] > 0 and (counts["ok"] * 2 >= checked_count):
         return {"key": "ok", "text": "OK", "icon_class": "bi-check-circle-fill"}
     if counts["good"] > 0:
-        return {"key": "good", "text": "Good", "icon_class": "bi-check-circle-fill"}
+        good_has_partial_attention = counts["ok"] > 0 or counts["not_checked"] > 0
+        return {
+            "key": "good",
+            "text": "Good*" if good_has_partial_attention else "Good",
+            "icon_class": "bi-check-circle-fill",
+        }
     return {"key": "not_checked", "text": "Not Checked", "icon_class": "bi-dash-circle"}
 
 
@@ -240,6 +267,16 @@ def normalize_activity_sort(value):
     if normalized not in ACTIVITY_SORT_OPTIONS:
         return "newest"
     return normalized
+
+
+def normalize_activity_actor_user_id(value):
+    raw_value = (value or "").strip()
+    if not raw_value or not raw_value.isdigit():
+        return None
+    parsed_value = int(raw_value)
+    if parsed_value <= 0:
+        return None
+    return parsed_value
 
 
 def format_activity_timestamp(value):
@@ -375,6 +412,8 @@ def build_activity_page(
     end_date=None,
     sort="newest",
     page=1,
+    actor_user_id=None,
+    page_size=None,
 ):
     requested_page = max(int(page or 1), 1)
 
@@ -390,6 +429,7 @@ def build_activity_page(
             Check.created_at.label("changed_at"),
             Venue.name.label("venue_name"),
             Item.name.label("item_name"),
+            Check.user_id.label("actor_user_id"),
             status_actor_name.label("actor_name"),
             previous_status.label("old_status_key"),
             CheckLine.status.label("new_status_key"),
@@ -412,6 +452,8 @@ def build_activity_page(
             status_inner.c.old_status_key != status_inner.c.new_status_key,
         )
     )
+    if actor_user_id is not None:
+        status_events = status_events.where(status_inner.c.actor_user_id == actor_user_id)
 
     count_actor_name = activity_actor_name_expr(User.display_name, User.email)
     previous_raw_count = func.lag(CountLine.raw_count).over(
@@ -425,6 +467,7 @@ def build_activity_page(
             CountSession.created_at.label("changed_at"),
             Venue.name.label("venue_name"),
             Item.name.label("item_name"),
+            CountSession.user_id.label("actor_user_id"),
             count_actor_name.label("actor_name"),
             cast(literal(None), String).label("old_status_key"),
             cast(literal(None), String).label("new_status_key"),
@@ -444,6 +487,8 @@ def build_activity_page(
             count_inner.c.old_raw_count != count_inner.c.new_raw_count,
         )
     )
+    if actor_user_id is not None:
+        count_events = count_events.where(count_inner.c.actor_user_id == actor_user_id)
 
     activity_events = union_all(status_events, count_events).subquery()
     filtered_activity = select(activity_events)
@@ -494,9 +539,10 @@ def build_activity_page(
         select(func.count()).select_from(filtered_subquery)
     ).scalar_one()
 
-    total_pages = max((total_count + ACTIVITY_PAGE_SIZE - 1) // ACTIVITY_PAGE_SIZE, 1) if total_count else 1
+    effective_page_size = max(int(page_size or ACTIVITY_PAGE_SIZE), 1)
+    total_pages = max((total_count + effective_page_size - 1) // effective_page_size, 1) if total_count else 1
     current_page = min(requested_page, total_pages) if total_count else 1
-    offset = (current_page - 1) * ACTIVITY_PAGE_SIZE
+    offset = (current_page - 1) * effective_page_size
 
     type_sort_rank = case(
         (filtered_subquery.c.type_key == "status", 0),
@@ -553,7 +599,7 @@ def build_activity_page(
         )
 
     page_rows = db.session.execute(
-        select(filtered_subquery).order_by(*order_by).offset(offset).limit(ACTIVITY_PAGE_SIZE)
+        select(filtered_subquery).order_by(*order_by).offset(offset).limit(effective_page_size)
     ).mappings().all()
     serialized_rows = [serialize_activity_row(row) for row in page_rows]
 
@@ -562,7 +608,7 @@ def build_activity_page(
     return {
         "rows": serialized_rows,
         "total_count": total_count,
-        "page_size": ACTIVITY_PAGE_SIZE,
+        "page_size": effective_page_size,
         "current_page": current_page,
         "total_pages": total_pages,
         "has_prev": current_page > 1,
@@ -576,6 +622,9 @@ def parse_activity_request_args(args):
     activity_search = (args.get("activity_q", "") or "").strip()
     activity_type = normalize_activity_type(args.get("activity_type", "all"))
     activity_sort = normalize_activity_sort(args.get("activity_sort", "newest"))
+    activity_actor_user_id = normalize_activity_actor_user_id(
+        args.get("activity_actor_user_id", "")
+    )
     activity_start_date = parse_activity_date(args.get("activity_start", ""))
     activity_end_date = parse_activity_date(args.get("activity_end", ""))
     activity_start_date, activity_end_date = normalize_activity_date_range(
@@ -590,6 +639,7 @@ def parse_activity_request_args(args):
         "search": activity_search,
         "type": activity_type,
         "sort": activity_sort,
+        "actor_user_id": activity_actor_user_id,
         "start_date": activity_start_date,
         "end_date": activity_end_date,
         "page": activity_page,
@@ -600,6 +650,8 @@ def build_activity_base_params(activity_filters):
     params = {"tab": "activity"}
     if activity_filters["search"]:
         params["activity_q"] = activity_filters["search"]
+    if activity_filters["actor_user_id"] is not None:
+        params["activity_actor_user_id"] = activity_filters["actor_user_id"]
     if activity_filters["type"] != "all":
         params["activity_type"] = activity_filters["type"]
     if activity_filters["sort"] != "newest":
@@ -649,6 +701,7 @@ def serialize_activity_filters(activity_filters):
         "search": activity_filters["search"],
         "type": activity_filters["type"],
         "sort": activity_filters["sort"],
+        "actor_user_id": activity_filters["actor_user_id"],
         "start_date": activity_filters["start_date"].isoformat() if activity_filters["start_date"] else "",
         "end_date": activity_filters["end_date"].isoformat() if activity_filters["end_date"] else "",
     }
@@ -823,24 +876,26 @@ def build_venue_rows(include_inactive=False):
         return []
 
     venue_ids = [v.id for v in venues]
-    tracked_totals = {
-        row.venue_id: row.total_tracked
-        for row in (
-            db.session.query(
-                VenueItem.venue_id.label("venue_id"),
-                func.count(VenueItem.item_id).label("total_tracked"),
-            )
-            .join(Item, Item.id == VenueItem.item_id)
-            .filter(
-                VenueItem.venue_id.in_(venue_ids),
-                VenueItem.active == True,
-                Item.active == True,
-                Item.is_group_parent == False,
-            )
-            .group_by(VenueItem.venue_id)
-            .all()
+    tracked_item_rows = (
+        db.session.query(
+            VenueItem.venue_id.label("venue_id"),
+            VenueItem.item_id.label("item_id"),
+            Item.tracking_mode.label("tracking_mode"),
         )
-    }
+        .join(Item, Item.id == VenueItem.item_id)
+        .filter(
+            VenueItem.venue_id.in_(venue_ids),
+            VenueItem.active == True,
+            Item.active == True,
+            Item.is_group_parent == False,
+        )
+        .all()
+    )
+    tracked_totals = {}
+    tracked_item_ids = set()
+    for row in tracked_item_rows:
+        tracked_totals[row.venue_id] = int(tracked_totals.get(row.venue_id, 0) or 0) + 1
+        tracked_item_ids.add(row.item_id)
 
     notes_count_map = {
         row.venue_id: row.notes_count
@@ -855,87 +910,58 @@ def build_venue_rows(include_inactive=False):
         )
     }
 
-    latest_check_sq = (
-        db.session.query(
-            Check.venue_id.label("venue_id"),
-            func.max(Check.id).label("latest_check_id"),
-        )
-        .filter(Check.venue_id.in_(venue_ids))
-        .group_by(Check.venue_id)
-        .subquery()
-    )
-
     latest_status_counts = {}
     latest_status_detail_counts = {}
     latest_singleton_current_totals = {}
-    for row in (
-        db.session.query(
-            latest_check_sq.c.venue_id.label("venue_id"),
-            CheckLine.status.label("status"),
-            Item.tracking_mode.label("tracking_mode"),
-            func.count(CheckLine.id).label("status_count"),
+    latest_quantity_count_totals = {}
+    latest_status_by_pair = {}
+    latest_count_by_pair = {}
+    if tracked_item_ids:
+        tracked_item_id_list = sorted(tracked_item_ids)
+        latest_status_by_pair = build_latest_status_signal_map(
+            venue_ids=venue_ids,
+            item_ids=tracked_item_id_list,
         )
-        .join(CheckLine, CheckLine.check_id == latest_check_sq.c.latest_check_id)
-        .join(
-            VenueItem,
-            and_(
-                VenueItem.venue_id == latest_check_sq.c.venue_id,
-                VenueItem.item_id == CheckLine.item_id,
-                VenueItem.active == True,
-            ),
+        latest_count_by_pair = build_latest_count_signal_map(
+            venue_ids=venue_ids,
+            item_ids=tracked_item_id_list,
         )
-        .join(Item, Item.id == VenueItem.item_id)
-        .filter(Item.active == True, Item.is_group_parent == False)
-        .group_by(latest_check_sq.c.venue_id, CheckLine.status, Item.tracking_mode)
-        .all()
-    ):
-        normalized_status = normalize_status(row.status)
-        latest_status_counts.setdefault(row.venue_id, {}).setdefault(normalized_status, 0)
-        latest_status_counts[row.venue_id][normalized_status] += row.status_count
-        if row.tracking_mode == "singleton_asset" and normalized_status in {"good", "low"}:
-            latest_singleton_current_totals.setdefault(row.venue_id, 0)
-            latest_singleton_current_totals[row.venue_id] += row.status_count
+
+    for row in tracked_item_rows:
+        counts = latest_status_counts.setdefault(
+            row.venue_id,
+            {"good": 0, "ok": 0, "low": 0, "out": 0, "not_checked": 0},
+        )
+        status_signal = latest_status_by_pair.get((row.venue_id, row.item_id))
+        if row.tracking_mode == "singleton_asset":
+            normalized_status = (
+                normalize_singleton_status(status_signal["status"])
+                if status_signal
+                else "not_checked"
+            )
+        else:
+            normalized_status = normalize_status(status_signal["status"]) if status_signal else "not_checked"
+
+        counts[normalized_status] += 1
+
         if normalized_status in {"low", "out"}:
             detail_counts = latest_status_detail_counts.setdefault(row.venue_id, build_status_detail_counts())
             suffix = "singleton" if row.tracking_mode == "singleton_asset" else "quantity"
-            detail_counts[f"{normalized_status}_{suffix}"] += row.status_count
+            detail_counts[f"{normalized_status}_{suffix}"] += 1
 
-    latest_count_sq = (
-        db.session.query(
-            CountSession.venue_id.label("venue_id"),
-            func.max(CountSession.id).label("latest_count_id"),
-        )
-        .filter(CountSession.venue_id.in_(venue_ids))
-        .group_by(CountSession.venue_id)
-        .subquery()
-    )
+        if row.tracking_mode == "singleton_asset":
+            if normalized_status in {"good", "low"}:
+                latest_singleton_current_totals[row.venue_id] = (
+                    int(latest_singleton_current_totals.get(row.venue_id, 0) or 0) + 1
+                )
+            continue
 
-    latest_quantity_count_totals = {
-        row.venue_id: int(row.total_count or 0)
-        for row in (
-            db.session.query(
-                latest_count_sq.c.venue_id.label("venue_id"),
-                func.coalesce(func.sum(CountLine.raw_count), 0).label("total_count"),
+        count_signal = latest_count_by_pair.get((row.venue_id, row.item_id))
+        if count_signal and count_signal["raw_count"] is not None:
+            latest_quantity_count_totals[row.venue_id] = (
+                int(latest_quantity_count_totals.get(row.venue_id, 0) or 0)
+                + int(count_signal["raw_count"] or 0)
             )
-            .join(CountLine, CountLine.count_session_id == latest_count_sq.c.latest_count_id)
-            .join(
-                VenueItem,
-                and_(
-                    VenueItem.venue_id == latest_count_sq.c.venue_id,
-                    VenueItem.item_id == CountLine.item_id,
-                    VenueItem.active == True,
-                ),
-            )
-            .join(Item, Item.id == VenueItem.item_id)
-            .filter(
-                Item.active == True,
-                Item.is_group_parent == False,
-                Item.tracking_mode != "singleton_asset",
-            )
-            .group_by(latest_count_sq.c.venue_id)
-            .all()
-        )
-    }
 
     par_value_expr = func.coalesce(VenueItem.expected_qty, Item.default_par_level)
     par_totals_map = {
@@ -1020,16 +1046,10 @@ def build_venue_rows(include_inactive=False):
             continue
 
         venue_status_counts = latest_status_counts.get(v.id)
-        if not venue_status_counts:
-            counts["not_checked"] = total_tracked
+        if venue_status_counts:
+            counts = venue_status_counts.copy()
         else:
-            for status, count in venue_status_counts.items():
-                if status in counts:
-                    counts[status] = count
-
-            counted = sum(counts.values())
-            if counted < total_tracked:
-                counts["not_checked"] += (total_tracked - counted)
+            counts["not_checked"] = total_tracked
 
         badge = build_overall_status_badge(total_tracked, counts, detail_counts)
         quantity_current_total = latest_quantity_count_totals.get(v.id, 0)
@@ -1196,6 +1216,12 @@ def home():
     return redirect(url_for("main.dashboard"))
 
 
+@main_bp.route("/help")
+@roles_required("viewer", "staff", "admin")
+def help_page():
+    return render_template("help.html")
+
+
 @main_bp.route("/dashboard")
 @roles_required("viewer", "staff", "admin")
 def dashboard():
@@ -1257,6 +1283,7 @@ def dashboard():
         k in request.args
         for k in (
             "activity_q",
+            "activity_actor_user_id",
             "activity_type",
             "activity_sort",
             "activity_start",
@@ -1272,6 +1299,7 @@ def dashboard():
         activity_page_data = build_activity_page(
             search=activity_filters["search"],
             activity_type=activity_filters["type"],
+            actor_user_id=activity_filters["actor_user_id"],
             start_date=activity_filters["start_date"],
             end_date=activity_filters["end_date"],
             sort=activity_filters["sort"],
@@ -1380,6 +1408,11 @@ def dashboard():
         activity_rows=activity_rows,
         activity_loaded=should_load_activity,
         activity_filters=serialize_activity_filters(activity_filters),
+        activity_actor_filter_user=(
+            db.session.get(User, activity_filters["actor_user_id"])
+            if activity_filters["actor_user_id"] is not None
+            else None
+        ),
         activity_pagination=activity_pagination,
         restock_filters={
             "statuses": restock_statuses,
@@ -1399,6 +1432,7 @@ def dashboard_activity_rows():
     activity_page_data = build_activity_page(
         search=activity_filters["search"],
         activity_type=activity_filters["type"],
+        actor_user_id=activity_filters["actor_user_id"],
         start_date=activity_filters["start_date"],
         end_date=activity_filters["end_date"],
         sort=activity_filters["sort"],
@@ -1808,6 +1842,13 @@ def venue_detail(venue_id):
 
     venue_profile = build_venue_profile_view_model(venue.id)
     recent_activity_rows = build_recent_venue_activity_rows(venue.id, limit=20)
+    venue_files = (
+        VenueFile.query.options(selectinload(VenueFile.uploaded_by))
+        .filter(VenueFile.venue_id == venue.id)
+        .order_by(VenueFile.created_at.desc(), VenueFile.id.desc())
+        .all()
+    )
+    venue_file_rows = build_venue_file_rows(venue_files)
     note_item_options = venue_profile["note_item_options"]
     note_item_option_map = {option["id"]: option for option in note_item_options}
     if active_note_item_id not in note_item_option_map:
@@ -1898,9 +1939,206 @@ def venue_detail(venue_id):
         note_title_max_length=NOTE_TITLE_MAX_LENGTH,
         note_body_max_length=NOTE_BODY_MAX_LENGTH,
         active_profile_tab=active_profile_tab,
+        venue_file_rows=venue_file_rows,
+        venue_file_accept=VENUE_FILE_ACCEPT,
+        venue_file_allowed_extensions=allowed_extensions_label(),
+        venue_file_max_size_text=format_file_size(current_app.config.get("VENUE_FILE_MAX_BYTES")),
         venue_inventory_export_base_url=url_for("main.export_venue_inventory", venue_id=venue.id),
         restock_status_options=RESTOCK_STATUS_META,
         update_status_url=url_for("venue_items.quick_check", venue_id=venue.id, next=request.full_path),
+    )
+
+
+def load_venue_file_or_404(venue_id, file_id):
+    return (
+        VenueFile.query.options(
+            selectinload(VenueFile.venue),
+            selectinload(VenueFile.uploaded_by),
+        )
+        .filter(VenueFile.venue_id == venue_id, VenueFile.id == file_id)
+        .first_or_404()
+    )
+
+
+def venue_file_redirect(venue_id, next_path=None):
+    return redirect_to_venue_detail(
+        venue_id,
+        next_path=next_path or url_for("main.venues"),
+        profile_tab="files",
+    )
+
+
+def build_inline_file_response(venue_file):
+    try:
+        path = stored_file_path(venue_file)
+    except VenueFileError:
+        abort(404)
+    if not path.exists():
+        abort(404)
+
+    response = send_file(
+        path,
+        mimetype=venue_file.mime_type,
+        as_attachment=False,
+        download_name=venue_file.original_filename,
+        conditional=True,
+    )
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Content-Security-Policy"] = "; ".join(
+        [
+            "default-src 'self'",
+            "base-uri 'self'",
+            "frame-ancestors 'self'",
+            "object-src 'none'",
+            "img-src 'self' data:",
+            "media-src 'self'",
+        ]
+    )
+    return response
+
+
+@main_bp.post("/venues/<int:venue_id>/files")
+@roles_required("admin")
+def upload_venue_file(venue_id):
+    venue = Venue.query.get_or_404(venue_id)
+    next_path = normalize_next_path(request.form.get("next"), url_for("main.venue_detail", venue_id=venue.id))
+    try:
+        venue_file = save_uploaded_venue_file(
+            request.files.get("venue_file"),
+            venue_id=venue.id,
+            uploader_user_id=current_user.id,
+            description=request.form.get("description"),
+        )
+    except VenueFileError as exc:
+        flash(str(exc), "error")
+        return venue_file_redirect(venue.id, next_path)
+
+    db.session.add(venue_file)
+    db.session.commit()
+    flash("Venue file uploaded.", "success")
+    return venue_file_redirect(venue.id, next_path)
+
+
+@main_bp.post("/venues/<int:venue_id>/files/<int:file_id>/delete")
+@roles_required("admin")
+def delete_venue_file(venue_id, file_id):
+    venue = Venue.query.get_or_404(venue_id)
+    next_path = normalize_next_path(request.form.get("next"), url_for("main.venue_detail", venue_id=venue.id))
+    venue_file = load_venue_file_or_404(venue.id, file_id)
+    delete_stored_venue_file(venue_file)
+    db.session.delete(venue_file)
+    db.session.commit()
+    flash("Venue file deleted.", "success")
+    return venue_file_redirect(venue.id, next_path)
+
+
+@main_bp.get("/venues/<int:venue_id>/files/<int:file_id>")
+@roles_required("viewer", "staff", "admin")
+def preview_venue_file(venue_id, file_id):
+    venue_file = load_venue_file_or_404(venue_id, file_id)
+    venue = venue_file.venue
+    file_row = build_venue_file_row(venue_file)
+    text_preview = None
+    csv_preview = None
+    try:
+        if file_row["preview_type"] == "text":
+            text_preview = read_text_preview(venue_file)
+        elif file_row["preview_type"] == "csv":
+            csv_preview = read_csv_preview(venue_file)
+    except (FileNotFoundError, VenueFileError):
+        abort(404)
+
+    return render_template(
+        "venues/file_preview.html",
+        venue=venue,
+        file_row=file_row,
+        text_preview=text_preview,
+        csv_preview=csv_preview,
+        back_url=url_for("main.venue_detail", venue_id=venue.id, profile_tab="files"),
+    )
+
+
+@main_bp.get("/venues/<int:venue_id>/files/<int:file_id>/view")
+@roles_required("viewer", "staff", "admin")
+def view_venue_file(venue_id, file_id):
+    venue_file = load_venue_file_or_404(venue_id, file_id)
+    return build_inline_file_response(venue_file)
+
+
+@main_bp.get("/venues/<int:venue_id>/files/<int:file_id>/download")
+@roles_required("viewer", "staff", "admin")
+def download_venue_file(venue_id, file_id):
+    venue_file = load_venue_file_or_404(venue_id, file_id)
+    try:
+        path = stored_file_path(venue_file)
+    except VenueFileError:
+        abort(404)
+    if not path.exists():
+        abort(404)
+    return send_file(
+        path,
+        mimetype=venue_file.mime_type,
+        as_attachment=True,
+        download_name=venue_file.original_filename,
+        conditional=True,
+    )
+
+
+@main_bp.post("/venues/<int:venue_id>/notes/inline")
+@roles_required("staff", "admin")
+def create_venue_note_inline(venue_id):
+    venue = Venue.query.get_or_404(venue_id)
+    valid_note_items = load_valid_venue_note_items(venue.id)
+    note_item_id = normalize_venue_note_item_id(
+        request.form.get("item_id"),
+        set(valid_note_items),
+    )
+    if note_item_id is None:
+        return (
+            jsonify(
+                {
+                    "error": "Select a tracked venue item before adding a note.",
+                    "code": "invalid_item",
+                }
+            ),
+            400,
+        )
+
+    title = (request.form.get("title") or "").strip()
+    body = (request.form.get("body") or "").strip()
+    validation_error = validate_note_fields(title, body)
+    if validation_error:
+        return jsonify({"error": validation_error, "code": "validation_error"}), 400
+
+    db.session.add(
+        VenueNote(
+            venue_id=venue.id,
+            author_user_id=current_user.id,
+            item_id=note_item_id,
+            title=title,
+            body=body,
+        )
+    )
+    db.session.commit()
+
+    note_count = (
+        db.session.query(func.count(VenueNote.id))
+        .filter(
+            VenueNote.venue_id == venue.id,
+            VenueNote.item_id == note_item_id,
+        )
+        .scalar()
+        or 0
+    )
+
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Note added.",
+            "item_id": note_item_id,
+            "item_name": valid_note_items.get(note_item_id, "Tracked item"),
+            "note_count": int(note_count),
+        }
     )
 
 

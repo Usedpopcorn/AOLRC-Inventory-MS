@@ -453,7 +453,7 @@
                 <button
                   id="restockFiltersToggle"
                   type="button"
-                  class="btn btn-primary restock-toolbar-btn"
+                  class="btn btn-aolrc-primary restock-toolbar-btn"
                   data-bs-toggle="collapse"
                   data-bs-target="#restockFilters"
                   aria-expanded="false"
@@ -923,7 +923,7 @@
         const restockLoadMoreRetry = document.getElementById("restockLoadMoreRetry");
         const restockLoadMoreSentinel = document.getElementById("restockLoadMoreSentinel");
         const restockSearchDebounceMs = 200;
-        const restockStatusRank = { out: 0, low: 1, ok: 2, good: 3, not_checked: 4 };
+        const restockStatusRank = { out: 0, low: 1, ok: 2, not_checked: 3, good: 4 };
         const restockCountBucketRank = { comparable: 0, no_count: 1, no_par: 2, singleton: 3 };
         const restockCountPriorityRank = { out: 0, low: 1, ok: 2, good: 3 };
 
@@ -1877,6 +1877,12 @@
       <form method="get" action="{{ url_for('main.dashboard') }}" id="activityForm" class="card-body d-flex flex-column gap-3">
         <input type="hidden" name="tab" value="activity">
         <input type="hidden" name="activity_page" id="activityPageField" value="{{ activity_pagination.current_page }}">
+        <input
+          type="hidden"
+          name="activity_actor_user_id"
+          id="activityActorUserIdField"
+          value="{{ activity_filters.actor_user_id if activity_filters.actor_user_id is not none else '' }}"
+        >
         <div class="dashboard-toolbar-inline">
           <div class="activity-toolbar">
             <div class="activity-toolbar-row activity-toolbar-row-top">
@@ -1940,6 +1946,29 @@
             </div>
           </div>
         </div>
+        {% if activity_actor_filter_user %}
+          <div class="activity-actor-filter-summary">
+            {{ ui.chip(
+              "Filtered to: " ~ (activity_actor_filter_user.display_name or activity_actor_filter_user.email),
+              tone="primary",
+              icon_class="bi-person-badge"
+            ) }}
+            <a
+              class="btn btn-outline-secondary btn-sm ui-control-sm"
+              href="{{ url_for(
+                'main.dashboard',
+                tab='activity',
+                activity_q=activity_filters.search,
+                activity_type=activity_filters.type if activity_filters.type != 'all' else None,
+                activity_sort=activity_filters.sort if activity_filters.sort != 'newest' else None,
+                activity_start=activity_filters.start_date if activity_filters.start_date else None,
+                activity_end=activity_filters.end_date if activity_filters.end_date else None
+              ) }}"
+            >
+              Clear user filter
+            </a>
+          </div>
+        {% endif %}
       </form>
     </div>
 

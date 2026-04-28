@@ -177,6 +177,7 @@ def test_admin_feedback_inbox_requires_pin_and_hides_anonymous_submitters(app):
 
     assert locked_response.status_code == 200
     assert b"Review PIN required." in locked_response.data
+    assert b"data-password-toggle=\"feedbackReviewPin\"" in locked_response.data
     assert b"Anonymous room note" not in locked_response.data
     assert b"The room context should stay private." not in locked_response.data
     assert b"viewer@example.com" not in locked_response.data

@@ -302,7 +302,7 @@ def build_restock_rows(
             }
         )
 
-    status_rank = {"out": 0, "low": 1, "ok": 2, "good": 3, "not_checked": 4}
+    status_rank = {"out": 0, "low": 1, "ok": 2, "not_checked": 3, "good": 4}
 
     def base_sort_key(row):
         family_name = (row.get("parent_name") or row["item_name"]).lower()

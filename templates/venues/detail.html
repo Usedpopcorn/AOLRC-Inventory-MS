@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% import "_inventory_macros.html" as inventory_ui %}
+{% import "_inventory_macros.html" as inventory_ui with context %}
 {% import "_ui_macros.html" as ui %}
 {% block title %}{{ venue.name }}{% endblock %}
 
@@ -27,6 +27,11 @@
         subtitle="Status-first venue overview with inventory health, audit context, and room for venue files.",
         back_url=back_url,
         back_label=back_label,
+        title_action_href=url_for('venue_settings.settings', venue_id=venue.id, next=request.full_path) if current_user.is_admin else None,
+        title_action_class="icon-btn-plain icon-btn-sm venue-directory-settings-btn venue-profile-settings-btn",
+        title_action_icon_class="bi-gear",
+        title_action_aria_label="Open settings for " ~ venue.name if current_user.is_admin else None,
+        title_action_title="Settings" if current_user.is_admin else None,
         action_text="Open Venue Check",
         action_href=update_status_url,
         action_class="btn btn-aolrc-primary ui-control venue-directory-action-btn venue-profile-update-btn",
@@ -54,16 +59,6 @@
             <i class="bi bi-clock-history"></i> {{ venue_profile.last_updated_freshness.text }}
           </div>
         </div>
-        {% if current_user.is_admin %}
-          <a
-            class="icon-btn-plain icon-btn-sm venue-directory-settings-btn venue-profile-settings-btn"
-            href="{{ url_for('venue_settings.settings', venue_id=venue.id, next=request.full_path) }}"
-            aria-label="Open settings for {{ venue.name }}"
-            title="Settings"
-          >
-            <i class="bi bi-gear"></i>
-          </a>
-        {% endif %}
       {% endcall %}
       <div class="venue-profile-last-update text-muted small">Last overall update: {{ venue_profile.last_updated_text }}</div>
     </div>
@@ -410,6 +405,26 @@
           {% endif %}
 
           <div
+            id="venueNoteRefreshBanner"
+            class="ui-state-banner ui-state-banner-info ui-state-banner-compact d-none mb-3"
+            role="status"
+            aria-live="polite"
+          >
+            <div class="ui-state-banner-icon" aria-hidden="true">
+              <i class="bi bi-arrow-repeat"></i>
+            </div>
+            <div class="ui-state-banner-copy">
+              <div class="ui-state-banner-title" id="venueNoteRefreshBannerTitle">New note added</div>
+              <div class="ui-state-banner-body">
+                <span id="venueNoteRefreshBannerBody">Refresh the notes tab to load the latest note history.</span>
+                <a id="venueNoteRefreshLink" class="btn btn-link p-0 align-baseline ms-1" href="{{ url_for('main.venue_detail', venue_id=venue.id, next=back_url, profile_tab='notes') }}">
+                  Refresh notes
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <div
             class="venue-note-list-shell"
             id="venueNotesListShell"
             data-note-list-shell
@@ -561,14 +576,332 @@
     </div>
 
     <div class="tab-pane fade {{ 'show active' if active_profile_tab == 'files' else '' }}" id="venue-profile-files-pane" role="tabpanel" aria-labelledby="venue-profile-files-tab">
-      <div class="card mb-3 ui-surface-card-secondary">
+      <div class="card mb-3 ui-surface-card">
         <div class="card-body">
-          <h2 class="h5 mb-3">Venue Files</h2>
-          {{ ui.empty_state("No venue files yet.", body="This future-ready tab is reserved for setup diagrams, instructions, checklists, and other venue documents once file uploads are added.", compact=True) }}
+          <div class="venue-files-head">
+            <div>
+              <h2 class="h5 mb-1">Venue Files</h2>
+              <p class="text-muted mb-0">Preview, download, and share venue documents.</p>
+            </div>
+            <div class="venue-files-head-meta">
+              <div class="text-muted small venue-files-count" id="venueFileResultCount" data-total="{{ venue_file_rows|length }}">
+                {{ venue_file_rows|length }} file{{ "" if venue_file_rows|length == 1 else "s" }}
+              </div>
+              {% if current_user.is_admin %}
+                <button
+                  class="btn btn-aolrc-accent ui-control venue-file-upload-toggle"
+                  type="button"
+                  data-bs-toggle="collapse"
+                  data-bs-target="#venueFileUploadDrawer"
+                  aria-expanded="false"
+                  aria-controls="venueFileUploadDrawer"
+                >
+                  <i class="bi bi-cloud-arrow-up" aria-hidden="true"></i>
+                  <span>Upload File</span>
+                </button>
+              {% endif %}
+            </div>
+          </div>
+
+          {% if not current_user.is_admin %}
+            {{ ui.state_banner(
+              "Files are read-only for this account.",
+              body="Viewer and staff accounts can preview and download files. Admins can upload and remove files.",
+              tone="neutral",
+              extra_classes="ui-state-banner-compact mb-3"
+            ) }}
+          {% endif %}
+
+          {% if current_user.is_admin %}
+            <div class="collapse venue-file-upload-drawer" id="venueFileUploadDrawer">
+              {% call ui.form_section("Upload File", "Add a file to this venue. It stays private and is served through signed-in app routes.", "venue-file-upload-panel") %}
+                <form
+                  method="post"
+                  action="{{ url_for('main.upload_venue_file', venue_id=venue.id) }}"
+                  enctype="multipart/form-data"
+                  class="venue-file-upload-form"
+                >
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="next" value="{{ back_url }}">
+                  <div class="venue-file-upload-grid">
+                    <div class="venue-file-upload-field">
+                      <label class="form-label mb-0" for="venueFileUpload">Choose file</label>
+                      <input
+                        id="venueFileUpload"
+                        class="form-control venue-file-input"
+                        type="file"
+                        name="venue_file"
+                        accept="{{ venue_file_accept }}"
+                        required
+                      >
+                    </div>
+                    <div class="venue-file-upload-field">
+                      <label class="form-label mb-0" for="venueFileDescription">Description <span class="text-muted">(optional)</span></label>
+                      <input
+                        id="venueFileDescription"
+                        class="form-control ui-control"
+                        type="text"
+                        name="description"
+                        maxlength="255"
+                        placeholder="Example: Spring setup map"
+                      >
+                    </div>
+                  </div>
+                  <div class="venue-file-upload-footer">
+                    <div class="venue-file-upload-support text-muted small">
+                      Max {{ venue_file_max_size_text }}. Supported: {{ venue_file_allowed_extensions }}.
+                    </div>
+                    <button class="btn btn-aolrc-primary ui-control venue-file-save-btn" type="submit">
+                      <i class="bi bi-upload" aria-hidden="true"></i>
+                      <span>Save File</span>
+                    </button>
+                  </div>
+                </form>
+              {% endcall %}
+            </div>
+          {% endif %}
+
+          {% if venue_file_rows %}
+            <div class="card mb-3 ui-surface-card-secondary venue-file-toolbar-card">
+              <div class="card-body">
+                {% call ui.toolbar("ui-toolbar-split venue-file-toolbar") %}
+                  <div class="ui-toolbar-main ui-toolbar-main-3 venue-file-toolbar-main">
+                    <div class="venue-file-toolbar-field venue-file-search-field">
+                      <label class="form-label" for="venueFileSearch">Search files</label>
+                    <input
+                        id="venueFileSearch"
+                        class="form-control ui-control"
+                        type="search"
+                        placeholder="Search by file name or note"
+                        aria-label="Search venue files"
+                      >
+                    </div>
+                    <div class="venue-file-toolbar-field">
+                      <label class="form-label" for="venueFileTypeFilter">File type</label>
+                      <select id="venueFileTypeFilter" class="form-select ui-control" aria-label="Filter venue files by type">
+                        <option value="all">All types</option>
+                        <option value="PDF">PDF</option>
+                        <option value="Image">Images</option>
+                        <option value="Spreadsheet">Spreadsheets</option>
+                        <option value="Text">Text / CSV</option>
+                        <option value="Document">Documents</option>
+                        <option value="Presentation">Presentations</option>
+                        <option value="Audio">Audio</option>
+                        <option value="Video">Video</option>
+                        <option value="Archive">Archives</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                    <div class="venue-file-toolbar-field">
+                      <label class="form-label" for="venueFileSort">Sort</label>
+                      <select id="venueFileSort" class="form-select ui-control" aria-label="Sort venue files">
+                        <option value="newest">Newest first</option>
+                        <option value="oldest">Oldest first</option>
+                        <option value="name">Name A-Z</option>
+                        <option value="type">Type</option>
+                        <option value="size_desc">Largest first</option>
+                        <option value="size_asc">Smallest first</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="ui-toolbar-actions venue-file-toolbar-actions">
+                    <button class="btn btn-outline-secondary ui-control is-inactive" type="button" id="venueFileClearFilters" disabled>Clear</button>
+                  </div>
+                {% endcall %}
+              </div>
+            </div>
+          {% endif %}
+
+          <div class="venue-file-list-shell">
+            {% if venue_file_rows %}
+              <div class="venue-file-card-grid" id="venueFileList">
+                {% for row in venue_file_rows %}
+                  <article
+                    class="venue-file-card"
+                    data-file-name="{{ row.original_filename|lower }}"
+                    data-file-description="{{ (row.description or '')|lower }}"
+                    data-file-category="{{ row.category }}"
+                    data-file-extension="{{ row.extension_label|replace('.', '') }}"
+                    data-file-size="{{ row.size_bytes }}"
+                    data-file-created="{{ row.created_timestamp }}"
+                  >
+                    <div class="venue-file-card-main">
+                      <div class="venue-file-icon" aria-hidden="true">
+                        <i class="bi {{ row.icon_class }}"></i>
+                      </div>
+                      <div class="venue-file-copy">
+                        <h3 class="venue-file-title">{{ row.original_filename }}</h3>
+                        {% if row.description %}
+                          <p class="venue-file-description">{{ row.description }}</p>
+                        {% endif %}
+                        <div class="venue-file-meta">
+                          {{ ui.chip(row.category, tone="primary", extra_classes="ui-chip-compact") }}
+                          {{ ui.chip(row.size_text, tone="neutral", extra_classes="ui-chip-compact") }}
+                          {{ ui.chip(row.extension_label, tone="secondary", extra_classes="ui-chip-compact") }}
+                        </div>
+                        <div class="venue-file-subtext">
+                          Uploaded {{ row.uploaded_at_text }} by {{ row.uploaded_by }}
+                        </div>
+                      </div>
+                    </div>
+                    <div class="venue-file-actions">
+                      <a
+                        class="btn btn-aolrc-primary-muted ui-control-sm venue-file-action-btn"
+                        href="{{ url_for('main.preview_venue_file', venue_id=venue.id, file_id=row.id) }}"
+                      >
+                        <i class="bi bi-eye" aria-hidden="true"></i>
+                        View
+                      </a>
+                      <a
+                        class="btn btn-outline-secondary ui-control-sm venue-file-action-btn"
+                        href="{{ url_for('main.download_venue_file', venue_id=venue.id, file_id=row.id) }}"
+                      >
+                        <i class="bi bi-download" aria-hidden="true"></i>
+                        Download
+                      </a>
+                      {% if current_user.is_admin %}
+                        <form
+                          method="post"
+                          action="{{ url_for('main.delete_venue_file', venue_id=venue.id, file_id=row.id) }}"
+                          data-confirm-message="Delete this file? This cannot be undone."
+                        >
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                          <input type="hidden" name="next" value="{{ back_url }}">
+                          <button class="btn ui-control-sm venue-file-action-btn venue-file-delete-btn" type="submit">
+                            <i class="bi bi-trash" aria-hidden="true"></i>
+                            Delete
+                          </button>
+                        </form>
+                      {% endif %}
+                    </div>
+                  </article>
+                {% endfor %}
+              </div>
+              <div class="d-none mt-3" id="venueFileEmptyFiltered" aria-live="polite">
+                {{ ui.empty_state("No files match the current filters.", body="Adjust the search, file type, or sort selection to show more files.", compact=True) }}
+              </div>
+            {% else %}
+              {{ ui.empty_state("No venue files yet.", body="Admins can upload setup diagrams, instructions, checklists, spreadsheets, and other documents for this venue.", compact=True) }}
+            {% endif %}
+          </div>
         </div>
       </div>
     </div>
   </div>
+
+  {% if current_user.is_staff %}
+    <div
+      class="modal fade"
+      id="venueInlineNoteModal"
+      tabindex="-1"
+      aria-labelledby="venueInlineNoteModalLabel"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable supply-notes-modal-dialog">
+        <div
+          class="modal-content supply-notes-modal-content"
+          data-venue-inline-note-endpoint="{{ url_for('main.create_venue_note_inline', venue_id=venue.id) }}"
+        >
+          <div class="modal-header supply-notes-modal-header">
+            <div class="supply-notes-modal-heading">
+              <h2 class="modal-title supply-notes-modal-title" id="venueInlineNoteModalLabel">Add Item Note</h2>
+              <p class="supply-notes-modal-subtitle mb-0" id="venueInlineNoteModalSubtitle">
+                Save item-specific venue context without leaving the overview.
+              </p>
+              <a
+                id="venueInlineNoteOpenFeedLink"
+                class="venue-inline-note-open-feed-link d-none"
+                href="{{ url_for('main.venue_detail', venue_id=venue.id, next=back_url, profile_tab='notes') }}"
+              >
+                <i class="bi bi-journal-text" aria-hidden="true"></i>
+                <span>Open notes feed</span>
+              </a>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body supply-notes-modal-body">
+            <div
+              id="venueInlineNoteFeedback"
+              class="ui-state-banner ui-state-banner-danger ui-state-banner-compact d-none"
+              role="alert"
+              aria-live="polite"
+            >
+              <div class="ui-state-banner-icon" aria-hidden="true">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+              </div>
+              <div class="ui-state-banner-copy">
+                <div class="ui-state-banner-title" id="venueInlineNoteFeedbackTitle">Could not save note</div>
+                <div class="ui-state-banner-body" id="venueInlineNoteFeedbackBody"></div>
+              </div>
+            </div>
+
+            <section class="venue-note-composer-panel supply-note-composer-panel supply-note-compose-panel">
+              <div class="supply-note-compose-head">
+                <h3 class="h6 mb-1" id="venueInlineNoteItemName">Tracked item</h3>
+                <p class="text-muted small mb-0" id="venueInlineNoteItemMeta">
+                  This note will be attached to the current venue and tagged to the selected item.
+                </p>
+              </div>
+              <form
+                method="post"
+                action="{{ url_for('main.create_venue_note_inline', venue_id=venue.id) }}"
+                class="venue-note-composer"
+                id="venueInlineNoteForm"
+              >
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="item_id" id="venueInlineNoteItemId" value="">
+
+                <div class="venue-note-composer-grid supply-note-composer-grid">
+                  <div class="venue-note-composer-field supply-note-item-field">
+                    <label class="form-label mb-0" for="venueInlineNoteScope">Note scope</label>
+                    <input
+                      id="venueInlineNoteScope"
+                      class="form-control ui-control"
+                      type="text"
+                      value=""
+                      readonly
+                    >
+                  </div>
+                  <div class="venue-note-composer-field venue-note-composer-field-title">
+                    <label class="form-label mb-0" for="venueInlineNoteTitle">Title</label>
+                    <input
+                      id="venueInlineNoteTitle"
+                      name="title"
+                      class="form-control ui-control"
+                      maxlength="{{ note_title_max_length }}"
+                      placeholder="Note title"
+                    >
+                  </div>
+                </div>
+
+                <textarea
+                  id="venueInlineNoteBody"
+                  name="body"
+                  rows="4"
+                  class="form-control ui-control-area"
+                  maxlength="{{ note_body_max_length }}"
+                  placeholder="Write note details..."
+                ></textarea>
+                <div class="text-muted small">
+                  Up to {{ note_title_max_length }} characters for the title and {{ "{:,}".format(note_body_max_length) }} characters for the note body.
+                </div>
+
+                <div class="supply-note-compose-actions">
+                  <button type="button" class="btn btn-outline-secondary ui-control" data-bs-dismiss="modal">
+                    Cancel
+                  </button>
+                  <button class="btn btn-aolrc-accent ui-control" type="submit" id="venueInlineNoteSubmitBtn">
+                    Save Note
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="venueInlineNoteLiveRegion" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+  {% endif %}
 
   {% for note in note_rows %}
     <div class="modal fade" id="viewNoteModal{{ note.id }}" tabindex="-1" aria-labelledby="viewNoteModalLabel{{ note.id }}" aria-hidden="true">
@@ -700,6 +1033,103 @@
       setActiveTabFromUrl();
     })();
   </script>
-  <script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/venue_profile_notes.js') }}"></script>
+  <script nonce="{{ csp_nonce() }}">
+    (() => {
+      const list = document.getElementById("venueFileList");
+      if (!list) return;
+
+      const searchInput = document.getElementById("venueFileSearch");
+      const typeFilter = document.getElementById("venueFileTypeFilter");
+      const sortSelect = document.getElementById("venueFileSort");
+      const clearButton = document.getElementById("venueFileClearFilters");
+      const resultCount = document.getElementById("venueFileResultCount");
+      const emptyFiltered = document.getElementById("venueFileEmptyFiltered");
+      const cards = Array.from(list.querySelectorAll(".venue-file-card"));
+      const defaultType = "all";
+      const defaultSort = "newest";
+
+      function parseNumber(value, fallback = 0) {
+        const parsed = Number.parseInt(value || "", 10);
+        return Number.isFinite(parsed) ? parsed : fallback;
+      }
+
+      function cardMatches(card, query, category) {
+        const haystack = `${card.dataset.fileName || ""} ${card.dataset.fileDescription || ""}`;
+        const matchesSearch = !query || haystack.includes(query);
+        const matchesType = category === defaultType || card.dataset.fileCategory === category;
+        return matchesSearch && matchesType;
+      }
+
+      function sortCards(visibleCards) {
+        const sortValue = sortSelect?.value || defaultSort;
+        const sorted = [...visibleCards];
+        sorted.sort((left, right) => {
+          if (sortValue === "oldest") {
+            return parseNumber(left.dataset.fileCreated) - parseNumber(right.dataset.fileCreated);
+          }
+          if (sortValue === "name") {
+            return (left.dataset.fileName || "").localeCompare(right.dataset.fileName || "");
+          }
+          if (sortValue === "type") {
+            return `${left.dataset.fileCategory || ""}${left.dataset.fileName || ""}`.localeCompare(
+              `${right.dataset.fileCategory || ""}${right.dataset.fileName || ""}`
+            );
+          }
+          if (sortValue === "size_desc") {
+            return parseNumber(right.dataset.fileSize) - parseNumber(left.dataset.fileSize);
+          }
+          if (sortValue === "size_asc") {
+            return parseNumber(left.dataset.fileSize) - parseNumber(right.dataset.fileSize);
+          }
+          return parseNumber(right.dataset.fileCreated) - parseNumber(left.dataset.fileCreated);
+        });
+        sorted.forEach((card) => list.appendChild(card));
+      }
+
+      function updateCount(visibleCount) {
+        if (!resultCount) return;
+        const label = visibleCount === 1 ? "file" : "files";
+        resultCount.textContent = `${visibleCount} ${label}`;
+      }
+
+      function syncClearState(query, category, sortValue) {
+        if (!clearButton) return;
+        const hasFilters = Boolean(query || category !== defaultType || sortValue !== defaultSort);
+        clearButton.disabled = !hasFilters;
+        clearButton.classList.toggle("is-inactive", !hasFilters);
+      }
+
+      function applyFileControls() {
+        const query = (searchInput?.value || "").trim().toLowerCase();
+        const category = typeFilter?.value || defaultType;
+        const sortValue = sortSelect?.value || defaultSort;
+        const visibleCards = [];
+
+        cards.forEach((card) => {
+          const visible = cardMatches(card, query, category);
+          card.hidden = !visible;
+          if (visible) visibleCards.push(card);
+        });
+
+        sortCards(visibleCards);
+        updateCount(visibleCards.length);
+        syncClearState(query, category, sortValue);
+        emptyFiltered?.classList.toggle("d-none", visibleCards.length > 0);
+      }
+
+      searchInput?.addEventListener("input", applyFileControls);
+      typeFilter?.addEventListener("change", applyFileControls);
+      sortSelect?.addEventListener("change", applyFileControls);
+      clearButton?.addEventListener("click", () => {
+        if (searchInput) searchInput.value = "";
+        if (typeFilter) typeFilter.value = defaultType;
+        if (sortSelect) sortSelect.value = defaultSort;
+        applyFileControls();
+      });
+
+      applyFileControls();
+    })();
+  </script>
+  <script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/venue_profile_notes.js', v='20260427a') }}"></script>
   <script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/venue_profile_overview.js') }}"></script>
 {% endblock %}

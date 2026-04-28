@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from werkzeug.security import generate_password_hash
 
-from app import db
+from app import ACTIVE_UI_THEME_SESSION_KEY, db
 from app.models import AccountAuditEvent, PasswordActionToken, User
 from app.services.account_security import (
     AccountManagementError,
@@ -14,9 +14,19 @@ from app.services.account_security import (
     validate_new_password,
 )
 from app.services.admin_hub import build_admin_history_view_model
+from app.services.mail_service import (
+    MAIL_STATUS_FAILED,
+    MAIL_STATUS_SENT,
+    MAIL_STATUS_SUPPRESSED,
+    MailDeliveryResult,
+    send_transactional_email,
+)
+from app.services.rate_limits import rate_limiter
 
 RESET_LINK_RE = re.compile(r"http://localhost/reset-password/([A-Za-z0-9_\-]+)")
-FORGOT_PASSWORD_FLASH = b"If an account matches that email, password reset instructions are ready."
+FORGOT_PASSWORD_FLASH = (
+    b"If an account matches that email, password reset instructions have been sent."
+)
 
 
 def quick_login(client, role):
@@ -34,12 +44,13 @@ def create_user(
     role="viewer",
     active=True,
     display_name=None,
+    theme_preference=None,
     force_password_change=False,
     locked_until=None,
     failed_login_attempts=0,
 ):
     now = datetime.now(timezone.utc)
-    user = User(
+    user_kwargs = dict(
         email=email,
         display_name=display_name,
         password_hash=generate_password_hash(password),
@@ -51,6 +62,11 @@ def create_user(
         locked_until=locked_until,
         failed_login_attempts=failed_login_attempts,
         deactivated_at=None if active else now,
+    )
+    if theme_preference is not None:
+        user_kwargs["theme_preference"] = theme_preference
+    user = User(
+        **user_kwargs,
     )
     db.session.add(user)
     db.session.flush()
@@ -74,6 +90,14 @@ def login_with_password(client, email, password, *, next_path=None, remote_addr=
         environ_overrides={"REMOTE_ADDR": remote_addr} if remote_addr else None,
         follow_redirects=False,
     )
+
+
+def assert_theme_attr(response, expected_theme):
+    assert f'data-theme="{expected_theme}"'.encode() in response.data
+
+
+def assert_checked_theme(response_text, theme):
+    assert re.search(rf'value="{theme}"\s+checked', response_text) is not None
 
 
 def test_validate_new_password_requires_special_character(app):
@@ -114,7 +138,56 @@ def test_password_link_logging_omits_raw_url_and_token(caplog, app):
     assert "token_fingerprint=" in logged_messages
 
 
+def test_mail_service_suppression_skips_smtp(app, monkeypatch):
+    def fail_if_smtp_is_used(*_args, **_kwargs):
+        raise AssertionError("SMTP should not be used when mail is suppressed.")
+
+    monkeypatch.setattr("app.services.mail_service.smtplib.SMTP", fail_if_smtp_is_used)
+    app.config.update(
+        MAIL_ENABLED=True,
+        MAIL_SUPPRESS_SEND=True,
+        MAIL_SERVER="127.0.0.1",
+        MAIL_PORT=1025,
+        MAIL_DEFAULT_SENDER="noreply@example.test",
+    )
+
+    with app.app_context():
+        result = send_transactional_email(
+            to_address="user@example.test",
+            subject="Test message",
+            body_text="Body",
+        )
+
+    assert result.status == MAIL_STATUS_SUPPRESSED
+    assert result.suppressed is True
+
+
+def test_mail_service_missing_config_logs_sanitized_error(caplog, app):
+    app.config.update(
+        MAIL_ENABLED=True,
+        MAIL_SUPPRESS_SEND=False,
+        MAIL_SERVER="",
+        MAIL_DEFAULT_SENDER="noreply@example.test",
+        MAIL_PASSWORD="super-secret-password",
+    )
+
+    with app.app_context(), caplog.at_level("ERROR"):
+        result = send_transactional_email(
+            to_address="user@example.test",
+            subject="Test message",
+            body_text="Body",
+        )
+
+    logged_messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert result.status == MAIL_STATUS_FAILED
+    assert result.failed is True
+    assert "MAIL_SERVER and MAIL_DEFAULT_SENDER are required" in logged_messages
+    assert "super-secret-password" not in logged_messages
+
+
 def test_admin_can_create_user_from_users_page(client, app):
+    app.config["MAIL_ENABLED"] = False
+
     quick_login(client, "admin")
 
     response = client.post(
@@ -129,7 +202,11 @@ def test_admin_can_create_user_from_users_page(client, app):
     )
 
     assert response.status_code == 200
-    assert b"Created account for managed@example.com." in response.data
+    assert (
+        b"Created account for managed@example.com. A password setup email is being prepared."
+        in response.data
+    )
+    assert b"Mail delivery is disabled; no password email was sent." in response.data
     assert b"/reset-password/" in response.data
 
     with app.app_context():
@@ -153,6 +230,8 @@ def test_admin_can_create_user_from_users_page(client, app):
 
 
 def test_admin_can_edit_activate_unlock_and_issue_password_link(client, app):
+    app.config["MAIL_ENABLED"] = False
+
     quick_login(client, "admin")
 
     with app.app_context():
@@ -204,6 +283,7 @@ def test_admin_can_edit_activate_unlock_and_issue_password_link(client, app):
     )
     assert reset_response.status_code == 200
     assert b"Password reset link prepared for support@example.com." in reset_response.data
+    assert b"Mail delivery is disabled; no password email was sent." in reset_response.data
     assert b"/reset-password/" in reset_response.data
 
     with app.app_context():
@@ -213,6 +293,70 @@ def test_admin_can_edit_activate_unlock_and_issue_password_link(client, app):
         assert user.active is True
         assert user.locked_until is None
         assert user.failed_login_attempts == 0
+
+
+def test_admin_user_password_actions_send_email_without_exposing_link(client, app, monkeypatch):
+    app.config["AUTH_DEV_EXPOSE_PASSWORD_LINKS"] = False
+    app.config["MAIL_CAPTURE_UI_URL"] = "http://127.0.0.1:8025"
+    sent_messages = []
+
+    def fake_send_password_action_email(user, issued_link):
+        sent_messages.append(
+            {
+                "email": user.email,
+                "purpose": issued_link.purpose,
+                "url": issued_link.url,
+            }
+        )
+        return MailDeliveryResult(
+            status=MAIL_STATUS_SENT,
+            message="Mail sent.",
+            recipient=user.email,
+        )
+
+    monkeypatch.setattr(
+        "app.routes.admin.send_password_action_email",
+        fake_send_password_action_email,
+    )
+    quick_login(client, "admin")
+
+    create_response = client.post(
+        "/admin/users",
+        data={
+            "email": "admin-mail@example.com",
+            "display_name": "Admin Mail",
+            "role": "viewer",
+            "page": "1",
+        },
+        follow_redirects=True,
+    )
+
+    assert create_response.status_code == 200
+    assert (
+        b"Created account for admin-mail@example.com. A password setup email is being prepared."
+        in create_response.data
+    )
+    assert b"Password email sent to admin-mail@example.com." in create_response.data
+    assert b"Inspect captured mail at http://127.0.0.1:8025." in create_response.data
+    assert b"/reset-password/" not in create_response.data
+    assert [message["purpose"] for message in sent_messages] == ["password_setup"]
+
+    with app.app_context():
+        user = User.query.filter_by(email="admin-mail@example.com").first()
+        user_id = user.id
+
+    sent_messages.clear()
+    link_response = client.post(
+        f"/admin/users/{user_id}/password-link",
+        data={"next": f"/admin/users/{user_id}/edit"},
+        follow_redirects=True,
+    )
+
+    assert link_response.status_code == 200
+    assert b"Password setup link prepared for admin-mail@example.com." in link_response.data
+    assert b"Password email sent to admin-mail@example.com." in link_response.data
+    assert b"/reset-password/" not in link_response.data
+    assert [message["purpose"] for message in sent_messages] == ["password_setup"]
 
 
 def test_self_deactivation_is_blocked_route(client, app):
@@ -300,6 +444,46 @@ def test_forgot_password_reset_flow_is_one_time_and_restores_login(client, app):
     assert FORGOT_PASSWORD_FLASH in request_response.data
     reset_path = extract_reset_path(request_response.get_data(as_text=True))
 
+    invalid_response = client.post(
+        reset_path,
+        data={
+            "new_password": "password",
+            "confirm_password": "password",
+        },
+        follow_redirects=True,
+    )
+    assert invalid_response.status_code == 200
+    assert b"Password needs one change." in invalid_response.data
+    assert (
+        b"Password must be at least 8 characters and include at least 1 special character."
+        in invalid_response.data
+    )
+    assert b"Set Password" not in invalid_response.data
+    assert b"Reset Password" in invalid_response.data
+    assert b"Password rules" in invalid_response.data
+    assert b"data-password-toggle=\"new_password\"" in invalid_response.data
+
+    with app.app_context():
+        user = User.query.filter_by(email="resetme@example.com").first()
+        token = PasswordActionToken.query.filter_by(user_id=user.id).first()
+        assert token.consumed_at is None
+
+    reused_response = client.post(
+        reset_path,
+        data={
+            "new_password": "old-password-1",
+            "confirm_password": "old-password-1",
+        },
+        follow_redirects=True,
+    )
+    assert reused_response.status_code == 200
+    assert b"New password must be different from your current password." in reused_response.data
+
+    with app.app_context():
+        user = User.query.filter_by(email="resetme@example.com").first()
+        token = PasswordActionToken.query.filter_by(user_id=user.id).first()
+        assert token.consumed_at is None
+
     reset_response = client.post(
         reset_path,
         data={
@@ -357,6 +541,248 @@ def test_forgot_password_for_unknown_email_stays_generic(client, app):
 
     with app.app_context():
         assert PasswordActionToken.query.count() == 0
+
+
+def test_forgot_password_sends_email_without_exposing_link(client, app, monkeypatch):
+    app.config["AUTH_DEV_EXPOSE_PASSWORD_LINKS"] = False
+    app.config["APP_BASE_URL"] = "https://inventory.example.org"
+    sent_messages = []
+
+    def fake_send_password_action_email(user, issued_link):
+        sent_messages.append(
+            {
+                "email": user.email,
+                "purpose": issued_link.purpose,
+                "url": issued_link.url,
+            }
+        )
+        return MailDeliveryResult(
+            status=MAIL_STATUS_SENT,
+            message="Mail sent.",
+            recipient=user.email,
+        )
+
+    monkeypatch.setattr(
+        "app.routes.auth.send_password_action_email",
+        fake_send_password_action_email,
+    )
+    with app.app_context():
+        create_user(
+            email="email-reset@example.com",
+            password="old-password-1",
+            display_name="Email Reset",
+        )
+        db.session.commit()
+
+    response = client.post(
+        "/forgot-password",
+        data={"email": "email-reset@example.com"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert FORGOT_PASSWORD_FLASH in response.data
+    assert b"/reset-password/" not in response.data
+    assert len(sent_messages) == 1
+    assert sent_messages[0]["email"] == "email-reset@example.com"
+    assert sent_messages[0]["purpose"] == "password_reset"
+    assert sent_messages[0]["url"].startswith("https://inventory.example.org/reset-password/")
+
+
+def test_forgot_password_does_not_send_email_for_unknown_or_inactive_users(
+    client,
+    app,
+    monkeypatch,
+):
+    app.config["AUTH_DEV_EXPOSE_PASSWORD_LINKS"] = False
+    sent_messages = []
+
+    def fake_send_password_action_email(user, issued_link):
+        sent_messages.append((user.email, issued_link.url))
+        return MailDeliveryResult(status=MAIL_STATUS_SENT, message="Mail sent.")
+
+    monkeypatch.setattr(
+        "app.routes.auth.send_password_action_email",
+        fake_send_password_action_email,
+    )
+    with app.app_context():
+        create_user(
+            email="inactive-reset@example.com",
+            password="old-password-1",
+            display_name="Inactive Reset",
+            active=False,
+        )
+        db.session.commit()
+
+    missing_response = client.post(
+        "/forgot-password",
+        data={"email": "missing@example.com"},
+        follow_redirects=True,
+    )
+    inactive_response = client.post(
+        "/forgot-password",
+        data={"email": "inactive-reset@example.com"},
+        follow_redirects=True,
+    )
+
+    assert missing_response.status_code == 200
+    assert inactive_response.status_code == 200
+    assert FORGOT_PASSWORD_FLASH in missing_response.data
+    assert FORGOT_PASSWORD_FLASH in inactive_response.data
+    assert b"/reset-password/" not in missing_response.data
+    assert b"/reset-password/" not in inactive_response.data
+    assert sent_messages == []
+
+
+def test_users_default_theme_preference_is_purple_and_account_page_reflects_it(client, app):
+    with app.app_context():
+        created_user = create_user(
+            email="theme-default@example.com",
+            password="Theme!123",
+            display_name="Theme Default",
+        )
+        db.session.commit()
+        assert created_user.theme_preference == "purple"
+
+    quick_login(client, "admin")
+    response = client.get("/account")
+
+    assert response.status_code == 200
+    assert_theme_attr(response, "purple")
+    assert_checked_theme(response.get_data(as_text=True), "purple")
+
+    with app.app_context():
+        admin_user = User.query.filter_by(email="admin@example.com").first()
+        assert admin_user is not None
+        assert admin_user.theme_preference == "purple"
+
+
+def test_account_custom_settings_updates_theme_preference_and_session(client, app):
+    quick_login(client, "admin")
+
+    response = client.post(
+        "/account/custom-settings",
+        data={"theme_preference": "blue"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"Custom settings updated." in response.data
+    assert_theme_attr(response, "blue")
+    assert_checked_theme(response.get_data(as_text=True), "blue")
+
+    with client.session_transaction() as session_state:
+        assert session_state[ACTIVE_UI_THEME_SESSION_KEY] == "blue"
+
+    with app.app_context():
+        admin_user = User.query.filter_by(email="admin@example.com").first()
+        assert admin_user is not None
+        assert admin_user.theme_preference == "blue"
+
+
+def test_account_page_activity_snapshot_links_to_dashboard_actor_filter(client, app):
+    quick_login(client, "admin")
+
+    with app.app_context():
+        admin_user = User.query.filter_by(email="admin@example.com").first()
+        admin_id = admin_user.id
+
+    response = client.get("/account")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert "Recent Activity" in body
+    assert "See More" in body
+    assert f"activity_actor_user_id={admin_id}" in body
+    assert "activity_view=full" not in body
+    assert "Full History" not in body
+
+
+def test_dashboard_activity_tab_renders_actor_filter_summary_when_selected(client, app):
+    quick_login(client, "admin")
+
+    with app.app_context():
+        admin_user = User.query.filter_by(email="admin@example.com").first()
+        admin_id = admin_user.id
+
+    response = client.get(f"/dashboard?tab=activity&activity_actor_user_id={admin_id}")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert 'name="activity_actor_user_id"' in body
+    assert f'value="{admin_id}"' in body
+    assert "Filtered to:" in body
+    assert "Clear user filter" in body
+
+
+def test_invalid_theme_preference_is_rejected_without_mutation(client, app):
+    quick_login(client, "admin")
+
+    response = client.post(
+        "/account/custom-settings",
+        data={"theme_preference": "sunset"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"Theme selection is invalid." in response.data
+    assert_theme_attr(response, "purple")
+    assert_checked_theme(response.get_data(as_text=True), "purple")
+
+    with client.session_transaction() as session_state:
+        assert session_state[ACTIVE_UI_THEME_SESSION_KEY] == "purple"
+
+    with app.app_context():
+        admin_user = User.query.filter_by(email="admin@example.com").first()
+        assert admin_user is not None
+        assert admin_user.theme_preference == "purple"
+
+
+def test_login_logout_and_auth_pages_preserve_theme_hint(client, app):
+    with app.app_context():
+        create_user(
+            email="blue-theme@example.com",
+            password="BlueTheme!1",
+            display_name="Blue Theme",
+            theme_preference="blue",
+        )
+        db.session.commit()
+
+    login_response = login_with_password(client, "blue-theme@example.com", "BlueTheme!1")
+
+    assert login_response.status_code == 302
+    assert login_response.headers["Location"].endswith("/dashboard")
+
+    with client.session_transaction() as session_state:
+        assert session_state[ACTIVE_UI_THEME_SESSION_KEY] == "blue"
+
+    account_response = client.get("/account")
+    assert account_response.status_code == 200
+    assert_theme_attr(account_response, "blue")
+    assert_checked_theme(account_response.get_data(as_text=True), "blue")
+
+    logout_response = client.post("/logout", follow_redirects=True)
+    assert logout_response.status_code == 200
+    assert_theme_attr(logout_response, "blue")
+
+    with client.session_transaction() as session_state:
+        assert session_state[ACTIVE_UI_THEME_SESSION_KEY] == "blue"
+
+    forgot_password_page = client.get("/forgot-password")
+    assert forgot_password_page.status_code == 200
+    assert_theme_attr(forgot_password_page, "blue")
+
+    request_response = client.post(
+        "/forgot-password",
+        data={"email": "blue-theme@example.com"},
+        follow_redirects=True,
+    )
+    assert request_response.status_code == 200
+    reset_path = extract_reset_path(request_response.get_data(as_text=True))
+
+    reset_page = client.get(reset_path)
+    assert reset_page.status_code == 200
+    assert_theme_attr(reset_page, "blue")
 
 
 def test_seed_dev_auth_command_upserts_known_users(app):
@@ -596,6 +1022,27 @@ def test_deactivation_invalidates_existing_setup_link_until_admin_reissues(app):
         second_setup_path = extract_reset_path(reissue_response.get_data(as_text=True))
 
     with app.test_client() as setup_client:
+        invalid_setup_response = setup_client.post(
+            second_setup_path,
+            data={
+                "new_password": "password",
+                "confirm_password": "password",
+            },
+            follow_redirects=True,
+        )
+        assert invalid_setup_response.status_code == 200
+        assert b"Password needs one change." in invalid_setup_response.data
+        assert b"Set Password" in invalid_setup_response.data
+        assert b"Start a New Password Reset" not in invalid_setup_response.data
+        assert b"data-password-toggle=\"new_password\"" in invalid_setup_response.data
+
+        with app.app_context():
+            open_tokens = PasswordActionToken.query.filter_by(
+                user_id=user_id,
+                consumed_at=None,
+            ).count()
+            assert open_tokens == 1
+
         completion_response = setup_client.post(
             second_setup_path,
             data={
@@ -690,6 +1137,50 @@ def test_lockout_unlock_and_login_chain_tracks_state_and_activity(app):
         ).count() == 1
 
 
+def test_stale_failed_login_counter_does_not_lock_account_on_next_typo(app):
+    max_attempts = app.config["AUTH_MAX_FAILED_LOGIN_ATTEMPTS"]
+
+    with app.app_context():
+        user = create_user(
+            email="stale-failures@example.com",
+            password="Stale!Password1",
+            display_name="Stale Failures",
+            failed_login_attempts=max_attempts - 1,
+        )
+        user_id = user.id
+        db.session.commit()
+
+    rate_limiter.reset_all()
+
+    with app.test_client() as user_client:
+        typo_response = login_with_password(
+            user_client,
+            "stale-failures@example.com",
+            "wrong-password",
+            remote_addr="198.51.100.30",
+        )
+
+    assert typo_response.status_code == 401
+    assert b"Invalid credentials or account unavailable." in typo_response.data
+
+    with app.app_context():
+        user = db.session.get(User, user_id)
+        assert user.failed_login_attempts == 1
+        assert user.locked_until is None
+
+
+def test_default_login_throttle_allows_lockout_threshold_before_account_throttle(app):
+    assert app.config["AUTH_MAX_FAILED_LOGIN_ATTEMPTS"] == 8
+    assert (
+        app.config["AUTH_LOGIN_ACCOUNT_THROTTLE_LIMIT"]
+        > app.config["AUTH_MAX_FAILED_LOGIN_ATTEMPTS"]
+    )
+    assert (
+        app.config["AUTH_LOGIN_IP_THROTTLE_LIMIT"]
+        > app.config["AUTH_LOGIN_ACCOUNT_THROTTLE_LIMIT"]
+    )
+
+
 def test_quick_login_does_not_bypass_force_password_change_accounts(client, app):
     with app.app_context():
         create_user(
@@ -704,6 +1195,27 @@ def test_quick_login_does_not_bypass_force_password_change_accounts(client, app)
 
     assert response.status_code == 401
     assert b"Quick login failed for admin." in response.data
+
+
+def test_password_login_does_not_bypass_force_password_change(client, app):
+    with app.app_context():
+        create_user(
+            email="setup-required@example.com",
+            password="setup-password-1",
+            role="viewer",
+            display_name="Setup Required",
+            force_password_change=True,
+        )
+        db.session.commit()
+
+    response = login_with_password(
+        client,
+        "setup-required@example.com",
+        "setup-password-1",
+    )
+
+    assert response.status_code == 401
+    assert b"Invalid credentials or account unavailable." in response.data
 
 
 def test_quick_login_does_not_bypass_locked_accounts(client, app):
@@ -856,6 +1368,26 @@ def test_account_password_change_invalidates_prior_reset_links_and_logs_event(ap
             "start-password-1",
         )
         assert login_response.status_code == 302
+
+        account_response = user_client.get("/account")
+        assert account_response.status_code == 200
+        assert b"data-password-toggle=\"current_password\"" in account_response.data
+        assert (
+            b"Choose a password that is different from your current password."
+            in account_response.data
+        )
+
+        reused_response = user_client.post(
+            "/account/password",
+            data={
+                "current_password": "start-password-1",
+                "new_password": "start-password-1",
+                "confirm_password": "start-password-1",
+            },
+            follow_redirects=True,
+        )
+        assert reused_response.status_code == 200
+        assert b"New password must be different from your current password." in reused_response.data
 
         change_response = user_client.post(
             "/account/password",
@@ -1178,6 +1710,7 @@ def test_login_page_emits_security_headers(client):
     assert "script-src 'self' 'nonce-" in response.headers["Content-Security-Policy"]
     assert "script-src 'self' 'unsafe-inline'" not in response.headers["Content-Security-Policy"]
     assert b'<script nonce="' in response.data
+    assert b"data-password-toggle=\"password\"" in response.data
 
 
 def test_dev_quick_login_can_be_disabled_by_config(client, app):

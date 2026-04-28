@@ -3,6 +3,8 @@ from flask_login import UserMixin
 from . import db
 
 VALID_ROLES = ("viewer", "staff", "admin")
+VALID_THEME_PREFERENCES = ("purple", "blue")
+DEFAULT_THEME_PREFERENCE = "purple"
 ITEM_TRACKING_MODES = ("quantity", "singleton_asset")
 ITEM_CATEGORY_OPTIONS = ("consumable", "durable", "beverage", "cleaning", "office", "other")
 PASSWORD_ACTION_PURPOSES = ("password_setup", "password_reset")
@@ -16,6 +18,13 @@ def normalize_role(raw_role):
     if role not in VALID_ROLES:
         return "viewer"
     return role
+
+
+def normalize_theme_preference(raw_theme):
+    theme = (raw_theme or "").strip().lower()
+    if theme not in VALID_THEME_PREFERENCES:
+        return DEFAULT_THEME_PREFERENCE
+    return theme
 
 
 def normalize_tracking_mode(raw_mode):
@@ -56,6 +65,11 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(255), nullable=False, unique=True, index=True)
     display_name = db.Column(db.String(120), nullable=True)
+    theme_preference = db.Column(
+        db.String(20),
+        nullable=False,
+        default=DEFAULT_THEME_PREFERENCE,
+    )
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False, default="viewer")
     active = db.Column(db.Boolean, default=True, nullable=False)
@@ -75,6 +89,8 @@ class User(UserMixin, db.Model):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+    avatar_filename = db.Column(db.String(255), nullable=True)
+    avatar_updated_at = db.Column(db.DateTime, nullable=True)
 
     def get_id(self):
         return str(self.id)
@@ -138,6 +154,33 @@ class Venue(db.Model):
     stale_threshold_days = db.Column(db.Integer, nullable=True)
 
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    files = db.relationship(
+        "VenueFile",
+        back_populates="venue",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class VenueFile(db.Model):
+    __tablename__ = "venue_files"
+
+    id = db.Column(db.Integer, primary_key=True)
+    venue_id = db.Column(db.Integer, db.ForeignKey("venues.id"), nullable=False, index=True)
+    uploaded_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    original_filename = db.Column(db.String(255), nullable=False)
+    stored_filename = db.Column(db.String(255), nullable=False, unique=True)
+    mime_type = db.Column(db.String(120), nullable=False)
+    extension = db.Column(db.String(24), nullable=False, index=True)
+    size_bytes = db.Column(db.Integer, nullable=False)
+    category = db.Column(db.String(40), nullable=False, default="other", index=True)
+    preview_type = db.Column(db.String(40), nullable=False, default="download")
+    description = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+
+    venue = db.relationship("Venue", back_populates="files")
+    uploaded_by = db.relationship("User", foreign_keys=[uploaded_by_user_id])
 
 
 class VenueNote(db.Model):

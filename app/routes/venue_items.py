@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import current_user
+from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 from app import db
 from app.authz import roles_required
@@ -15,6 +16,7 @@ from app.models import (
     CountSession,
     CountLine,
     VenueItemCount,
+    VenueNote,
 )
 from app.services.inventory_status import (
     build_overall_status_badge as shared_build_overall_status_badge,
@@ -23,6 +25,11 @@ from app.services.inventory_status import (
     normalize_singleton_status as shared_normalize_singleton_status,
 )
 from app.services.inventory_rules import resolve_effective_par_level
+from app.services.notes import (
+    NOTE_BODY_MAX_LENGTH,
+    NOTE_TITLE_MAX_LENGTH,
+    validate_note_fields,
+)
 
 venue_items_bp = Blueprint("venue_items", __name__, url_prefix="/venues")
 MAX_DB_INT = 2_147_483_647
@@ -144,17 +151,34 @@ def normalize_quick_check_mode(value, fallback="status"):
     return normalized
 
 
+def normalize_quick_check_sort(value, fallback="default"):
+    normalized = (value or fallback).strip().lower()
+    if normalized != "priority":
+        return "default"
+    return "priority"
+
+
 def build_quick_check_redirect(venue_id, *, next_url, selected_mode, request_values):
     redirect_mode = normalize_quick_check_mode(
         request_values.get("after_save_mode"),
         selected_mode,
     )
-    fallback_path = url_for(
-        "venue_items.quick_check",
-        venue_id=venue_id,
-        next=next_url,
-        mode=redirect_mode,
-    )
+    route_values = {
+        "venue_id": venue_id,
+        "next": next_url,
+    }
+    if redirect_mode != "status":
+        route_values["mode"] = redirect_mode
+
+    supply_query = (request_values.get("supply_q") or "").strip()
+    if supply_query:
+        route_values["supply_q"] = supply_query
+
+    redirect_sort = normalize_quick_check_sort(request_values.get("supply_sort"))
+    if redirect_sort != "default":
+        route_values["supply_sort"] = redirect_sort
+
+    fallback_path = url_for("venue_items.quick_check", **route_values)
     after_save_next = (request_values.get("after_save_next") or "").strip()
     if after_save_next:
         return redirect(normalize_next_path(after_save_next, fallback_path))
@@ -274,6 +298,31 @@ def normalize_quick_check_submission(item, raw_status):
     if normalized not in {"good", "ok", "low", "out", "not_checked"}:
         return None
     return normalized
+
+
+def load_quick_check_note_items(venue_id):
+    rows = (
+        db.session.query(Item.id, Item.name)
+        .join(VenueItem, VenueItem.item_id == Item.id)
+        .filter(
+            VenueItem.venue_id == venue_id,
+            VenueItem.active == True,
+            Item.active == True,
+            Item.is_group_parent == False,
+        )
+        .all()
+    )
+    return {row.id: row.name for row in rows}
+
+
+def normalize_quick_check_note_item_id(raw_value, valid_item_ids):
+    value = (raw_value or "").strip()
+    if not value or not value.isdigit():
+        return None
+    item_id = int(value)
+    if item_id not in valid_item_ids:
+        return None
+    return item_id
 
 
 def build_quick_check_groups(items, latest_status, latest_counts):
@@ -413,6 +462,7 @@ def quick_check(venue_id):
     }
 
     selected_mode = normalize_quick_check_mode(request.values.get("mode"), "status")
+    selected_sort = normalize_quick_check_sort(request.values.get("supply_sort"), "default")
 
     if request.method == "POST":
         if not current_user.has_role("staff", "admin"):
@@ -428,9 +478,8 @@ def quick_check(venue_id):
             }
             adjusted_inputs = 0
             quantity_items = [it for it in tracked if it.tracking_mode != "singleton_asset"]
-            singleton_items = [it for it in tracked if it.tracking_mode == "singleton_asset"]
             quantity_count_updates = []
-            singleton_status_updates = []
+            status_updates = []
 
             for it in quantity_items:
                 raw_count, adjusted = normalize_quick_count_submission(request.form.get(f"count_{it.id}"))
@@ -440,16 +489,16 @@ def quick_check(venue_id):
                     adjusted_inputs += 1
                 quantity_count_updates.append((it, raw_count))
 
-            for it in singleton_items:
+            for it in tracked:
                 status = normalize_quick_check_submission(
                     it,
                     request.form.get(f"status_{it.id}"),
                 )
                 if status is None:
                     continue
-                singleton_status_updates.append((it, status))
+                status_updates.append((it, status))
 
-            if not quantity_count_updates and not singleton_status_updates:
+            if not quantity_count_updates and not status_updates:
                 flash("Add at least one count or status update before saving.", "warning")
                 return redirect(
                     url_for(
@@ -489,13 +538,17 @@ def quick_check(venue_id):
                         db.session.add(current)
                         existing_counts[it.id] = current
 
-            if singleton_status_updates:
+            singleton_status_updates = [
+                (it, status) for it, status in status_updates if it.tracking_mode == "singleton_asset"
+            ]
+            if status_updates:
                 chk = Check(venue_id=venue.id, user_id=current_user.id)
                 db.session.add(chk)
                 db.session.flush()
 
-                for it, status in singleton_status_updates:
+                for it, status in status_updates:
                     db.session.add(CheckLine(check_id=chk.id, item_id=it.id, status=status))
+                for it, status in singleton_status_updates:
                     sync_singleton_compat_count(existing_counts, venue.id, it.id, status)
 
             db.session.commit()
@@ -507,7 +560,7 @@ def quick_check(venue_id):
             flash(
                 quick_check_save_message(
                     count_update_count=len(quantity_count_updates),
-                    status_update_count=len(singleton_status_updates),
+                    status_update_count=len(status_updates),
                 ),
                 "success",
             )
@@ -515,7 +568,7 @@ def quick_check(venue_id):
                 venue.id,
                 next_url=next_url,
                 selected_mode="raw_counts",
-                request_values=request.form,
+                request_values=request.values,
             )
 
         selected_status_updates = []
@@ -566,7 +619,7 @@ def quick_check(venue_id):
             venue.id,
             next_url=next_url,
             selected_mode="status",
-            request_values=request.form,
+            request_values=request.values,
         )
 
     latest_counts = {}
@@ -597,6 +650,27 @@ def quick_check(venue_id):
             latest_counts[it.id] = derive_singleton_count(resolved_status)
         latest_status[it.id] = resolved_status
 
+    note_counts_by_item = {}
+    tracked_item_ids = [it.id for it in tracked]
+    if tracked_item_ids:
+        note_counts_by_item = {
+            row.item_id: int(row.note_count or 0)
+            for row in (
+                db.session.query(
+                    VenueNote.item_id.label("item_id"),
+                    func.count(VenueNote.id).label("note_count"),
+                )
+                .filter(
+                    VenueNote.venue_id == venue.id,
+                    VenueNote.item_id.is_not(None),
+                    VenueNote.item_id.in_(tracked_item_ids),
+                )
+                .group_by(VenueNote.item_id)
+                .all()
+            )
+            if row.item_id is not None
+        }
+
     overall_counts = {"good": 0, "ok": 0, "low": 0, "out": 0, "not_checked": 0}
     overall_detail_counts = {
         "low_quantity": 0,
@@ -624,10 +698,73 @@ def quick_check(venue_id):
         quick_check_groups=quick_check_groups,
         latest_status=latest_status,
         latest_counts=latest_counts,
+        note_counts_by_item=note_counts_by_item,
         effective_par_by_item=effective_par_by_item,
         selected_mode=selected_mode,
+        selected_sort=selected_sort,
         next_url=next_url,
         show_profile_link=not entered_from_profile,
         back_label=describe_back_destination(next_url, venue.id),
         overall_status=overall_status,
+        note_title_max_length=NOTE_TITLE_MAX_LENGTH,
+        note_body_max_length=NOTE_BODY_MAX_LENGTH,
+    )
+
+
+@venue_items_bp.route("/<int:venue_id>/check/notes", methods=["POST"])
+@roles_required("staff", "admin")
+def quick_check_create_note(venue_id):
+    venue = Venue.query.get_or_404(venue_id)
+    tracked_note_items = load_quick_check_note_items(venue.id)
+
+    note_item_id = normalize_quick_check_note_item_id(
+        request.form.get("item_id"),
+        set(tracked_note_items),
+    )
+    if note_item_id is None:
+        return (
+            jsonify(
+                {
+                    "error": "Select a tracked venue item before adding a note.",
+                    "code": "invalid_item",
+                }
+            ),
+            400,
+        )
+
+    title = (request.form.get("title") or "").strip()
+    body = (request.form.get("body") or "").strip()
+    validation_error = validate_note_fields(title, body)
+    if validation_error:
+        return jsonify({"error": validation_error, "code": "validation_error"}), 400
+
+    db.session.add(
+        VenueNote(
+            venue_id=venue.id,
+            author_user_id=current_user.id,
+            item_id=note_item_id,
+            title=title,
+            body=body,
+        )
+    )
+    db.session.commit()
+
+    note_count = (
+        db.session.query(func.count(VenueNote.id))
+        .filter(
+            VenueNote.venue_id == venue.id,
+            VenueNote.item_id == note_item_id,
+        )
+        .scalar()
+        or 0
+    )
+
+    return jsonify(
+        {
+            "status": "success",
+            "message": "Note added.",
+            "item_id": note_item_id,
+            "item_name": tracked_note_items.get(note_item_id, "Tracked item"),
+            "note_count": int(note_count),
+        }
     )

@@ -1,0 +1,485 @@
+{% extends "base.html" %}
+{% import "_ui_macros.html" as ui %}
+{% block title %}Help{% endblock %}
+
+{% macro help_figure(filename, alt, caption) -%}
+  <figure class="help-doc-figure">
+    <img
+      src="{{ url_for('static', filename='help/screenshots/' ~ filename) }}"
+      alt="{{ alt }}"
+      loading="lazy"
+      decoding="async"
+    >
+    <figcaption>{{ caption }}</figcaption>
+  </figure>
+{%- endmacro %}
+
+{% macro mini_step(number, title, body) -%}
+  <article class="help-step">
+    <div class="help-step-number">{{ number }}</div>
+    <div>
+      <h3 class="h6 mb-1">{{ title }}</h3>
+      <p class="mb-0 text-muted">{{ body }}</p>
+    </div>
+  </article>
+{%- endmacro %}
+
+{% macro topic_button(target, label, icon_class, active=False, suffix="") -%}
+  <button
+    class="help-topic-btn{{ ' active' if active else '' }}"
+    id="{{ target }}-tab{{ '-' ~ suffix if suffix else '' }}"
+    data-bs-toggle="pill"
+    data-bs-target="#{{ target }}"
+    type="button"
+    role="tab"
+    aria-controls="{{ target }}"
+    aria-selected="{{ 'true' if active else 'false' }}"
+  >
+    <i class="bi {{ icon_class }}" aria-hidden="true"></i>
+    <span>{{ label }}</span>
+  </button>
+{%- endmacro %}
+
+{% block content %}
+{% call ui.page_header(
+  title="Help and Workflow Guide",
+  subtitle="A practical handbook for daily checks, supply counts, ordering, admin setup, and troubleshooting."
+) %}
+  {{ ui.chip("User guide", tone="primary", icon_class="bi-book") }}
+  {{ ui.chip("Indexed reference", tone="secondary", icon_class="bi-list-ul") }}
+  {{ ui.chip("Screenshots included", tone="neutral", icon_class="bi-image") }}
+{% endcall %}
+
+<div class="help-shell row g-3">
+  <div class="col-12 d-lg-none">
+    <section class="ui-surface-card help-mobile-index" role="navigation" aria-label="Help workbook sections">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <i class="bi bi-list-ul text-aolrc-purple" aria-hidden="true"></i>
+        <h2 class="h6 mb-0">Guide Topics</h2>
+      </div>
+      <div class="help-topic-grid" role="tablist" aria-label="Help topics mobile">
+        {{ topic_button("help-topic-start", "Start Here", "bi-house", active=True, suffix="mobile") }}
+        {{ topic_button("help-topic-tracking", "Tracking Methods", "bi-signpost-split", suffix="mobile") }}
+        {{ topic_button("help-topic-workflows", "Workflows", "bi-diagram-3", suffix="mobile") }}
+        {{ topic_button("help-topic-dashboard", "Dashboard", "bi-speedometer2", suffix="mobile") }}
+        {{ topic_button("help-topic-venues", "Venues", "bi-building", suffix="mobile") }}
+        {{ topic_button("help-topic-quick-check", "Quick Check", "bi-clipboard-check", suffix="mobile") }}
+        {{ topic_button("help-topic-supplies", "Supplies", "bi-box-seam", suffix="mobile") }}
+        {{ topic_button("help-topic-orders", "Orders", "bi-cart-check", suffix="mobile") }}
+        {{ topic_button("help-topic-admin", "Admin", "bi-shield-lock", suffix="mobile") }}
+        {{ topic_button("help-topic-account", "Account/Feedback", "bi-person-circle", suffix="mobile") }}
+        {{ topic_button("help-topic-faq", "FAQ", "bi-question-circle", suffix="mobile") }}
+      </div>
+    </section>
+  </div>
+
+  <div class="col-12 col-lg-4 col-xl-3 d-none d-lg-block">
+    <aside class="ui-surface-card help-sidebar" aria-label="Help workbook navigation">
+      <div class="small text-uppercase text-muted fw-semibold mb-2">Guide Topics</div>
+      <nav class="help-nav" role="tablist" aria-label="Help topics desktop">
+        <div class="help-nav-group">
+          <div class="help-nav-heading">Foundation</div>
+          {{ topic_button("help-topic-start", "Start Here", "bi-house", active=True) }}
+          {{ topic_button("help-topic-tracking", "Quick Status vs Raw Counts", "bi-signpost-split") }}
+          {{ topic_button("help-topic-workflows", "Recommended Workflows", "bi-diagram-3") }}
+        </div>
+        <div class="help-nav-group">
+          <div class="help-nav-heading">Core Pages</div>
+          {{ topic_button("help-topic-dashboard", "Dashboard", "bi-speedometer2") }}
+          {{ topic_button("help-topic-venues", "Venues and Profiles", "bi-building") }}
+          {{ topic_button("help-topic-quick-check", "Quick Check", "bi-clipboard-check") }}
+          {{ topic_button("help-topic-supplies", "Supplies Audit", "bi-box-seam") }}
+          {{ topic_button("help-topic-orders", "Orders", "bi-cart-check") }}
+        </div>
+        <div class="help-nav-group">
+          <div class="help-nav-heading">Management</div>
+          {{ topic_button("help-topic-admin", "Admin", "bi-shield-lock") }}
+          {{ topic_button("help-topic-account", "Account and Feedback", "bi-person-circle") }}
+          {{ topic_button("help-topic-faq", "Troubleshooting and FAQ", "bi-question-circle") }}
+        </div>
+      </nav>
+      <hr>
+      <p class="small text-muted mb-0">
+        Tip: Search/filter controls narrow what you see; exports preserve the current operational context.
+      </p>
+    </aside>
+  </div>
+
+  <div class="col-12 col-lg-8 col-xl-9 help-content">
+    <div class="tab-content help-topic-content" id="helpTopicContent">
+      <section class="tab-pane fade show active" id="help-topic-start" role="tabpanel" aria-labelledby="help-topic-start-tab" tabindex="0">
+    {% call ui.form_section("Start Here", "A quick orientation for new and returning users.") %}
+      <div class="help-hero-grid">
+        <div>
+          <p>
+            AOLRC Inventory Management keeps daily venue status, real inventory counts, notes, ordering, and admin setup in one place. Most users begin at the Dashboard, open a venue check when something needs updating, then use Supplies and Orders for longer-range review.
+          </p>
+          <div class="help-reference-grid">
+            <article>
+              <h3 class="h6">Viewer</h3>
+              <p>Can read dashboards, venues, supplies, orders, activity, notes, and help content.</p>
+            </article>
+            <article>
+              <h3 class="h6">Staff</h3>
+              <p>Can update quick statuses, enter raw counts, add notes, and submit feedback or bug reports.</p>
+            </article>
+            <article>
+              <h3 class="h6">Admin</h3>
+              <p>Can manage users, venues, items, tracking assignments, inventory rules, orders, audit history, and feedback review.</p>
+            </article>
+          </div>
+        </div>
+        {{ help_figure(
+          "mobile-navigation.png",
+          "Mobile navigation menu with Dashboard, Venues, Supplies, Orders, Admin, Help, and Account links.",
+          "The same core destinations are available on desktop navigation and mobile offcanvas navigation."
+        ) }}
+      </div>
+    {% endcall %}
+      </section>
+
+      <section class="tab-pane fade" id="help-topic-tracking" role="tabpanel" aria-labelledby="help-topic-tracking-tab" tabindex="0">
+    {% call ui.form_section("Quick Status vs Raw Counts", "The two tracking methods answer different operational questions.") %}
+      <div class="help-method-grid">
+        <article class="help-method-card help-method-card-status">
+          <div class="help-method-icon"><i class="bi bi-clipboard-check" aria-hidden="true"></i></div>
+          <h3 class="h5">Quick Venue Status</h3>
+          <p>
+            Status is the day-to-day signal. It answers: <strong>How does this venue look right now?</strong>
+            Staff use it when a visual check is enough to keep the team current.
+          </p>
+          <div class="help-status-scale" aria-label="Quick status scale">
+            {{ ui.status_pill("good", "Good", "bi-check-circle-fill") }}
+            {{ ui.status_pill("ok", "OK", "bi-check-circle-fill") }}
+            {{ ui.status_pill("low", "Low", "bi-exclamation-triangle-fill") }}
+            {{ ui.status_pill("out", "Out", "bi-x-circle-fill") }}
+            {{ ui.status_pill("not_checked", "Not Checked", "bi-dash-circle") }}
+          </div>
+          <ul>
+            <li>Best for current-day visibility and fast room sweeps.</li>
+            <li>Powers venue status badges on the Dashboard and Venue Profile.</li>
+            <li>Stored as status history, so activity can show who refreshed which item.</li>
+          </ul>
+        </article>
+
+        <article class="help-method-card help-method-card-count">
+          <div class="help-method-icon"><i class="bi bi-123" aria-hidden="true"></i></div>
+          <h3 class="h5">Raw Count Data</h3>
+          <p>
+            Counts are the audit and ordering record. They answer: <strong>How many do we actually have?</strong>
+            Staff use raw counts when the number matters for par, restocking, trend review, or orders.
+          </p>
+          <ul>
+            <li>Best for long-term audit, real count tracking, and replenishment planning.</li>
+            <li>Feeds Supplies, Restocking, and Orders through current count and count history records.</li>
+            <li>A recorded zero means counted and confirmed empty; missing count means no current count was submitted.</li>
+          </ul>
+        </article>
+      </div>
+
+      <div class="help-callout-grid mt-3">
+        <div class="help-callout">
+          <h3 class="h6">Use status when speed matters.</h3>
+          <p>Example: a staff member checks a venue and marks an item as Low so the Dashboard immediately shows attention is needed.</p>
+        </div>
+        <div class="help-callout">
+          <h3 class="h6">Use counts when accuracy matters.</h3>
+          <p>Example: a staff member counts 12 units of a tracked item against a par of 20 so Supplies and Orders can calculate the restocking gap.</p>
+        </div>
+        <div class="help-callout">
+          <h3 class="h6">Singleton assets use presence language.</h3>
+          <p>Singleton assets are marked Present, Damaged, or Missing instead of counted like consumable supplies.</p>
+        </div>
+      </div>
+    {% endcall %}
+      </section>
+
+      <section class="tab-pane fade" id="help-topic-workflows" role="tabpanel" aria-labelledby="help-topic-workflows-tab" tabindex="0">
+    {% call ui.form_section("Recommended Workflows", "Use these repeatable patterns to keep the system accurate without over-checking.") %}
+      <div class="help-workflow-list">
+        {{ mini_step("1", "Daily Venue Sweep", "Open Dashboard, sort Venue Status by priority, open each flagged venue, and update quick statuses for the rows that changed.") }}
+        {{ mini_step("2", "Count and Audit Cycle", "On count days, open each venue check in Raw Counts mode, enter counts for quantity items, then review Supplies for missing counts and below-par items.") }}
+        {{ mini_step("3", "Restocking and Orders", "Use Dashboard Restocking and Supplies to confirm needs, create an order batch, review frozen count/par snapshots, then update order line statuses.") }}
+        {{ mini_step("4", "New Venue Setup", "Admins create the venue, copy or manually assign tracked items, set par overrides where needed, and ask staff to run an initial raw count pass.") }}
+        {{ mini_step("5", "New Item Setup", "Admins add the item, choose Quantity or Singleton Asset, assign venues, set default par/stale rules, and verify it appears in Quick Check and Supplies.") }}
+        {{ mini_step("6", "Issue Handoff", "Staff add a venue note or item note when a status/count needs context so the next person knows what changed and why.") }}
+      </div>
+    {% endcall %}
+      </section>
+
+      <section class="tab-pane fade" id="help-topic-dashboard" role="tabpanel" aria-labelledby="help-topic-dashboard-tab" tabindex="0">
+    {% call ui.form_section("Dashboard Guide", "Use the Dashboard for fast operational awareness across venues.") %}
+      {{ help_figure(
+        "dashboard-venue-status.png",
+        "Dashboard showing venue status filters and venue rows with status pills and Open Check actions.",
+        "Venue Status is the fastest way to see which venues need attention and jump into a venue check."
+      ) }}
+      <div class="help-page-guide-list">
+        <article>
+          <h3 class="h6">Venue Status tab</h3>
+          <p>Search venues, sort by venue or priority, filter by Good, OK, Low, Out, or Not Checked, then open a venue check for updates.</p>
+        </article>
+        <article>
+          <h3 class="h6">Restocking tab</h3>
+          <p>Review actionable supply rows using either status mode or count mode. Use filters for status, item, venue, search, and sort.</p>
+        </article>
+        <article>
+          <h3 class="h6">Activity Log tab</h3>
+          <p>Audit recent status and count submissions by actor, item, venue, date range, and activity type.</p>
+        </article>
+      </div>
+    {% endcall %}
+      </section>
+
+      <section class="tab-pane fade" id="help-topic-venues" role="tabpanel" aria-labelledby="help-topic-venues-tab" tabindex="0">
+    {% call ui.form_section("Venues and Venue Profile Guide", "Use the directory to find venues and the profile to review one venue in depth.") %}
+      <div class="help-two-figures">
+        {{ help_figure(
+          "venue-profile-overview.png",
+          "Venue profile overview with summary cards, tabs, inventory filters, export actions, and inventory rows.",
+          "Venue Profile combines operational status, count context, review signals, notes, activity, exports, and files for one venue."
+        ) }}
+        {{ help_figure(
+          "venue-notes.png",
+          "Venue profile Notes tab with note filters and note workflow.",
+          "Notes support handoffs and explain why a status or count needs follow-up."
+        ) }}
+      </div>
+      <div class="help-page-guide-list">
+        <article>
+          <h3 class="h6">Venues Directory</h3>
+          <p>Use the directory when you already know which venue you need. Admins can create venues and continue into Venue Settings for tracked items.</p>
+        </article>
+        <article>
+          <h3 class="h6">Profile Overview</h3>
+          <p>Use summary cards and filters to find status follow-up, count follow-up, singleton assets, quantity items, families, and stale updates.</p>
+        </article>
+        <article>
+          <h3 class="h6">Notes and Activity</h3>
+          <p>Use general notes for venue context and tagged notes for item-specific follow-up. Activity shows venue-specific status and count history.</p>
+        </article>
+        <article>
+          <h3 class="h6">Files and Exports</h3>
+          <p>Use exports for CSV review and files for venue documents when the workflow needs supporting material.</p>
+        </article>
+      </div>
+    {% endcall %}
+      </section>
+
+      <section class="tab-pane fade" id="help-topic-quick-check" role="tabpanel" aria-labelledby="help-topic-quick-check-tab" tabindex="0">
+    {% call ui.form_section("Quick Check Guide", "Record quick statuses or raw counts for one venue.") %}
+      <div class="help-two-figures">
+        {{ help_figure(
+          "quick-check-status-mode.png",
+          "Quick Check status mode with Good, OK, Low, Out, and not checked buttons.",
+          "Status mode is the default fast workflow for current-day venue condition."
+        ) }}
+        {{ help_figure(
+          "quick-check-raw-counts.png",
+          "Quick Check raw counts mode with Last, Par, and New count fields.",
+          "Raw Counts mode records real quantities for audit, par comparison, restocking, and orders."
+        ) }}
+      </div>
+      <div class="help-page-guide-list">
+        <article>
+          <h3 class="h6">Status mode</h3>
+          <p>Tap only the status buttons for rows that changed. Unchanged rows keep their previous saved status. Save when the pending-change banner shows the updates you expect.</p>
+        </article>
+        <article>
+          <h3 class="h6">Raw Counts mode</h3>
+          <p>Enter counts only for rows you actually counted. The page keeps the previous count visible as context, but a blank input does not overwrite existing data.</p>
+        </article>
+        <article>
+          <h3 class="h6">Notes</h3>
+          <p>Staff can add item-specific notes from the row note button. Notes are useful when a status or count needs a reason, such as damaged equipment or a temporary supply move.</p>
+        </article>
+      </div>
+    {% endcall %}
+      </section>
+
+      <section class="tab-pane fade" id="help-topic-supplies" role="tabpanel" aria-labelledby="help-topic-supplies-tab" tabindex="0">
+    {% call ui.form_section("Supplies Audit Guide", "Use Supplies for cross-venue inventory count review.") %}
+      {{ help_figure(
+        "supplies-audit.png",
+        "Supplies audit page with summary cards, search, quick filters, exports, and audit rows.",
+        "Supplies is the best place to find missing counts, below-par quantities, complete coverage, singleton assets, and family rows across venues."
+      ) }}
+      <div class="help-callout-grid">
+        <div class="help-callout">
+          <h3 class="h6">Missing count</h3>
+          <p>No current count has been submitted for that venue/item pair. This is an audit gap, not a zero.</p>
+        </div>
+        <div class="help-callout">
+          <h3 class="h6">Recorded zero</h3>
+          <p>Someone counted the item and confirmed none were on hand. Treat this as valid data and a likely restocking signal.</p>
+        </div>
+        <div class="help-callout">
+          <h3 class="h6">Coverage</h3>
+          <p>Coverage shows whether counts exist across the venues where an item is actively tracked.</p>
+        </div>
+      </div>
+    {% endcall %}
+      </section>
+
+      <section class="tab-pane fade" id="help-topic-orders" role="tabpanel" aria-labelledby="help-topic-orders-tab" tabindex="0">
+    {% call ui.form_section("Orders Guide", "Use Orders to turn count and restocking data into planning batches.") %}
+      {{ help_figure(
+        "orders-planning.png",
+        "Orders page with create batch controls, filters, batch rows, and suggested quantities.",
+        "Order batches freeze count, par, and suggested quantity snapshots so later inventory changes do not rewrite order history."
+      ) }}
+      <div class="help-page-guide-list">
+        <article>
+          <h3 class="h6">Create a batch</h3>
+          <p>Admins choose monthly, quarterly, or ad hoc, optionally scope the batch by venue or setup group, and add notes for context.</p>
+        </article>
+        <article>
+          <h3 class="h6">Review line details</h3>
+          <p>Each line shows item, venue, count snapshot, par snapshot, suggested quantity, over-par quantity, status, and notes.</p>
+        </article>
+        <article>
+          <h3 class="h6">Update progress</h3>
+          <p>Admins move lines through Planned, Ordered, Received, or Skipped. Use quick links back to raw count entry when a count snapshot needs verification.</p>
+        </article>
+      </div>
+    {% endcall %}
+      </section>
+
+      <section class="tab-pane fade" id="help-topic-admin" role="tabpanel" aria-labelledby="help-topic-admin-tab" tabindex="0">
+    {% call ui.form_section("Admin Guide", "Admin pages control the structure behind the daily workflow.") %}
+      <div class="help-two-figures">
+        {{ help_figure(
+          "admin-items.png",
+          "Admin item management with catalog summary, structure guide, item filters, and Add Item action.",
+          "Item Management defines quantity items, singleton assets, families, categories, setup groups, par levels, and stale thresholds."
+        ) }}
+        {{ help_figure(
+          "admin-tracking-setup.png",
+          "Admin tracking setup with item selector, venue checkboxes, par override fields, and effective par values.",
+          "Tracking Setup assigns items across venues and controls venue-specific par overrides."
+        ) }}
+      </div>
+      {{ help_figure(
+        "admin-inventory-rules.png",
+        "Admin inventory rules page with global stale threshold controls.",
+        "Inventory Rules define the default stale threshold used when venue or item overrides are not set."
+      ) }}
+      <div class="help-page-guide-list">
+        <article>
+          <h3 class="h6">Admin Hub</h3>
+          <p>Review account health, locked users, recent operational activity, and recent system changes.</p>
+        </article>
+        <article>
+          <h3 class="h6">Users</h3>
+          <p>Create managed accounts, assign viewer/staff/admin roles, reset passwords, unlock accounts, activate, and deactivate users.</p>
+        </article>
+        <article>
+          <h3 class="h6">Items and Tracking Setup</h3>
+          <p>Define item structure, assign tracked venues, set par values, and preserve family relationships for reporting and audit views.</p>
+        </article>
+        <article>
+          <h3 class="h6">Inventory Rules and History</h3>
+          <p>Set the global stale threshold and review retained admin/system changes when troubleshooting setup decisions.</p>
+        </article>
+        <article>
+          <h3 class="h6">Feedback Inbox</h3>
+          <p>Review feedback and bug reports submitted from the footer. The inbox may require the configured review PIN.</p>
+        </article>
+      </div>
+    {% endcall %}
+      </section>
+
+      <section class="tab-pane fade" id="help-topic-account" role="tabpanel" aria-labelledby="help-topic-account-tab" tabindex="0">
+    {% call ui.form_section("Account and Feedback", "Manage your own account and report issues from anywhere in the app.") %}
+      <div class="help-page-guide-list">
+        <article>
+          <h3 class="h6">Account</h3>
+          <p>Use Account to review profile details, change supported account preferences, and inspect your own activity history when available.</p>
+        </article>
+        <article>
+          <h3 class="h6">Password flows</h3>
+          <p>Admins create managed accounts. Password setup and reset links are sent through the configured mail system; local development uses Mailpit.</p>
+        </article>
+        <article>
+          <h3 class="h6">Feedback and bugs</h3>
+          <p>Use the footer Feedback or Report a Bug buttons. The app includes the current page path so admins can review reports with context.</p>
+        </article>
+      </div>
+    {% endcall %}
+      </section>
+
+      <section class="tab-pane fade" id="help-topic-faq" role="tabpanel" aria-labelledby="help-topic-faq-tab" tabindex="0">
+    {% call ui.form_section("Troubleshooting and FAQ", "Start here when data looks surprising or controls are missing.") %}
+      <div class="help-faq-list">
+        <article>
+          <h3 class="h6">Why did a status change but the count did not?</h3>
+          <p>Status and raw counts are separate. A quick status update keeps the day-to-day signal current, but it does not overwrite numeric count data for quantity items.</p>
+        </article>
+        <article>
+          <h3 class="h6">Why does Supplies show Not Counted instead of 0?</h3>
+          <p>Not Counted means no current raw count exists. A displayed 0 means someone entered zero and confirmed the item was empty.</p>
+        </article>
+        <article>
+          <h3 class="h6">Why can I see a page but not edit it?</h3>
+          <p>Your role controls write access. Viewers are read-only, staff can update operational data and notes, and admins manage setup and orders.</p>
+        </article>
+        <article>
+          <h3 class="h6">Why is an item missing from a venue check?</h3>
+          <p>Admins should verify the item is active, not only a family organizer, and assigned to the venue through Venue Settings or Tracking Setup.</p>
+        </article>
+        <article>
+          <h3 class="h6">What should I do before creating an order?</h3>
+          <p>Review raw counts for the relevant venue or setup group, resolve obvious missing counts, then create the order batch so the frozen snapshots are meaningful.</p>
+        </article>
+      </div>
+    {% endcall %}
+      </section>
+    </div>
+  </div>
+</div>
+<script nonce="{{ csp_nonce() }}">
+  (() => {
+    const topicButtons = Array.from(document.querySelectorAll("[data-bs-target^='#help-topic-']"));
+    const topicIds = new Set(topicButtons.map((button) => button.getAttribute("data-bs-target")?.slice(1)).filter(Boolean));
+    const topicAliases = {
+      "start-here": "help-topic-start",
+      "tracking-methods": "help-topic-tracking",
+      "recommended-workflows": "help-topic-workflows",
+      "dashboard-guide": "help-topic-dashboard",
+      "venues-guide": "help-topic-venues",
+      "venue-profile-guide": "help-topic-venues",
+      "quick-check-guide": "help-topic-quick-check",
+      "supplies-guide": "help-topic-supplies",
+      "orders-guide": "help-topic-orders",
+      "admin-guide": "help-topic-admin",
+      "account-feedback-guide": "help-topic-account",
+      "troubleshooting-faq": "help-topic-faq",
+    };
+
+    const activateTopicFromHash = () => {
+      const hashId = topicAliases[window.location.hash.replace("#", "")] || window.location.hash.replace("#", "");
+      if (!topicIds.has(hashId)) return;
+      const trigger = document.querySelector(`[data-bs-target="#${CSS.escape(hashId)}"]`);
+      if (!trigger || !window.bootstrap?.Tab) return;
+      window.bootstrap.Tab.getOrCreateInstance(trigger).show();
+    };
+
+    topicButtons.forEach((button) => {
+      button.addEventListener("shown.bs.tab", (event) => {
+        const target = event.target?.getAttribute("data-bs-target");
+        if (!target) return;
+        topicButtons.forEach((candidate) => {
+          const isActive = candidate.getAttribute("data-bs-target") === target;
+          candidate.classList.toggle("active", isActive);
+          candidate.setAttribute("aria-selected", isActive ? "true" : "false");
+        });
+        window.history.replaceState(null, "", target);
+      });
+    });
+
+    window.addEventListener("hashchange", activateTopicFromHash);
+    window.addEventListener("DOMContentLoaded", activateTopicFromHash);
+    activateTopicFromHash();
+  })();
+</script>
+{% endblock %}

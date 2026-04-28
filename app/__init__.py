@@ -7,7 +7,7 @@ from flask import Flask, flash, jsonify, redirect, request, session, url_for
 from flask_wtf.csrf import CSRFError, CSRFProtect
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from flask_login import LoginManager
+from flask_login import LoginManager, current_user
 from werkzeug.security import generate_password_hash
 from dotenv import load_dotenv
 
@@ -22,6 +22,7 @@ login_manager.login_view = "auth.login"
 login_manager.login_message = "Please sign in to continue."
 login_manager.login_message_category = "error"
 AUTH_SESSION_VERSION_SESSION_KEY = "_auth_sv"
+ACTIVE_UI_THEME_SESSION_KEY = "_ui_theme"
 
 
 @login_manager.user_loader
@@ -99,7 +100,7 @@ def _enforce_development_database_branch_policy(database_url):
 
 
 def _save_user(email, password, role, display_name=None):
-    from .models import User, normalize_role
+    from .models import DEFAULT_THEME_PREFERENCE, User, normalize_role, normalize_theme_preference
 
     normalized_email = (email or "").strip().lower()
     normalized_role = normalize_role(role)
@@ -116,6 +117,9 @@ def _save_user(email, password, role, display_name=None):
         existing.password_hash = generate_password_hash(password)
         existing.role = normalized_role
         existing.display_name = normalized_display_name
+        existing.theme_preference = normalize_theme_preference(
+            getattr(existing, "theme_preference", None)
+        )
         existing.active = True
         existing.force_password_change = False
         existing.session_version = int(existing.session_version or 0) + 1
@@ -131,6 +135,7 @@ def _save_user(email, password, role, display_name=None):
     user = User(
         email=normalized_email,
         display_name=normalized_display_name,
+        theme_preference=DEFAULT_THEME_PREFERENCE,
         password_hash=generate_password_hash(password),
         role=normalized_role,
         active=True,
@@ -143,6 +148,8 @@ def _save_user(email, password, role, display_name=None):
 
 
 def create_app():
+    from .models import normalize_theme_preference
+
     # Keep explicit shell/runtime env vars in control and only fill missing values from .env.
     load_dotenv(override=False)
 
@@ -155,6 +162,21 @@ def create_app():
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", app.config["SECRET_KEY"])
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", app.config["SQLALCHEMY_DATABASE_URI"])
     _enforce_development_database_branch_policy(app.config["SQLALCHEMY_DATABASE_URI"])
+    venue_file_max_bytes = int(app.config.get("VENUE_FILE_MAX_BYTES") or (25 * 1024 * 1024))
+    try:
+        max_content_length = int(os.getenv("MAX_CONTENT_LENGTH", str(max(2 * 1024 * 1024, venue_file_max_bytes))))
+    except ValueError:
+        max_content_length = max(2 * 1024 * 1024, venue_file_max_bytes)
+    app.config["MAX_CONTENT_LENGTH"] = max_content_length
+    app.config["VENUE_FILE_UPLOAD_DIR"] = os.getenv(
+        "VENUE_FILE_UPLOAD_DIR",
+        os.path.join(app.instance_path, "venue_files"),
+    )
+    app.config["AVATAR_UPLOAD_DIR"] = os.getenv(
+        "AVATAR_UPLOAD_DIR",
+        os.path.join(app.static_folder, "uploads", "avatars"),
+    )
+    app.config["AVATAR_WEB_PREFIX"] = os.getenv("AVATAR_WEB_PREFIX", "uploads/avatars")
     if (
         app.config["SECRET_KEY"] == DEFAULT_SECRET_KEY
         and not app.debug
@@ -180,9 +202,29 @@ def create_app():
     csrf.init_app(app)
     login_manager.init_app(app)
 
+    def _resolve_active_ui_theme():
+        if current_user.is_authenticated:
+            return normalize_theme_preference(
+                getattr(current_user, "theme_preference", None)
+            )
+        return normalize_theme_preference(session.get(ACTIVE_UI_THEME_SESSION_KEY))
+
+    @app.before_request
+    def sync_authenticated_theme_hint():
+        if not current_user.is_authenticated:
+            return
+        active_theme = normalize_theme_preference(
+            getattr(current_user, "theme_preference", None)
+        )
+        if session.get(ACTIVE_UI_THEME_SESSION_KEY) != active_theme:
+            session[ACTIVE_UI_THEME_SESSION_KEY] = active_theme
+
     @app.context_processor
     def inject_security_template_helpers():
-        return {"csp_nonce": get_csp_nonce}
+        return {
+            "active_ui_theme": _resolve_active_ui_theme(),
+            "csp_nonce": get_csp_nonce,
+        }
 
     from .routes.main import main_bp
     app.register_blueprint(main_bp)
@@ -309,7 +351,7 @@ def create_app():
         help="Override the locked test user's remaining lockout window.",
     )
     def seed_dev_auth(password, lockout_minutes):
-        from .models import User
+        from .models import DEFAULT_THEME_PREFERENCE, User
 
         now = datetime.now(timezone.utc)
         effective_lockout_minutes = lockout_minutes or app.config["AUTH_LOCKOUT_MINUTES"]
@@ -362,6 +404,7 @@ def create_app():
                 user.session_version = int(user.session_version or 0) + 1
 
             user.display_name = fixture["display_name"]
+            user.theme_preference = DEFAULT_THEME_PREFERENCE
             user.password_hash = generate_password_hash(password)
             user.role = fixture["role"]
             user.active = fixture["active"]

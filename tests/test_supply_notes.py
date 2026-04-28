@@ -4,7 +4,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from app import db
-from app.models import Item, SupplyNote, User
+from app.models import Item, SupplyNote, User, Venue, VenueItem, VenueItemCount
 from app.routes.supplies import build_supply_audit_rows
 from app.services.notes import NOTE_BODY_MAX_LENGTH, SUPPLY_NOTES_PAGE_SIZE
 
@@ -350,6 +350,63 @@ def test_supplies_page_renders_note_affordances_and_modal_shell(client, app):
     assert b'id="supplyNotesDrawer"' not in response.data
     assert b"Child note" not in response.data
     assert b"static/js/supply_notes.js" in response.data
+
+
+def test_supplies_page_renders_numeric_overflow_hooks_for_count_par_and_family_rows(client, app):
+    quick_login(client, "staff")
+
+    with app.app_context():
+        venue = Venue(name="Overflow Venue", active=True)
+        family_parent = create_supply_item("Overflow Family", is_group_parent=True)
+        family_child = create_supply_item(
+            "Overflow Family Child",
+            parent_item=family_parent,
+        )
+        standalone_item = create_supply_item("Overflow Standalone")
+        standalone_item.default_par_level = 333333333333
+        db.session.add(venue)
+        db.session.flush()
+        db.session.add_all(
+            [
+                VenueItem(
+                    venue_id=venue.id,
+                    item_id=family_child.id,
+                    expected_qty=222222222222,
+                    active=True,
+                ),
+                VenueItem(
+                    venue_id=venue.id,
+                    item_id=standalone_item.id,
+                    expected_qty=444444444444,
+                    active=True,
+                ),
+                VenueItemCount(
+                    venue_id=venue.id,
+                    item_id=family_child.id,
+                    raw_count=111111111111,
+                ),
+                VenueItemCount(
+                    venue_id=venue.id,
+                    item_id=standalone_item.id,
+                    raw_count=999999999999,
+                ),
+            ]
+        )
+        db.session.commit()
+
+    response = client.get("/supplies")
+
+    assert response.status_code == 200
+    assert (
+        b'class="supply-value-strong supply-overflow-number js-supply-fit-number"'
+        in response.data
+    )
+    assert b'data-supply-fit-kind="count"' in response.data
+    assert b'data-supply-fit-kind="par"' in response.data
+    assert b'data-supply-fit-kind="family-count"' in response.data
+    assert b'data-supply-fit-full-value="999999999999"' in response.data
+    assert b'data-supply-fit-full-value="444444444444"' in response.data
+    assert b'data-supply-fit-full-value="1"' in response.data
 
 
 def test_supply_notes_modal_returns_selected_item_notes(client, app):

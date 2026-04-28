@@ -1,0 +1,174 @@
+from __future__ import annotations
+
+import smtplib
+import ssl
+from dataclasses import dataclass
+from email.message import EmailMessage
+
+from flask import current_app, render_template
+
+from app.services.account_security import PASSWORD_SETUP_PURPOSE
+from app.services.inventory_status import ensure_utc
+
+MAIL_STATUS_DISABLED = "disabled"
+MAIL_STATUS_FAILED = "failed"
+MAIL_STATUS_SENT = "sent"
+MAIL_STATUS_SUPPRESSED = "suppressed"
+
+
+@dataclass(frozen=True)
+class MailDeliveryResult:
+    status: str
+    message: str
+    recipient: str | None = None
+
+    @property
+    def sent(self):
+        return self.status == MAIL_STATUS_SENT
+
+    @property
+    def failed(self):
+        return self.status == MAIL_STATUS_FAILED
+
+    @property
+    def suppressed(self):
+        return self.status == MAIL_STATUS_SUPPRESSED
+
+    @property
+    def disabled(self):
+        return self.status == MAIL_STATUS_DISABLED
+
+
+def send_password_action_email(user, issued_link):
+    purpose_label = _password_action_label(issued_link.purpose)
+    expires_at = ensure_utc(issued_link.expires_at)
+    context = {
+        "app_name": current_app.config["APP_NAME"],
+        "action_label": purpose_label,
+        "action_url": issued_link.url,
+        "expires_at": expires_at,
+        "expires_at_text": expires_at.strftime("%Y-%m-%d %I:%M %p %Z"),
+        "purpose": issued_link.purpose,
+        "user": user,
+    }
+    subject = _render_subject("email/password_action_subject.txt", **context)
+    body_text = render_template("email/password_action.txt", **context)
+    body_html = render_template("email/password_action.html", **context)
+    return send_transactional_email(
+        to_address=user.email,
+        subject=subject,
+        body_text=body_text,
+        body_html=body_html,
+    )
+
+
+def send_transactional_email(*, to_address, subject, body_text, body_html=None):
+    config = current_app.config
+    recipient = (to_address or "").strip()
+
+    if not config.get("MAIL_ENABLED"):
+        return MailDeliveryResult(
+            status=MAIL_STATUS_DISABLED,
+            message="Mail delivery is disabled.",
+            recipient=recipient,
+        )
+
+    if config.get("MAIL_SUPPRESS_SEND"):
+        current_app.logger.info("Mail delivery suppressed for recipient=%s", recipient or "-")
+        return MailDeliveryResult(
+            status=MAIL_STATUS_SUPPRESSED,
+            message="Mail delivery is suppressed.",
+            recipient=recipient,
+        )
+
+    backend = (config.get("MAIL_BACKEND") or "smtp").strip().lower()
+    if backend != "smtp":
+        current_app.logger.error("Mail delivery failed: unsupported backend=%s", backend or "-")
+        return MailDeliveryResult(
+            status=MAIL_STATUS_FAILED,
+            message="Mail backend is not supported.",
+            recipient=recipient,
+        )
+
+    server = (config.get("MAIL_SERVER") or "").strip()
+    sender = (config.get("MAIL_DEFAULT_SENDER") or "").strip()
+    if not server or not sender:
+        current_app.logger.error(
+            "Mail delivery failed: MAIL_SERVER and MAIL_DEFAULT_SENDER are required."
+        )
+        return MailDeliveryResult(
+            status=MAIL_STATUS_FAILED,
+            message="Mail server or sender is not configured.",
+            recipient=recipient,
+        )
+
+    if not recipient:
+        current_app.logger.error("Mail delivery failed: recipient address is required.")
+        return MailDeliveryResult(
+            status=MAIL_STATUS_FAILED,
+            message="Recipient address is required.",
+            recipient=recipient,
+        )
+
+    message = EmailMessage()
+    message["From"] = sender
+    message["To"] = recipient
+    message["Subject"] = subject
+    message.set_content(body_text)
+    if body_html:
+        message.add_alternative(body_html, subtype="html")
+
+    try:
+        _send_smtp_message(message)
+    except Exception as exc:  # noqa: BLE001 - SMTP libraries raise several transport errors.
+        current_app.logger.error(
+            "Mail delivery failed for recipient=%s via backend=smtp: %s",
+            recipient,
+            exc.__class__.__name__,
+        )
+        return MailDeliveryResult(
+            status=MAIL_STATUS_FAILED,
+            message="Mail delivery failed.",
+            recipient=recipient,
+        )
+
+    current_app.logger.info("Mail delivered to recipient=%s via backend=smtp", recipient)
+    return MailDeliveryResult(
+        status=MAIL_STATUS_SENT,
+        message="Mail sent.",
+        recipient=recipient,
+    )
+
+
+def _send_smtp_message(message):
+    config = current_app.config
+    server = config["MAIL_SERVER"]
+    port = int(config["MAIL_PORT"])
+    username = (config.get("MAIL_USERNAME") or "").strip()
+    password = config.get("MAIL_PASSWORD") or ""
+    timeout = int(config["MAIL_TIMEOUT_SECONDS"])
+
+    if config.get("MAIL_USE_SSL"):
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL(server, port, timeout=timeout, context=context) as smtp:
+            _authenticate_and_send(smtp, username, password, message)
+        return
+
+    with smtplib.SMTP(server, port, timeout=timeout) as smtp:
+        if config.get("MAIL_USE_TLS"):
+            smtp.starttls(context=ssl.create_default_context())
+        _authenticate_and_send(smtp, username, password, message)
+
+
+def _authenticate_and_send(smtp, username, password, message):
+    if username:
+        smtp.login(username, password)
+    smtp.send_message(message)
+
+
+def _render_subject(template_name, **context):
+    return " ".join(render_template(template_name, **context).split())
+
+
+def _password_action_label(purpose):
+    return "set up" if purpose == PASSWORD_SETUP_PURPOSE else "reset"

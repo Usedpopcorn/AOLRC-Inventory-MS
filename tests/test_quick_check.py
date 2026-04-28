@@ -8,9 +8,11 @@ from app.models import (
     CountLine,
     CountSession,
     Item,
+    User,
     Venue,
     VenueItem,
     VenueItemCount,
+    VenueNote,
 )
 from app.routes.main import build_recent_venue_activity_rows
 from app.services.venue_profile import build_venue_profile_view_model
@@ -172,11 +174,34 @@ def test_quick_check_get_shows_saved_status_chip_and_blank_pending_selection(cli
     assert "No pending changes" in body
     assert "Continue Without Saving" in body
     assert "Save and Continue" not in body
+    assert 'id="quickCheckRecommendationsModal"' in body
+    assert 'id="quickCheckRecommendationsApplyBtn"' in body
+    assert "Save counts only" in body
     assert "quick-check-current-status-pill" in body
     assert f'data-item-id="{item_id}"' in body
     assert 'data-current-status="low"' in body
     assert 'data-pending-status=""' in body
     assert f'name="status_{item_id}" id="status_{item_id}" value=""' in body
+
+
+def test_quick_check_unsaved_leave_guard_skips_browser_prompt_during_valid_save(client, app):
+    quick_login(client, "staff")
+
+    with app.app_context():
+        venue = Venue(name="Juniper Kitchen", active=True)
+        db.session.add(venue)
+        db.session.flush()
+        create_tracked_item(venue, "Rice")
+        db.session.commit()
+        venue_id = venue.id
+
+    response = client.get(f"/venues/{venue_id}/check")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert "let isSubmittingQuickCheck = false;" in body
+    assert "if (isSubmittingQuickCheck || !hasUnsavedChanges()) return;" in body
+    assert body.count("isSubmittingQuickCheck = true;") == 2
 
 
 def test_quick_check_counts_mode_shows_last_par_and_blank_new_count(client, app):
@@ -228,6 +253,129 @@ def test_quick_check_counts_mode_shows_last_par_and_blank_new_count(client, app)
     assert f'data-item-id="{fallback_item_id}"' in body
     assert "No prior count" in body
     assert "No par set" in body
+
+
+def test_quick_check_get_shows_priority_sort_and_inline_note_action(client, app):
+    quick_login(client, "staff")
+
+    with app.app_context():
+        author = User.query.filter_by(role="staff").first()
+        venue = Venue(name="Lotus Hall", active=True)
+        db.session.add(venue)
+        db.session.flush()
+        item = create_tracked_item(venue, "Tea Bags")
+        add_status_check(
+            venue,
+            [(item, "low")],
+            created_at=datetime.now(timezone.utc) - timedelta(days=1),
+        )
+        db.session.add(
+            VenueNote(
+                venue_id=venue.id,
+                author_user_id=author.id,
+                item_id=item.id,
+                title="Watch stock",
+                body="This venue burns through tea quickly.",
+            )
+        )
+        db.session.commit()
+        venue_id = venue.id
+        item_id = item.id
+
+    response = client.get(f"/venues/{venue_id}/check?supply_sort=priority")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert 'id="supplySort"' in body
+    assert '<option value="priority" selected>' in body
+    assert "Priority first" in body
+    assert "quick-check-row-note-action" in body
+    assert f'data-item-id="{item_id}"' in body
+    assert 'data-quick-check-note-button' in body
+    assert 'data-note-count="1"' in body
+    assert 'id="quickCheckNoteModal"' in body
+    assert f'data-quick-check-note-endpoint="/venues/{venue_id}/check/notes"' in body
+    assert "bi-journal-text" in body
+
+
+def test_quick_check_note_endpoint_creates_tagged_venue_note_without_redirect(client, app):
+    quick_login(client, "staff")
+
+    with app.app_context():
+        venue = Venue(name="Clover Hall", active=True)
+        db.session.add(venue)
+        db.session.flush()
+        item = create_tracked_item(venue, "Peppermint Tea")
+        db.session.commit()
+        venue_id = venue.id
+        item_id = item.id
+
+    response = client.post(
+        f"/venues/{venue_id}/check/notes",
+        headers={"Accept": "application/json"},
+        data={
+            "item_id": str(item_id),
+            "title": "Watch this item",
+            "body": "Guests asked for a refill during afternoon tea.",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "success"
+    assert payload["item_id"] == item_id
+    assert payload["note_count"] == 1
+
+    with app.app_context():
+        note = VenueNote.query.one()
+
+    assert note.venue_id == venue_id
+    assert note.item_id == item_id
+    assert note.title == "Watch this item"
+
+
+def test_quick_check_note_endpoint_rejects_untracked_items(client, app):
+    quick_login(client, "staff")
+
+    with app.app_context():
+        venue = Venue(name="River House", active=True)
+        db.session.add(venue)
+        db.session.flush()
+        tracked_item = create_tracked_item(venue, "Tea")
+        other_item = Item(
+            name="Loose Leaf",
+            item_type="consumable",
+            tracking_mode="quantity",
+            item_category="consumable",
+            active=True,
+            sort_order=2,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.session.add(other_item)
+        db.session.commit()
+        venue_id = venue.id
+        other_item_id = other_item.id
+        tracked_item_id = tracked_item.id
+
+    response = client.post(
+        f"/venues/{venue_id}/check/notes",
+        headers={"Accept": "application/json"},
+        data={
+            "item_id": str(other_item_id),
+            "title": "Bad note",
+            "body": "This should not be accepted.",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    payload = response.get_json()
+    assert payload["code"] == "invalid_item"
+
+    with app.app_context():
+        assert VenueNote.query.count() == 0
+        assert VenueItem.query.filter_by(venue_id=venue_id, item_id=tracked_item_id).count() == 1
 
 
 def test_quick_check_same_status_recheck_creates_single_selected_line(client, app):
@@ -396,6 +544,40 @@ def test_quick_check_status_post_redirects_to_requested_mode_after_save(client, 
     assert query["mode"] == ["raw_counts"]
 
 
+def test_quick_check_save_redirect_preserves_search_and_priority_sort(client, app):
+    quick_login(client, "staff")
+
+    with app.app_context():
+        venue = Venue(name="Acorn House", active=True)
+        db.session.add(venue)
+        db.session.flush()
+        item = create_tracked_item(venue, "Herbal Tea")
+        add_status_check(
+            venue,
+            [(item, "good")],
+            created_at=datetime.now(timezone.utc) - timedelta(days=2),
+        )
+        db.session.commit()
+        venue_id = venue.id
+        item_id = item.id
+
+    response = client.post(
+        f"/venues/{venue_id}/check?supply_q=tea&supply_sort=priority",
+        data={
+            "check_mode": "status",
+            f"status_{item_id}": "ok",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    location = urlparse(response.headers["Location"])
+    query = parse_qs(location.query)
+    assert location.path == f"/venues/{venue_id}/check"
+    assert query["supply_q"] == ["tea"]
+    assert query["supply_sort"] == ["priority"]
+
+
 def test_quick_check_raw_counts_post_redirects_to_requested_next_after_save(client, app):
     quick_login(client, "staff")
 
@@ -562,6 +744,51 @@ def test_quick_check_raw_counts_post_saves_only_entered_quantity_rows(client, ap
     assert untouched_count.raw_count == 9
     assert selected_counted_at > original_counted_at
     assert untouched_counted_at == original_counted_at
+
+
+def test_quick_check_raw_counts_post_accepts_quantity_status_updates(client, app):
+    quick_login(client, "staff")
+
+    with app.app_context():
+        venue = Venue(name="Elm Studio", active=True)
+        db.session.add(venue)
+        db.session.flush()
+        item = create_tracked_item(venue, "Bottled Water", sort_order=1)
+        add_status_check(
+            venue,
+            [(item, "low")],
+            created_at=datetime.now(timezone.utc) - timedelta(days=2),
+        )
+        add_count_session(
+            venue,
+            [(item, 6)],
+            created_at=datetime.now(timezone.utc) - timedelta(days=2),
+        )
+        db.session.commit()
+        venue_id = venue.id
+        item_id = item.id
+
+    response = client.post(
+        f"/venues/{venue_id}/check",
+        data={
+            "check_mode": "raw_counts",
+            f"count_{item_id}": "8",
+            f"status_{item_id}": "good",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+
+    with app.app_context():
+        latest_count = VenueItemCount.query.filter_by(venue_id=venue_id, item_id=item_id).first()
+        latest_check = Check.query.filter_by(venue_id=venue_id).order_by(Check.id.desc()).first()
+        latest_line = CheckLine.query.filter_by(check_id=latest_check.id, item_id=item_id).first()
+
+    assert latest_count is not None
+    assert latest_count.raw_count == 8
+    assert latest_line is not None
+    assert latest_line.status == "good"
 
 
 def test_quick_check_raw_counts_requires_pending_entry(client, app):

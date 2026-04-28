@@ -1,5 +1,7 @@
 import hashlib
-from datetime import timedelta
+import secrets
+from datetime import datetime, timedelta
+from pathlib import Path
 
 from flask import (
     Blueprint,
@@ -13,9 +15,14 @@ from flask import (
 )
 from flask_login import current_user, login_required, login_user, logout_user
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 
-from app import AUTH_SESSION_VERSION_SESSION_KEY, db
-from app.models import User
+from app import ACTIVE_UI_THEME_SESSION_KEY, AUTH_SESSION_VERSION_SESSION_KEY, db
+from app.models import (
+    VALID_THEME_PREFERENCES,
+    User,
+    normalize_theme_preference,
+)
 from app.security import get_client_ip, is_safe_redirect_target
 from app.services.account_security import (
     AccountManagementError,
@@ -27,9 +34,11 @@ from app.services.account_security import (
     resolve_password_action_token,
     utcnow,
     validate_new_password,
+    validate_password_not_reused,
 )
 from app.services.feedback import FEEDBACK_REVIEW_SESSION_KEY
 from app.services.inventory_status import ensure_utc
+from app.services.mail_service import send_password_action_email
 from app.services.rate_limits import rate_limiter
 
 auth_bp = Blueprint("auth", __name__)
@@ -46,6 +55,18 @@ DEV_QUICK_LOGIN_ROLE_MAP = {
 }
 GENERIC_LOGIN_FAILURE_MESSAGE = "Invalid credentials or account unavailable."
 AUTH_THROTTLE_MESSAGE = "Too many attempts. Please wait a few minutes and try again."
+ACCOUNT_THEME_OPTIONS = (
+    {
+        "description": "Keep the existing AOLRC purple primary with the shared gold accent.",
+        "label": "Purple",
+        "value": "purple",
+    },
+    {
+        "description": "Swap in the warm blue primary while keeping the shared gold accent.",
+        "label": "Blue",
+        "value": "blue",
+    },
+)
 
 
 def _is_dev_quick_login_enabled():
@@ -62,6 +83,39 @@ def _build_account_initials(user):
     if len(parts) == 1:
         return parts[0][:2].upper()
     return (parts[0][0] + parts[1][0]).upper()
+
+
+def _avatar_upload_dir():
+    upload_dir = current_app.config.get("AVATAR_UPLOAD_DIR")
+    if upload_dir:
+        return Path(upload_dir)
+    return Path(current_app.static_folder) / "uploads" / "avatars"
+
+
+def _avatar_web_prefix():
+    return (current_app.config.get("AVATAR_WEB_PREFIX") or "uploads/avatars").strip("/")
+
+
+def _avatar_url_for_user(user):
+    filename = (user.avatar_filename or "").strip()
+    if not filename:
+        return None
+    return url_for("static", filename=f"{_avatar_web_prefix()}/{filename}")
+
+
+def _is_allowed_avatar_file(filename):
+    if "." not in filename:
+        return False
+    ext = filename.rsplit(".", 1)[1].lower()
+    return ext in {"jpg", "jpeg", "png", "webp"}
+
+
+def _build_account_activity(user_id, full_history=False, page=1):
+    from app.routes.main import build_activity_page
+
+    if full_history:
+        return build_activity_page(actor_user_id=user_id, page=page)
+    return build_activity_page(actor_user_id=user_id, page=1, page_size=6)
 
 
 def _is_user_locked(user, now=None):
@@ -125,9 +179,23 @@ def _record_failed_login(user):
     db.session.commit()
 
 
+def _clear_stale_failed_login_attempts(user, email, ip_address):
+    if user is None or not (user.failed_login_attempts or 0):
+        return
+
+    if _has_recent_login_failures(email, ip_address):
+        return
+
+    user.failed_login_attempts = 0
+    db.session.flush()
+
+
 def _finish_login(user):
     login_user(user)
     session[AUTH_SESSION_VERSION_SESSION_KEY] = int(user.session_version or 1)
+    session[ACTIVE_UI_THEME_SESSION_KEY] = normalize_theme_preference(
+        getattr(user, "theme_preference", None)
+    )
 
 
 def _reset_login_failure_state(user):
@@ -237,6 +305,29 @@ def _clear_login_failures(email, ip_address):
     _clear_rate_limit("login-ip", ip_key)
 
 
+def _has_recent_login_failures(email, ip_address):
+    config = current_app.config
+    email_key = _throttle_key(email, fallback="blank-email")
+    ip_key = _throttle_key(ip_address, fallback="unknown-ip")
+    return any(
+        decision.count > 0
+        for decision in (
+            _peek_rate_limit(
+                "login-account",
+                email_key,
+                limit=config["AUTH_LOGIN_ACCOUNT_THROTTLE_LIMIT"],
+                window_seconds=config["AUTH_LOGIN_THROTTLE_WINDOW_SECONDS"],
+            ),
+            _peek_rate_limit(
+                "login-ip",
+                ip_key,
+                limit=config["AUTH_LOGIN_IP_THROTTLE_LIMIT"],
+                window_seconds=config["AUTH_LOGIN_THROTTLE_WINDOW_SECONDS"],
+            ),
+        )
+    )
+
+
 def _record_password_request_attempt(email, ip_address):
     config = current_app.config
     email_key = _throttle_key(email, fallback="blank-email")
@@ -335,6 +426,13 @@ def login():
             return _render_login(email=email, status_code=429)
 
         if not password_matches:
+            if (
+                user
+                and user.active
+                and not user.force_password_change
+                and not _is_user_locked(user, now)
+            ):
+                _clear_stale_failed_login_attempts(user, email, ip_address)
             throttle_decision = _record_login_failure(email, ip_address)
             if throttle_decision is not None:
                 _log_auth_security_event(
@@ -428,7 +526,7 @@ def forgot_password():
                 details={"retry_after_seconds": throttle_decision.retry_after_seconds},
             )
             flash(
-                "If an account matches that email, password reset instructions are ready.",
+                "If an account matches that email, password reset instructions have been sent.",
                 "success",
             )
             return redirect(url_for("auth.login"))
@@ -441,8 +539,17 @@ def forgot_password():
             ip_address=ip_address,
             details={"issued": bool(issued_link)},
         )
+        if issued_link:
+            delivery_result = send_password_action_email(user, issued_link)
+            _log_auth_security_event(
+                "password_email_delivery",
+                email=user.email,
+                user_id=user.id,
+                ip_address=ip_address,
+                details={"status": delivery_result.status},
+            )
         flash(
-            "If an account matches that email, password reset instructions are ready.",
+            "If an account matches that email, password reset instructions have been sent.",
             "success",
         )
         if issued_link and current_app.config["AUTH_DEV_EXPOSE_PASSWORD_LINKS"]:
@@ -456,6 +563,7 @@ def forgot_password():
 def reset_password(token):
     token_record = None
     token_error = None
+    form_error = None
     ip_address = get_client_ip()
     try:
         token_record = resolve_password_action_token(token)
@@ -482,6 +590,7 @@ def reset_password(token):
                     token=token,
                     token_record=token_record,
                     token_error=token_error,
+                    form_error=form_error,
                     purpose=(token_record.purpose if token_record else None),
                 ),
                 429,
@@ -500,36 +609,50 @@ def reset_password(token):
         new_password = request.form.get("new_password") or ""
         confirm_password = request.form.get("confirm_password") or ""
         try:
-            complete_password_action(
-                token=token,
-                new_password=new_password,
-                confirm_password=confirm_password,
-            )
+            validate_new_password(new_password, confirm_password)
+            validate_password_not_reused(token_record.user, new_password)
         except AccountManagementError as exc:
-            token_error = str(exc)
+            form_error = str(exc)
             _log_auth_security_event(
-                "password_reset_failed",
+                "password_reset_validation_failed",
                 email=getattr(getattr(token_record, "user", None), "email", None),
                 user_id=getattr(getattr(token_record, "user", None), "id", None),
                 ip_address=ip_address,
-                details={"reason": token_error},
+                details={"reason": form_error},
             )
         else:
-            _clear_password_reset_attempts(account_key, ip_address)
-            _log_auth_security_event(
-                "password_reset_completed",
-                email=getattr(getattr(token_record, "user", None), "email", None),
-                user_id=getattr(getattr(token_record, "user", None), "id", None),
-                ip_address=ip_address,
-            )
-            flash("Password updated. You can now sign in.", "success")
-            return redirect(url_for("auth.login"))
+            try:
+                complete_password_action(
+                    token=token,
+                    new_password=new_password,
+                    confirm_password=confirm_password,
+                )
+            except AccountManagementError as exc:
+                token_error = str(exc)
+                _log_auth_security_event(
+                    "password_reset_failed",
+                    email=getattr(getattr(token_record, "user", None), "email", None),
+                    user_id=getattr(getattr(token_record, "user", None), "id", None),
+                    ip_address=ip_address,
+                    details={"reason": token_error},
+                )
+            else:
+                _clear_password_reset_attempts(account_key, ip_address)
+                _log_auth_security_event(
+                    "password_reset_completed",
+                    email=getattr(getattr(token_record, "user", None), "email", None),
+                    user_id=getattr(getattr(token_record, "user", None), "id", None),
+                    ip_address=ip_address,
+                )
+                flash("Password updated. You can now sign in.", "success")
+                return redirect(url_for("auth.login"))
 
     return render_template(
         "auth/reset_password.html",
         token=token,
         token_record=token_record,
         token_error=token_error,
+        form_error=form_error,
         purpose=(token_record.purpose if token_record else None),
     )
 
@@ -537,10 +660,81 @@ def reset_password(token):
 @auth_bp.get("/account")
 @login_required
 def account():
+    recent_activity_data = _build_account_activity(
+        current_user.id,
+        full_history=False,
+        page=1,
+    )
+    activity_search_seed = (current_user.display_name or current_user.email or "").strip()
+    dashboard_activity_url = url_for(
+        "main.dashboard",
+        tab="activity",
+        activity_actor_user_id=current_user.id,
+        activity_q=activity_search_seed,
+    )
+
     return render_template(
         "auth/account.html",
         avatar_initials=_build_account_initials(current_user),
+        avatar_url=_avatar_url_for_user(current_user),
+        recent_activity_rows=recent_activity_data["rows"],
+        dashboard_activity_url=dashboard_activity_url,
+        current_theme_preference=normalize_theme_preference(
+            getattr(current_user, "theme_preference", None)
+        ),
+        theme_options=ACCOUNT_THEME_OPTIONS,
     )
+
+
+@auth_bp.post("/account/avatar")
+@login_required
+def upload_avatar():
+    file_obj = request.files.get("avatar")
+    if file_obj is None or not (file_obj.filename or "").strip():
+        flash("Please choose an image to upload.", "error")
+        return redirect(url_for("auth.account"))
+
+    original_name = secure_filename(file_obj.filename or "")
+    if not original_name or not _is_allowed_avatar_file(original_name):
+        flash("Please upload a JPG, JPEG, PNG, or WEBP image.", "error")
+        return redirect(url_for("auth.account"))
+
+    extension = original_name.rsplit(".", 1)[1].lower()
+    safe_name = f"user_{current_user.id}_{secrets.token_hex(8)}.{extension}"
+
+    upload_dir = _avatar_upload_dir()
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    old_filename = (current_user.avatar_filename or "").strip()
+    file_obj.save(upload_dir / safe_name)
+
+    if old_filename and old_filename != safe_name:
+        old_path = upload_dir / old_filename
+        if old_path.exists():
+            old_path.unlink()
+
+    current_user.avatar_filename = safe_name
+    current_user.avatar_updated_at = datetime.utcnow()
+    db.session.commit()
+    flash("Profile picture updated.", "success")
+    return redirect(url_for("auth.account"))
+
+
+@auth_bp.post("/account/avatar/remove")
+@login_required
+def remove_avatar():
+    upload_dir = _avatar_upload_dir()
+    old_filename = (current_user.avatar_filename or "").strip()
+    if old_filename:
+        old_path = upload_dir / old_filename
+        if old_path.exists():
+            old_path.unlink()
+
+    current_user.avatar_filename = None
+    current_user.avatar_updated_at = None
+    db.session.commit()
+    flash("Profile picture removed.", "success")
+    return redirect(url_for("auth.account"))
 
 
 @auth_bp.post("/account/profile")
@@ -555,6 +749,21 @@ def update_profile():
     current_user.display_name = display_name or None
     db.session.commit()
     flash("Profile updated.", "success")
+    return redirect(url_for("auth.account"))
+
+
+@auth_bp.post("/account/custom-settings")
+@login_required
+def update_custom_settings():
+    selected_theme = (request.form.get("theme_preference") or "").strip().lower()
+    if selected_theme not in VALID_THEME_PREFERENCES:
+        flash("Theme selection is invalid.", "error")
+        return redirect(url_for("auth.account"))
+
+    current_user.theme_preference = selected_theme
+    db.session.commit()
+    session[ACTIVE_UI_THEME_SESSION_KEY] = selected_theme
+    flash("Custom settings updated.", "success")
     return redirect(url_for("auth.account"))
 
 
@@ -579,11 +788,11 @@ def change_password():
         flash(str(exc), "error")
         return redirect(url_for("auth.account"))
 
-    if check_password_hash(current_user.password_hash, new_password):
-        flash("New password must be different from current password.", "error")
+    try:
+        change_password_for_user(user=current_user, new_password=new_password)
+    except AccountManagementError as exc:
+        flash(str(exc), "error")
         return redirect(url_for("auth.account"))
-
-    change_password_for_user(user=current_user, new_password=new_password)
     session.pop(AUTH_SESSION_VERSION_SESSION_KEY, None)
     session.pop(FEEDBACK_REVIEW_SESSION_KEY, None)
     logout_user()

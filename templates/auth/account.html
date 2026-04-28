@@ -20,14 +20,23 @@
 
 <div class="row g-3">
   <div class="col-12 col-lg-4">
-    <div class="card h-100">
-      <div class="card-body d-flex flex-column align-items-center text-center gap-2">
-        <div
-          class="rounded-circle d-flex align-items-center justify-content-center fw-bold text-white"
-          style="width: 88px; height: 88px; font-size: 1.5rem; background: var(--aolrc-purple);"
-          aria-label="Profile avatar placeholder"
-        >
-          {{ avatar_initials }}
+    <div class="card h-100 ui-surface-card-secondary">
+      <div class="card-body d-flex flex-column gap-3">
+        <div class="d-flex flex-column align-items-center text-center gap-2">
+          {% if avatar_url %}
+            <img
+              src="{{ avatar_url }}"
+              alt="Profile picture"
+              class="rounded-circle border account-avatar-image"
+            >
+          {% else %}
+            <div
+              class="rounded-circle d-flex align-items-center justify-content-center fw-bold text-white account-avatar-fallback"
+              aria-label="Profile avatar initials"
+            >
+              {{ avatar_initials }}
+            </div>
+          {% endif %}
         </div>
         <div class="fw-semibold">{{ current_user.display_name or current_user.email }}</div>
         <div class="text-muted small">{{ current_user.email }}</div>
@@ -40,7 +49,52 @@
             {{ ui.chip("Permission: View Only", tone="secondary") }}
           {% endif %}
         </div>
-        <div class="text-muted small">Profile image upload coming soon.</div>
+        <form method="post" action="{{ url_for('auth.upload_avatar') }}" enctype="multipart/form-data" class="d-flex flex-column gap-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="form-label mb-0 small text-muted" for="avatar">Profile picture</label>
+          <input class="form-control" id="avatar" name="avatar" type="file" accept=".jpg,.jpeg,.png,.webp" required>
+          <button class="btn btn-aolrc-accent py-2 w-100" type="submit">Upload / Change Photo</button>
+        </form>
+        {% if avatar_url %}
+          <form method="post" action="{{ url_for('auth.remove_avatar') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-outline-secondary py-2 w-100" type="submit">Remove Photo</button>
+          </form>
+        {% endif %}
+
+        <hr class="my-1">
+
+        <div class="account-activity-snapshot" aria-label="Recent activity snapshot">
+          <div class="account-activity-snapshot-head">
+            <h2 class="h6 mb-0">Recent Activity</h2>
+          </div>
+          {% if recent_activity_rows %}
+            <div class="account-activity-snapshot-list" role="list">
+              {% for row in recent_activity_rows %}
+                <article class="account-activity-snapshot-item" role="listitem">
+                  <div class="d-flex align-items-start justify-content-between gap-2">
+                    <span class="small fw-semibold">{{ row.type_meta.text }}</span>
+                    <span class="text-muted small">{{ row.changed_at_text }}</span>
+                  </div>
+                  <div class="small">{{ row.detail_text }}</div>
+                  <div class="text-muted small">{{ row.venue_name }} - {{ row.item_name }}</div>
+                </article>
+              {% endfor %}
+            </div>
+          {% else %}
+            {{ ui.empty_state(
+              "No recent activity yet.",
+              body="As you check status and update counts, your recent actions will appear here.",
+              icon_class="bi-clock-history",
+              compact=True
+            ) }}
+          {% endif %}
+          <div class="account-activity-snapshot-footer">
+            <a class="btn btn-sm btn-outline-secondary ui-control-sm" href="{{ dashboard_activity_url }}">
+              See More
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -67,19 +121,125 @@
     {% call ui.form_section("Change Password", "Keep local development access secure while preserving your current account.") %}
       <form method="post" action="{{ url_for('auth.change_password') }}" class="d-flex flex-column gap-3">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="small text-muted" id="account_password_rules">
+            <div class="fw-semibold text-body">Password rules</div>
+            <ul class="mb-0 ps-3">
+              <li>Use at least {{ config["AUTH_PASSWORD_MIN_LENGTH"] }} characters.</li>
+              <li>Include at least 1 special character, such as <code>!</code>, <code>@</code>, <code>#</code>, or <code>?</code>.</li>
+              <li>Choose a password that is different from your current password.</li>
+              <li>Enter the same password in both new password fields.</li>
+            </ul>
+          </div>
           <div>
             <label class="form-label" for="current_password">Current password</label>
-            <input class="form-control ui-control" id="current_password" name="current_password" type="password" required autocomplete="current-password">
+            <div class="input-group">
+              <input
+                class="form-control ui-control"
+                id="current_password"
+                name="current_password"
+                type="password"
+                required
+                autocomplete="current-password"
+              >
+              <button
+                class="btn btn-outline-secondary ui-control"
+                type="button"
+                data-password-toggle="current_password"
+                aria-label="Show current password"
+                aria-pressed="false"
+              >
+                <i class="bi bi-eye" aria-hidden="true"></i>
+              </button>
+            </div>
           </div>
           <div>
             <label class="form-label" for="new_password">New password</label>
-            <input class="form-control ui-control" id="new_password" name="new_password" type="password" required minlength="8" autocomplete="new-password">
+            <div class="input-group">
+              <input
+                class="form-control ui-control"
+                id="new_password"
+                name="new_password"
+                type="password"
+                required
+                minlength="{{ config["AUTH_PASSWORD_MIN_LENGTH"] }}"
+                aria-describedby="account_password_rules"
+                autocomplete="new-password"
+              >
+              <button
+                class="btn btn-outline-secondary ui-control"
+                type="button"
+                data-password-toggle="new_password"
+                aria-label="Show new password"
+                aria-pressed="false"
+              >
+                <i class="bi bi-eye" aria-hidden="true"></i>
+              </button>
+            </div>
           </div>
           <div>
             <label class="form-label" for="confirm_password">Confirm new password</label>
-            <input class="form-control ui-control" id="confirm_password" name="confirm_password" type="password" required minlength="8" autocomplete="new-password">
+            <div class="input-group">
+              <input
+                class="form-control ui-control"
+                id="confirm_password"
+                name="confirm_password"
+                type="password"
+                required
+                minlength="{{ config["AUTH_PASSWORD_MIN_LENGTH"] }}"
+                aria-describedby="account_password_rules"
+                autocomplete="new-password"
+              >
+              <button
+                class="btn btn-outline-secondary ui-control"
+                type="button"
+                data-password-toggle="confirm_password"
+                aria-label="Show confirm new password"
+                aria-pressed="false"
+              >
+                <i class="bi bi-eye" aria-hidden="true"></i>
+              </button>
+            </div>
           </div>
           <button class="btn btn-aolrc-accent ui-control align-self-start" type="submit">Update Password</button>
+      </form>
+    {% endcall %}
+
+    {% call ui.form_section("Custom Settings", "Choose the theme used across the app. The selected theme also carries onto sign-in and password pages in this browser.") %}
+      <form method="post" action="{{ url_for('auth.update_custom_settings') }}" class="d-flex flex-column gap-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <fieldset class="account-theme-picker">
+          <legend class="form-label mb-2">Color theme</legend>
+          <div class="account-theme-option-grid">
+            {% for option in theme_options %}
+              <label class="account-theme-option account-theme-option-{{ option.value }}">
+                <input
+                  class="account-theme-radio"
+                  type="radio"
+                  name="theme_preference"
+                  value="{{ option.value }}"
+                  {{ 'checked' if current_theme_preference == option.value else '' }}
+                >
+                <span class="account-theme-card">
+                  <span class="account-theme-preview" aria-hidden="true">
+                    <span class="account-theme-preview-shell">
+                      <span class="account-theme-preview-topbar"></span>
+                      <span class="account-theme-preview-heading"></span>
+                      <span class="account-theme-preview-chip"></span>
+                      <span class="account-theme-preview-button"></span>
+                    </span>
+                  </span>
+                  <span class="account-theme-copy">
+                    <span class="account-theme-label">{{ option.label }}</span>
+                  </span>
+                  <span class="account-theme-indicator" aria-hidden="true">
+                    <i class="bi bi-check-circle-fill"></i>
+                  </span>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+        </fieldset>
+        <button class="btn btn-aolrc-accent ui-control align-self-start" type="submit">Save Settings</button>
       </form>
     {% endcall %}
   </div>

@@ -124,6 +124,130 @@ def test_venue_detail_can_create_item_note_for_tracked_item(client, app):
         assert note.title == "Shawl restock"
 
 
+def test_venue_detail_overview_shows_inline_note_modal_trigger_for_staff(client, app):
+    quick_login(client, "staff")
+
+    with app.app_context():
+        venue = Venue(
+            name="Overview Notes Hall",
+            active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.session.add(venue)
+        db.session.flush()
+        item = create_tracked_item(venue, "Tea Lights")
+        author = User.query.filter_by(email="staff@example.com").first()
+        db.session.add(
+            VenueNote(
+                venue_id=venue.id,
+                author_user_id=author.id,
+                item_id=item.id,
+                title="Existing note",
+                body="Stored in the side cabinet.",
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        db.session.commit()
+        venue_id = venue.id
+        item_id = item.id
+
+    response = client.get(f"/venues/{venue_id}")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert 'data-venue-inline-note-button' in body
+    assert f'data-venue-note-item-id="{item_id}"' in body
+    assert 'data-note-count="1"' in body
+    assert 'id="venueInlineNoteModal"' in body
+    assert f'data-venue-inline-note-endpoint="/venues/{venue_id}/notes/inline"' in body
+    assert "bi-journal-text" in body
+
+
+def test_venue_detail_inline_note_endpoint_creates_tagged_note(client, app):
+    quick_login(client, "staff")
+
+    with app.app_context():
+        venue = Venue(name="Inline Notes Hall", active=True, created_at=datetime.now(timezone.utc))
+        db.session.add(venue)
+        db.session.flush()
+        item = create_tracked_item(venue, "Meditation Shawls")
+        db.session.commit()
+        venue_id = venue.id
+        item_id = item.id
+
+    response = client.post(
+        f"/venues/{venue_id}/notes/inline",
+        headers={"Accept": "application/json"},
+        data={
+            "item_id": str(item_id),
+            "title": "Overview note",
+            "body": "Restock from the upper shelf after evening cleanup.",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["status"] == "success"
+    assert payload["item_id"] == item_id
+    assert payload["note_count"] == 1
+
+    with app.app_context():
+        note = VenueNote.query.one()
+
+    assert note.venue_id == venue_id
+    assert note.item_id == item_id
+    assert note.title == "Overview note"
+
+
+def test_venue_detail_inline_note_endpoint_rejects_untracked_items(client, app):
+    quick_login(client, "staff")
+
+    with app.app_context():
+        venue = Venue(
+            name="Inline Note Guardrail Hall",
+            active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.session.add(venue)
+        db.session.flush()
+        tracked_item = create_tracked_item(venue, "Tea")
+        other_item = Item(
+            name="Loose Leaf",
+            item_type="consumable",
+            tracking_mode="quantity",
+            item_category="consumable",
+            active=True,
+            sort_order=1,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.session.add(other_item)
+        db.session.commit()
+        venue_id = venue.id
+        other_item_id = other_item.id
+        tracked_item_id = tracked_item.id
+
+    response = client.post(
+        f"/venues/{venue_id}/notes/inline",
+        headers={"Accept": "application/json"},
+        data={
+            "item_id": str(other_item_id),
+            "title": "Bad note",
+            "body": "This should not be accepted.",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    payload = response.get_json()
+    assert payload["code"] == "invalid_item"
+
+    with app.app_context():
+        assert VenueNote.query.count() == 0
+        assert VenueItem.query.filter_by(venue_id=venue_id, item_id=tracked_item_id).count() == 1
+
+
 def test_view_only_user_sees_read_only_message_and_no_composer(client, app):
     quick_login(client, "viewer")
 
@@ -581,7 +705,9 @@ def test_venue_detail_renders_note_chips_counts_and_deep_links(client, app):
     assert b'aria-label="View note' not in response.data
     assert f'data-active-note-item-id="{item_id}"'.encode() in response.data
     assert f"note_item_id={item_id}".encode() in response.data
-    assert b"note_focus=compose" in response.data
+    assert b'id="venueInlineNoteModal"' in response.data
+    assert b'data-venue-inline-note-button' in response.data
+    assert b'role="button"' in response.data
     assert b"note_focus=list" in response.data
 
 
