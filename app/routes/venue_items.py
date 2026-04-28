@@ -478,9 +478,8 @@ def quick_check(venue_id):
             }
             adjusted_inputs = 0
             quantity_items = [it for it in tracked if it.tracking_mode != "singleton_asset"]
-            singleton_items = [it for it in tracked if it.tracking_mode == "singleton_asset"]
             quantity_count_updates = []
-            singleton_status_updates = []
+            status_updates = []
 
             for it in quantity_items:
                 raw_count, adjusted = normalize_quick_count_submission(request.form.get(f"count_{it.id}"))
@@ -490,16 +489,16 @@ def quick_check(venue_id):
                     adjusted_inputs += 1
                 quantity_count_updates.append((it, raw_count))
 
-            for it in singleton_items:
+            for it in tracked:
                 status = normalize_quick_check_submission(
                     it,
                     request.form.get(f"status_{it.id}"),
                 )
                 if status is None:
                     continue
-                singleton_status_updates.append((it, status))
+                status_updates.append((it, status))
 
-            if not quantity_count_updates and not singleton_status_updates:
+            if not quantity_count_updates and not status_updates:
                 flash("Add at least one count or status update before saving.", "warning")
                 return redirect(
                     url_for(
@@ -539,13 +538,17 @@ def quick_check(venue_id):
                         db.session.add(current)
                         existing_counts[it.id] = current
 
-            if singleton_status_updates:
+            singleton_status_updates = [
+                (it, status) for it, status in status_updates if it.tracking_mode == "singleton_asset"
+            ]
+            if status_updates:
                 chk = Check(venue_id=venue.id, user_id=current_user.id)
                 db.session.add(chk)
                 db.session.flush()
 
-                for it, status in singleton_status_updates:
+                for it, status in status_updates:
                     db.session.add(CheckLine(check_id=chk.id, item_id=it.id, status=status))
+                for it, status in singleton_status_updates:
                     sync_singleton_compat_count(existing_counts, venue.id, it.id, status)
 
             db.session.commit()
@@ -557,7 +560,7 @@ def quick_check(venue_id):
             flash(
                 quick_check_save_message(
                     count_update_count=len(quantity_count_updates),
-                    status_update_count=len(singleton_status_updates),
+                    status_update_count=len(status_updates),
                 ),
                 "success",
             )

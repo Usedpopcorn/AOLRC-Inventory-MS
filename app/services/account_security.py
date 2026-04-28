@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask import current_app, url_for
 from sqlalchemy.orm import Query
-from werkzeug.security import generate_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import db
 from app.models import (
@@ -26,6 +26,7 @@ from app.services.inventory_status import ensure_utc
 PASSWORD_SETUP_PURPOSE = "password_setup"
 PASSWORD_RESET_PURPOSE = "password_reset"
 PASSWORD_SPECIAL_CHARACTERS = frozenset(string.punctuation)
+PASSWORD_REUSE_ERROR = "New password must be different from your current password."
 
 ACCOUNT_EVENT_META = {
     "user_created": {"label": "User Created", "icon_class": "bi-person-plus"},
@@ -117,6 +118,11 @@ def validate_new_password(new_password, confirm_password=None):
     if not any(character in PASSWORD_SPECIAL_CHARACTERS for character in password):
         raise AccountManagementError(complexity_error)
     return password
+
+
+def validate_password_not_reused(user, new_password):
+    if user is not None and check_password_hash(user.password_hash, new_password or ""):
+        raise AccountManagementError(PASSWORD_REUSE_ERROR)
 
 
 def make_unusable_password_hash():
@@ -431,6 +437,7 @@ def complete_password_action(*, token, new_password, confirm_password):
         password = validate_new_password(new_password, confirm_password)
         token_record = resolve_password_action_token(token)
         user = token_record.user
+        validate_password_not_reused(user, password)
         now = utcnow()
 
         user.password_hash = generate_password_hash(password)
@@ -457,6 +464,7 @@ def complete_password_action(*, token, new_password, confirm_password):
 def change_password_for_user(*, user, new_password):
     try:
         password = validate_new_password(new_password)
+        validate_password_not_reused(user, password)
         now = utcnow()
 
         user.password_hash = generate_password_hash(password)

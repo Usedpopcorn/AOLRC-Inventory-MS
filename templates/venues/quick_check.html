@@ -419,6 +419,41 @@
 {% if current_user.is_staff %}
 <div
   class="modal fade"
+  id="quickCheckRecommendationsModal"
+  tabindex="-1"
+  aria-labelledby="quickCheckRecommendationsModalLabel"
+  aria-hidden="true"
+  data-bs-backdrop="static"
+  data-bs-keyboard="false"
+>
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable quick-check-recommendations-modal-dialog">
+    <div class="modal-content quick-check-unsaved-modal-content quick-check-recommendations-modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="quickCheckRecommendationsModalLabel">Recommended status updates</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Save counts only"></button>
+      </div>
+      <div class="modal-body d-grid gap-2">
+        <p class="mb-0 text-muted" id="quickCheckRecommendationsModalBody">
+          These recommendations compare each new count to par. Update statuses now, or save counts only.
+        </p>
+        <ul id="quickCheckRecommendationsList" class="quick-check-unsaved-list quick-check-recommendations-list"></ul>
+      </div>
+      <div class="modal-footer quick-check-unsaved-modal-actions">
+        <button type="button" class="btn btn-outline-secondary ui-control quick-check-unsaved-modal-cancel" id="quickCheckRecommendationsSaveCountsBtn" data-bs-dismiss="modal">
+          Save counts only
+        </button>
+        <button type="button" class="btn btn-aolrc-accent ui-control" id="quickCheckRecommendationsApplyBtn">
+          Update statuses
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if current_user.is_staff %}
+<div
+  class="modal fade"
   id="quickCheckNoteModal"
   tabindex="-1"
   aria-labelledby="quickCheckNoteModalLabel"
@@ -555,6 +590,19 @@
         keyboard: false,
       })
       : null;
+    const recommendationsModalEl = document.getElementById("quickCheckRecommendationsModal");
+    const recommendationsModalBody = document.getElementById("quickCheckRecommendationsModalBody");
+    const recommendationsListEl = document.getElementById("quickCheckRecommendationsList");
+    const recommendationsApplyBtn = document.getElementById("quickCheckRecommendationsApplyBtn");
+    const recommendationsDismissButtons = Array.from(
+      recommendationsModalEl?.querySelectorAll("[data-bs-dismiss='modal']") || []
+    );
+    const recommendationsModal = recommendationsModalEl && window.bootstrap?.Modal
+      ? window.bootstrap.Modal.getOrCreateInstance(recommendationsModalEl, {
+        backdrop: "static",
+        keyboard: false,
+      })
+      : null;
     const quickCheckNoteModalEl = document.getElementById("quickCheckNoteModal");
     const quickCheckNoteModalContent = quickCheckNoteModalEl?.querySelector("[data-quick-check-note-endpoint]");
     const quickCheckNoteModalEndpoint = quickCheckNoteModalContent?.getAttribute("data-quick-check-note-endpoint") || "";
@@ -593,9 +641,13 @@
     let pendingGuardAction = null;
     let manualModalBackdrop = null;
     let isManualModalOpen = false;
+    let manualRecommendationsBackdrop = null;
+    let isManualRecommendationsOpen = false;
     let manualQuickCheckNoteBackdrop = null;
     let isManualQuickCheckNoteOpen = false;
     let isSubmittingQuickCheck = false;
+    let recommendationDecisionMade = false;
+    let queuedRecommendations = [];
     let skipNextPopstate = false;
     let activeQuickCheckNoteButton = null;
 
@@ -763,6 +815,56 @@
         manualModalBackdrop = null;
       }
       pendingGuardAction = null;
+    }
+
+    function isRecommendationsModalOpen() {
+      return Boolean(recommendationsModalEl?.classList.contains("show") || isManualRecommendationsOpen);
+    }
+
+    function showRecommendationsModal() {
+      if (!recommendationsModalEl) return;
+      if (recommendationsModal) {
+        recommendationsModal.show();
+        return;
+      }
+
+      isManualRecommendationsOpen = true;
+      recommendationsModalEl.style.display = "block";
+      recommendationsModalEl.removeAttribute("aria-hidden");
+      recommendationsModalEl.setAttribute("aria-modal", "true");
+      recommendationsModalEl.classList.add("show");
+      document.body.classList.add("modal-open");
+
+      if (!manualRecommendationsBackdrop) {
+        manualRecommendationsBackdrop = document.createElement("div");
+        manualRecommendationsBackdrop.className = "modal-backdrop fade show";
+        document.body.appendChild(manualRecommendationsBackdrop);
+      }
+
+      const focusTarget =
+        recommendationsApplyBtn ||
+        recommendationsDismissButtons[0] ||
+        recommendationsModalEl;
+      window.setTimeout(() => focusTarget?.focus(), 0);
+    }
+
+    function hideRecommendationsModal() {
+      if (recommendationsModal) {
+        recommendationsModal.hide();
+        return;
+      }
+
+      if (!recommendationsModalEl) return;
+      isManualRecommendationsOpen = false;
+      recommendationsModalEl.classList.remove("show");
+      recommendationsModalEl.style.display = "none";
+      recommendationsModalEl.setAttribute("aria-hidden", "true");
+      recommendationsModalEl.removeAttribute("aria-modal");
+      document.body.classList.remove("modal-open");
+      if (manualRecommendationsBackdrop) {
+        manualRecommendationsBackdrop.remove();
+        manualRecommendationsBackdrop = null;
+      }
     }
 
     function parseQuickCheckNoteCount(value) {
@@ -1026,6 +1128,130 @@
     function getPendingCountValue(row) {
       const input = getCountInput(row);
       return (input?.value || "").trim();
+    }
+
+    function parseStrictWholeNumber(value) {
+      const normalized = String(value || "").trim();
+      if (!/^-?\d+$/.test(normalized)) return null;
+      const parsed = Number.parseInt(normalized, 10);
+      if (!Number.isFinite(parsed)) return null;
+      return parsed;
+    }
+
+    function parseParNumber(row) {
+      const dataValue = parseStrictWholeNumber(row?.dataset.parCount || "");
+      if (dataValue !== null) return dataValue;
+      const parMetric = row?.querySelector(".quick-check-count-context .quick-check-count-metric:nth-child(2) .quick-check-count-metric-value");
+      const parText = (parMetric?.textContent || "").trim();
+      const match = parText.match(/-?\d+/);
+      if (!match) return null;
+      const parsed = Number.parseInt(match[0], 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function suggestStatusFromCount(rawCount, parValue, trackingMode) {
+      if (trackingMode === "singleton_asset") return null;
+      if (rawCount === null || parValue === null || parValue <= 0) return null;
+      if (rawCount <= 0) return "out";
+      const ratio = rawCount / parValue;
+      if (ratio <= 0.25) return "low";
+      if (ratio <= 0.75) return "ok";
+      return "good";
+    }
+
+    function formatPercentOfPar(rawCount, parValue) {
+      if (parValue <= 0) return null;
+      const ratio = (rawCount / parValue) * 100;
+      return `${Math.round(ratio)}%`;
+    }
+
+    function quantityStatusLabel(statusKey) {
+      return {
+        good: "Good",
+        ok: "OK",
+        low: "Low",
+        out: "Out",
+        not_checked: "Not checked",
+      }[statusKey] || "Not checked";
+    }
+
+    function buildCountStatusRecommendations() {
+      const recommendations = [];
+      const countInputs = Array.from(document.querySelectorAll(".count-input"));
+
+      countInputs.forEach((inputEl) => {
+        const row = inputEl.closest(".quick-check-entry-row");
+        if (!row) return;
+        if ((row.dataset.trackingMode || "") === "singleton_asset") return;
+
+        const pendingCountRaw = (inputEl.value || "").trim();
+        if (pendingCountRaw === "") return;
+
+        const parsedCount = parseStrictWholeNumber(pendingCountRaw);
+        if (parsedCount === null) return;
+
+        const boundedCount = Math.min(Math.max(parsedCount, 0), 2147483647);
+        const parValue = parseParNumber(row);
+        if (parValue === null || parValue <= 0) return;
+
+        const suggestedStatus = suggestStatusFromCount(
+          boundedCount,
+          parValue,
+          row.dataset.trackingMode || "quantity"
+        );
+        if (!suggestedStatus) return;
+
+        const effectiveStatus = getEffectiveStatusValue(row);
+        if (effectiveStatus === suggestedStatus) return;
+
+        recommendations.push({
+          itemId: row.dataset.itemId,
+          itemName: getRowItemLabel(row),
+          count: boundedCount,
+          par: parValue,
+          percentText: formatPercentOfPar(boundedCount, parValue),
+          currentStatus: effectiveStatus,
+          suggestedStatus,
+        });
+      });
+
+      return recommendations;
+    }
+
+    function renderRecommendationsList(recommendations) {
+      if (!recommendationsListEl) return;
+      recommendationsListEl.innerHTML = "";
+
+      recommendations.forEach((entry) => {
+        const item = document.createElement("li");
+        const percentText = entry.percentText ? ` (${entry.percentText} of par)` : "";
+        item.textContent =
+          `${entry.itemName}: ${entry.count} vs par ${entry.par}${percentText}. ` +
+          `Current ${quantityStatusLabel(entry.currentStatus)} -> recommended ${quantityStatusLabel(entry.suggestedStatus)}.`;
+        recommendationsListEl.appendChild(item);
+      });
+    }
+
+    function promptForCountStatusRecommendations(recommendations) {
+      queuedRecommendations = recommendations;
+      if (recommendationsModalBody) {
+        const countLabel = recommendations.length === 1
+          ? "1 status update is recommended."
+          : `${recommendations.length} status updates are recommended.`;
+        recommendationsModalBody.textContent =
+          `${countLabel} These recommendations compare each new count to par.`;
+      }
+      renderRecommendationsList(recommendations);
+      showRecommendationsModal();
+    }
+
+    function submitQuickCheckWithDecision() {
+      recommendationDecisionMade = true;
+      if (quickCheckForm?.requestSubmit) {
+        quickCheckForm.requestSubmit();
+        return;
+      }
+      quickCheckForm?.submit();
     }
 
     function getUnitLabel(row, amount = null) {
@@ -1768,6 +1994,12 @@
       });
     }
 
+    if (recommendationsModalEl) {
+      recommendationsModalEl.addEventListener("hidden.bs.modal", () => {
+        queuedRecommendations = [];
+      });
+    }
+
     if (quickCheckNoteModalEl) {
       quickCheckNoteModalEl.addEventListener("hidden.bs.modal", () => {
         resetQuickCheckNoteForm();
@@ -1794,6 +2026,16 @@
       });
     });
 
+    recommendationsDismissButtons.forEach((button) => {
+      button.addEventListener("click", (event) => {
+        if (!recommendationsModal) {
+          event.preventDefault();
+          hideRecommendationsModal();
+        }
+        submitQuickCheckWithDecision();
+      });
+    });
+
     if (unsavedModalEl && !unsavedModal) {
       unsavedModalEl.addEventListener("keydown", (event) => {
         if (event.key !== "Escape") return;
@@ -1810,12 +2052,35 @@
       });
     }
 
+    if (recommendationsModalEl && !recommendationsModal) {
+      recommendationsModalEl.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        hideRecommendationsModal();
+        submitQuickCheckWithDecision();
+      });
+    }
+
     if (unsavedModalDiscardBtn) {
       unsavedModalDiscardBtn.addEventListener("click", () => {
         const action = pendingGuardAction;
         hideUnsavedModal();
         discardPendingChanges();
         runGuardedAction(action);
+      });
+    }
+
+    if (recommendationsApplyBtn) {
+      recommendationsApplyBtn.addEventListener("click", () => {
+        queuedRecommendations.forEach((entry) => {
+          const row = getRowByItemId(entry.itemId);
+          if (!row) return;
+          row.dataset.pendingStatus = entry.suggestedStatus;
+          refreshStatusRow(row);
+        });
+        updateUnsavedChangesUI();
+        hideRecommendationsModal();
+        submitQuickCheckWithDecision();
       });
     }
 
@@ -1889,7 +2154,7 @@
         skipNextPopstate = false;
         return;
       }
-      if (isUnsavedModalOpen()) return;
+      if (isUnsavedModalOpen() || isRecommendationsModalOpen()) return;
       if (hasUnsavedChanges()) {
         window.history.pushState(
           { ...(window.history.state || {}), [historyGuardKey]: true },
@@ -1915,6 +2180,7 @@
       syncAllStatusInputs();
 
       if (getActiveMode() === "status") {
+        recommendationDecisionMade = false;
         if (getPendingStatusCount() > 0) {
           hideSelectionWarning();
           isSubmittingQuickCheck = true;
@@ -1926,11 +2192,21 @@
       }
 
       if (getPendingCountRowCount() + getPendingStatusCount({ singletonOnly: true }) > 0) {
+        if (!recommendationDecisionMade) {
+          const recommendations = buildCountStatusRecommendations();
+          if (recommendations.length > 0 && recommendationsModalEl) {
+            event.preventDefault();
+            promptForCountStatusRecommendations(recommendations);
+            return;
+          }
+        }
         hideSelectionWarning();
         isSubmittingQuickCheck = true;
+        recommendationDecisionMade = false;
         return;
       }
 
+      recommendationDecisionMade = false;
       event.preventDefault();
       showSelectionWarning();
     });

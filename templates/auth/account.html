@@ -121,17 +121,84 @@
     {% call ui.form_section("Change Password", "Keep local development access secure while preserving your current account.") %}
       <form method="post" action="{{ url_for('auth.change_password') }}" class="d-flex flex-column gap-3">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="small text-muted" id="account_password_rules">
+            <div class="fw-semibold text-body">Password rules</div>
+            <ul class="mb-0 ps-3">
+              <li>Use at least {{ config["AUTH_PASSWORD_MIN_LENGTH"] }} characters.</li>
+              <li>Include at least 1 special character, such as <code>!</code>, <code>@</code>, <code>#</code>, or <code>?</code>.</li>
+              <li>Choose a password that is different from your current password.</li>
+              <li>Enter the same password in both new password fields.</li>
+            </ul>
+          </div>
           <div>
             <label class="form-label" for="current_password">Current password</label>
-            <input class="form-control ui-control" id="current_password" name="current_password" type="password" required autocomplete="current-password">
+            <div class="input-group">
+              <input
+                class="form-control ui-control"
+                id="current_password"
+                name="current_password"
+                type="password"
+                required
+                autocomplete="current-password"
+              >
+              <button
+                class="btn btn-outline-secondary ui-control"
+                type="button"
+                data-password-toggle="current_password"
+                aria-label="Show current password"
+                aria-pressed="false"
+              >
+                <i class="bi bi-eye" aria-hidden="true"></i>
+              </button>
+            </div>
           </div>
           <div>
             <label class="form-label" for="new_password">New password</label>
-            <input class="form-control ui-control" id="new_password" name="new_password" type="password" required minlength="8" autocomplete="new-password">
+            <div class="input-group">
+              <input
+                class="form-control ui-control"
+                id="new_password"
+                name="new_password"
+                type="password"
+                required
+                minlength="{{ config["AUTH_PASSWORD_MIN_LENGTH"] }}"
+                aria-describedby="account_password_rules"
+                autocomplete="new-password"
+              >
+              <button
+                class="btn btn-outline-secondary ui-control"
+                type="button"
+                data-password-toggle="new_password"
+                aria-label="Show new password"
+                aria-pressed="false"
+              >
+                <i class="bi bi-eye" aria-hidden="true"></i>
+              </button>
+            </div>
           </div>
           <div>
             <label class="form-label" for="confirm_password">Confirm new password</label>
-            <input class="form-control ui-control" id="confirm_password" name="confirm_password" type="password" required minlength="8" autocomplete="new-password">
+            <div class="input-group">
+              <input
+                class="form-control ui-control"
+                id="confirm_password"
+                name="confirm_password"
+                type="password"
+                required
+                minlength="{{ config["AUTH_PASSWORD_MIN_LENGTH"] }}"
+                aria-describedby="account_password_rules"
+                autocomplete="new-password"
+              >
+              <button
+                class="btn btn-outline-secondary ui-control"
+                type="button"
+                data-password-toggle="confirm_password"
+                aria-label="Show confirm new password"
+                aria-pressed="false"
+              >
+                <i class="bi bi-eye" aria-hidden="true"></i>
+              </button>
+            </div>
           </div>
           <button class="btn btn-aolrc-accent ui-control align-self-start" type="submit">Update Password</button>
       </form>

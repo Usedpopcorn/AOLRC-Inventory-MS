@@ -174,6 +174,9 @@ def test_quick_check_get_shows_saved_status_chip_and_blank_pending_selection(cli
     assert "No pending changes" in body
     assert "Continue Without Saving" in body
     assert "Save and Continue" not in body
+    assert 'id="quickCheckRecommendationsModal"' in body
+    assert 'id="quickCheckRecommendationsApplyBtn"' in body
+    assert "Save counts only" in body
     assert "quick-check-current-status-pill" in body
     assert f'data-item-id="{item_id}"' in body
     assert 'data-current-status="low"' in body
@@ -741,6 +744,51 @@ def test_quick_check_raw_counts_post_saves_only_entered_quantity_rows(client, ap
     assert untouched_count.raw_count == 9
     assert selected_counted_at > original_counted_at
     assert untouched_counted_at == original_counted_at
+
+
+def test_quick_check_raw_counts_post_accepts_quantity_status_updates(client, app):
+    quick_login(client, "staff")
+
+    with app.app_context():
+        venue = Venue(name="Elm Studio", active=True)
+        db.session.add(venue)
+        db.session.flush()
+        item = create_tracked_item(venue, "Bottled Water", sort_order=1)
+        add_status_check(
+            venue,
+            [(item, "low")],
+            created_at=datetime.now(timezone.utc) - timedelta(days=2),
+        )
+        add_count_session(
+            venue,
+            [(item, 6)],
+            created_at=datetime.now(timezone.utc) - timedelta(days=2),
+        )
+        db.session.commit()
+        venue_id = venue.id
+        item_id = item.id
+
+    response = client.post(
+        f"/venues/{venue_id}/check",
+        data={
+            "check_mode": "raw_counts",
+            f"count_{item_id}": "8",
+            f"status_{item_id}": "good",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+
+    with app.app_context():
+        latest_count = VenueItemCount.query.filter_by(venue_id=venue_id, item_id=item_id).first()
+        latest_check = Check.query.filter_by(venue_id=venue_id).order_by(Check.id.desc()).first()
+        latest_line = CheckLine.query.filter_by(check_id=latest_check.id, item_id=item_id).first()
+
+    assert latest_count is not None
+    assert latest_count.raw_count == 8
+    assert latest_line is not None
+    assert latest_line.status == "good"
 
 
 def test_quick_check_raw_counts_requires_pending_entry(client, app):
