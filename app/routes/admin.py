@@ -70,6 +70,13 @@ from app.services.inventory_rules import (
     resolve_effective_stale_threshold_days,
     sync_item_venue_assignments,
 )
+from app.services.mail_service import (
+    MAIL_STATUS_DISABLED,
+    MAIL_STATUS_FAILED,
+    MAIL_STATUS_SENT,
+    MAIL_STATUS_SUPPRESSED,
+    send_password_action_email,
+)
 from app.services.spreadsheet_compat import (
     CUSTOM_SETUP_GROUP_OPTION_VALUE,
     SpreadsheetCompatibilityError,
@@ -172,6 +179,30 @@ def build_user_form_values(source=None):
 
 def to_bool_field(raw_value):
     return str(raw_value or "").strip().lower() in {"1", "true", "on", "yes"}
+
+
+def flash_password_email_delivery(user, delivery_result):
+    capture_ui_url = (current_app.config.get("MAIL_CAPTURE_UI_URL") or "").strip()
+    if delivery_result.status == MAIL_STATUS_SENT:
+        if capture_ui_url:
+            flash(
+                f"Password email sent to {user.email}. Inspect captured mail at {capture_ui_url}.",
+                "success",
+            )
+            return
+        flash(f"Password email sent to {user.email}.", "success")
+        return
+
+    if delivery_result.status == MAIL_STATUS_SUPPRESSED:
+        flash("Mail sending is suppressed; no password email was sent.", "warning")
+        return
+
+    if delivery_result.status == MAIL_STATUS_DISABLED:
+        flash("Mail delivery is disabled; no password email was sent.", "warning")
+        return
+
+    if delivery_result.status == MAIL_STATUS_FAILED:
+        flash("Password email could not be sent. Check mail configuration and logs.", "error")
 
 
 def parse_parent_item_id(raw_value):
@@ -761,7 +792,12 @@ def users():
         except AccountManagementError as exc:
             flash(str(exc), "error")
         else:
-            flash(f"Created account for {user.email}.", "success")
+            flash(
+                f"Created account for {user.email}. A password setup email is being prepared.",
+                "success",
+            )
+            delivery_result = send_password_action_email(user, issued_link)
+            flash_password_email_delivery(user, delivery_result)
             if current_app.config["AUTH_DEV_EXPOSE_PASSWORD_LINKS"]:
                 flash(build_dev_password_link_message(user, issued_link), "success")
             return redirect(url_for("admin.users", page=page))
@@ -875,6 +911,8 @@ def issue_user_password_link(user_id):
     else:
         purpose_label = "setup" if issued_link.purpose == "password_setup" else "reset"
         flash(f"Password {purpose_label} link prepared for {user.email}.", "success")
+        delivery_result = send_password_action_email(user, issued_link)
+        flash_password_email_delivery(user, delivery_result)
         if current_app.config["AUTH_DEV_EXPOSE_PASSWORD_LINKS"]:
             flash(build_dev_password_link_message(user, issued_link), "success")
     return redirect(_user_return_target("admin.users"))

@@ -3,6 +3,7 @@ from datetime import timedelta
 from urllib.parse import urlparse
 
 DEFAULT_SECRET_KEY = "dev-secret-change-me"
+DEFAULT_APP_NAME = "AOLRC Inventory Management System"
 
 
 def _env_flag(name, default=False):
@@ -65,6 +66,7 @@ def is_development_environment():
 
 
 class Config:
+    APP_NAME = (os.getenv("APP_NAME") or DEFAULT_APP_NAME).strip() or DEFAULT_APP_NAME
     SECRET_KEY = DEFAULT_SECRET_KEY
     SQLALCHEMY_DATABASE_URI = "sqlite:///local.db"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
@@ -87,15 +89,25 @@ class Config:
         hours=max(1, _env_int("PERMANENT_SESSION_HOURS", 12))
     )
     AUTH_MAX_FAILED_LOGIN_ATTEMPTS = max(
-        1, _env_int("AUTH_MAX_FAILED_LOGIN_ATTEMPTS", 5)
+        1, _env_int("AUTH_MAX_FAILED_LOGIN_ATTEMPTS", 8)
     )
     AUTH_LOCKOUT_MINUTES = max(1, _env_int("AUTH_LOCKOUT_MINUTES", 15))
     AUTH_PASSWORD_MIN_LENGTH = max(8, _env_int("AUTH_PASSWORD_MIN_LENGTH", 8))
     AUTH_PASSWORD_TOKEN_TTL_HOURS = max(1, _env_int("AUTH_PASSWORD_TOKEN_TTL_HOURS", 4))
     AUTH_LOGIN_ACCOUNT_THROTTLE_LIMIT = max(
-        1, _env_int("AUTH_LOGIN_ACCOUNT_THROTTLE_LIMIT", 4)
+        1,
+        _env_int(
+            "AUTH_LOGIN_ACCOUNT_THROTTLE_LIMIT",
+            AUTH_MAX_FAILED_LOGIN_ATTEMPTS + 2,
+        ),
     )
-    AUTH_LOGIN_IP_THROTTLE_LIMIT = max(1, _env_int("AUTH_LOGIN_IP_THROTTLE_LIMIT", 12))
+    AUTH_LOGIN_IP_THROTTLE_LIMIT = max(
+        1,
+        _env_int(
+            "AUTH_LOGIN_IP_THROTTLE_LIMIT",
+            max(12, AUTH_MAX_FAILED_LOGIN_ATTEMPTS * 3),
+        ),
+    )
     AUTH_LOGIN_THROTTLE_WINDOW_SECONDS = max(
         60, _env_int("AUTH_LOGIN_THROTTLE_WINDOW_SECONDS", 300)
     )
@@ -121,6 +133,7 @@ class Config:
     FEEDBACK_SUBMISSION_WINDOW_SECONDS = max(
         60, _env_int("FEEDBACK_SUBMISSION_WINDOW_SECONDS", 300)
     )
+    VENUE_FILE_MAX_BYTES = max(1, _env_int("VENUE_FILE_MAX_BYTES", 25 * 1024 * 1024))
     AUTH_ALLOW_DEV_QUICK_LOGIN = _env_flag(
         "AUTH_ALLOW_DEV_QUICK_LOGIN",
         default=is_development_environment(),
@@ -128,4 +141,20 @@ class Config:
     AUTH_DEV_EXPOSE_PASSWORD_LINKS = _env_flag(
         "AUTH_DEV_EXPOSE_PASSWORD_LINKS",
         default=is_development_environment(),
+    )
+    MAIL_ENABLED = _env_flag("MAIL_ENABLED", default=False)
+    MAIL_BACKEND = (os.getenv("MAIL_BACKEND") or "smtp").strip().lower()
+    MAIL_SERVER = (os.getenv("MAIL_SERVER") or "").strip()
+    MAIL_PORT = max(1, _env_int("MAIL_PORT", 25))
+    MAIL_USERNAME = (os.getenv("MAIL_USERNAME") or "").strip()
+    MAIL_PASSWORD = os.getenv("MAIL_PASSWORD") or ""
+    MAIL_USE_TLS = _env_flag("MAIL_USE_TLS", default=False)
+    MAIL_USE_SSL = _env_flag("MAIL_USE_SSL", default=False)
+    MAIL_DEFAULT_SENDER = (os.getenv("MAIL_DEFAULT_SENDER") or "").strip()
+    MAIL_SUPPRESS_SEND = _env_flag("MAIL_SUPPRESS_SEND", default=False)
+    MAIL_TIMEOUT_SECONDS = max(1, _env_int("MAIL_TIMEOUT_SECONDS", 10))
+    MAIL_CAPTURE_UI_URL = (
+        (os.getenv("MAIL_CAPTURE_UI_URL") or "http://127.0.0.1:8025").strip()
+        if is_development_environment()
+        else (os.getenv("MAIL_CAPTURE_UI_URL") or "").strip()
     )

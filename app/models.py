@@ -155,6 +155,33 @@ class Venue(db.Model):
 
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
+    files = db.relationship(
+        "VenueFile",
+        back_populates="venue",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class VenueFile(db.Model):
+    __tablename__ = "venue_files"
+
+    id = db.Column(db.Integer, primary_key=True)
+    venue_id = db.Column(db.Integer, db.ForeignKey("venues.id"), nullable=False, index=True)
+    uploaded_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    original_filename = db.Column(db.String(255), nullable=False)
+    stored_filename = db.Column(db.String(255), nullable=False, unique=True)
+    mime_type = db.Column(db.String(120), nullable=False)
+    extension = db.Column(db.String(24), nullable=False, index=True)
+    size_bytes = db.Column(db.Integer, nullable=False)
+    category = db.Column(db.String(40), nullable=False, default="other", index=True)
+    preview_type = db.Column(db.String(40), nullable=False, default="download")
+    description = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+
+    venue = db.relationship("Venue", back_populates="files")
+    uploaded_by = db.relationship("User", foreign_keys=[uploaded_by_user_id])
+
 
 class VenueNote(db.Model):
     __tablename__ = "venue_notes"

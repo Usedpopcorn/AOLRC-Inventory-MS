@@ -162,11 +162,16 @@ def create_app():
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", app.config["SECRET_KEY"])
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", app.config["SQLALCHEMY_DATABASE_URI"])
     _enforce_development_database_branch_policy(app.config["SQLALCHEMY_DATABASE_URI"])
+    venue_file_max_bytes = int(app.config.get("VENUE_FILE_MAX_BYTES") or (25 * 1024 * 1024))
     try:
-        max_content_length = int(os.getenv("MAX_CONTENT_LENGTH", str(2 * 1024 * 1024)))
+        max_content_length = int(os.getenv("MAX_CONTENT_LENGTH", str(max(2 * 1024 * 1024, venue_file_max_bytes))))
     except ValueError:
-        max_content_length = 2 * 1024 * 1024
+        max_content_length = max(2 * 1024 * 1024, venue_file_max_bytes)
     app.config["MAX_CONTENT_LENGTH"] = max_content_length
+    app.config["VENUE_FILE_UPLOAD_DIR"] = os.getenv(
+        "VENUE_FILE_UPLOAD_DIR",
+        os.path.join(app.instance_path, "venue_files"),
+    )
     app.config["AVATAR_UPLOAD_DIR"] = os.getenv(
         "AVATAR_UPLOAD_DIR",
         os.path.join(app.static_folder, "uploads", "avatars"),

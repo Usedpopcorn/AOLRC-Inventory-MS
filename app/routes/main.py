@@ -1,6 +1,6 @@
 from datetime import datetime, time, timedelta, timezone
 
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import current_user
 from sqlalchemy import Integer, String, and_, case, cast, func, literal, or_, select, union_all
 from sqlalchemy.orm import selectinload
@@ -15,6 +15,7 @@ from app.models import (
     Item,
     User,
     Venue,
+    VenueFile,
     VenueItem,
     VenueNote,
 )
@@ -59,6 +60,19 @@ from app.services.venue_profile import (
     build_venue_profile_view_model,
     filter_venue_inventory_rows,
     normalize_venue_inventory_filters,
+)
+from app.services.venue_files import (
+    VENUE_FILE_ACCEPT,
+    VenueFileError,
+    allowed_extensions_label,
+    build_venue_file_row,
+    build_venue_file_rows,
+    delete_stored_venue_file,
+    format_file_size,
+    read_csv_preview,
+    read_text_preview,
+    save_uploaded_venue_file,
+    stored_file_path,
 )
 
 main_bp = Blueprint("main", __name__)
@@ -1828,6 +1842,13 @@ def venue_detail(venue_id):
 
     venue_profile = build_venue_profile_view_model(venue.id)
     recent_activity_rows = build_recent_venue_activity_rows(venue.id, limit=20)
+    venue_files = (
+        VenueFile.query.options(selectinload(VenueFile.uploaded_by))
+        .filter(VenueFile.venue_id == venue.id)
+        .order_by(VenueFile.created_at.desc(), VenueFile.id.desc())
+        .all()
+    )
+    venue_file_rows = build_venue_file_rows(venue_files)
     note_item_options = venue_profile["note_item_options"]
     note_item_option_map = {option["id"]: option for option in note_item_options}
     if active_note_item_id not in note_item_option_map:
@@ -1918,9 +1939,148 @@ def venue_detail(venue_id):
         note_title_max_length=NOTE_TITLE_MAX_LENGTH,
         note_body_max_length=NOTE_BODY_MAX_LENGTH,
         active_profile_tab=active_profile_tab,
+        venue_file_rows=venue_file_rows,
+        venue_file_accept=VENUE_FILE_ACCEPT,
+        venue_file_allowed_extensions=allowed_extensions_label(),
+        venue_file_max_size_text=format_file_size(current_app.config.get("VENUE_FILE_MAX_BYTES")),
         venue_inventory_export_base_url=url_for("main.export_venue_inventory", venue_id=venue.id),
         restock_status_options=RESTOCK_STATUS_META,
         update_status_url=url_for("venue_items.quick_check", venue_id=venue.id, next=request.full_path),
+    )
+
+
+def load_venue_file_or_404(venue_id, file_id):
+    return (
+        VenueFile.query.options(
+            selectinload(VenueFile.venue),
+            selectinload(VenueFile.uploaded_by),
+        )
+        .filter(VenueFile.venue_id == venue_id, VenueFile.id == file_id)
+        .first_or_404()
+    )
+
+
+def venue_file_redirect(venue_id, next_path=None):
+    return redirect_to_venue_detail(
+        venue_id,
+        next_path=next_path or url_for("main.venues"),
+        profile_tab="files",
+    )
+
+
+def build_inline_file_response(venue_file):
+    try:
+        path = stored_file_path(venue_file)
+    except VenueFileError:
+        abort(404)
+    if not path.exists():
+        abort(404)
+
+    response = send_file(
+        path,
+        mimetype=venue_file.mime_type,
+        as_attachment=False,
+        download_name=venue_file.original_filename,
+        conditional=True,
+    )
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Content-Security-Policy"] = "; ".join(
+        [
+            "default-src 'self'",
+            "base-uri 'self'",
+            "frame-ancestors 'self'",
+            "object-src 'none'",
+            "img-src 'self' data:",
+            "media-src 'self'",
+        ]
+    )
+    return response
+
+
+@main_bp.post("/venues/<int:venue_id>/files")
+@roles_required("admin")
+def upload_venue_file(venue_id):
+    venue = Venue.query.get_or_404(venue_id)
+    next_path = normalize_next_path(request.form.get("next"), url_for("main.venue_detail", venue_id=venue.id))
+    try:
+        venue_file = save_uploaded_venue_file(
+            request.files.get("venue_file"),
+            venue_id=venue.id,
+            uploader_user_id=current_user.id,
+            description=request.form.get("description"),
+        )
+    except VenueFileError as exc:
+        flash(str(exc), "error")
+        return venue_file_redirect(venue.id, next_path)
+
+    db.session.add(venue_file)
+    db.session.commit()
+    flash("Venue file uploaded.", "success")
+    return venue_file_redirect(venue.id, next_path)
+
+
+@main_bp.post("/venues/<int:venue_id>/files/<int:file_id>/delete")
+@roles_required("admin")
+def delete_venue_file(venue_id, file_id):
+    venue = Venue.query.get_or_404(venue_id)
+    next_path = normalize_next_path(request.form.get("next"), url_for("main.venue_detail", venue_id=venue.id))
+    venue_file = load_venue_file_or_404(venue.id, file_id)
+    delete_stored_venue_file(venue_file)
+    db.session.delete(venue_file)
+    db.session.commit()
+    flash("Venue file deleted.", "success")
+    return venue_file_redirect(venue.id, next_path)
+
+
+@main_bp.get("/venues/<int:venue_id>/files/<int:file_id>")
+@roles_required("viewer", "staff", "admin")
+def preview_venue_file(venue_id, file_id):
+    venue_file = load_venue_file_or_404(venue_id, file_id)
+    venue = venue_file.venue
+    file_row = build_venue_file_row(venue_file)
+    text_preview = None
+    csv_preview = None
+    try:
+        if file_row["preview_type"] == "text":
+            text_preview = read_text_preview(venue_file)
+        elif file_row["preview_type"] == "csv":
+            csv_preview = read_csv_preview(venue_file)
+    except (FileNotFoundError, VenueFileError):
+        abort(404)
+
+    return render_template(
+        "venues/file_preview.html",
+        venue=venue,
+        file_row=file_row,
+        text_preview=text_preview,
+        csv_preview=csv_preview,
+        back_url=url_for("main.venue_detail", venue_id=venue.id, profile_tab="files"),
+    )
+
+
+@main_bp.get("/venues/<int:venue_id>/files/<int:file_id>/view")
+@roles_required("viewer", "staff", "admin")
+def view_venue_file(venue_id, file_id):
+    venue_file = load_venue_file_or_404(venue_id, file_id)
+    return build_inline_file_response(venue_file)
+
+
+@main_bp.get("/venues/<int:venue_id>/files/<int:file_id>/download")
+@roles_required("viewer", "staff", "admin")
+def download_venue_file(venue_id, file_id):
+    venue_file = load_venue_file_or_404(venue_id, file_id)
+    try:
+        path = stored_file_path(venue_file)
+    except VenueFileError:
+        abort(404)
+    if not path.exists():
+        abort(404)
+    return send_file(
+        path,
+        mimetype=venue_file.mime_type,
+        as_attachment=True,
+        download_name=venue_file.original_filename,
+        conditional=True,
     )
 
 

@@ -32,6 +32,65 @@ docker compose up --build
 
 App URL: `http://127.0.0.1:5000/dashboard`
 
+Docker Compose also starts Mailpit for local email capture:
+
+- Mailpit inbox: `http://127.0.0.1:8025`
+- Mailpit SMTP: `mailpit:1025` from the Docker web container
+- Local host SMTP, if you run the app outside Docker: `127.0.0.1:1025`
+
+With the `.env.example` mail settings, password reset/setup emails are sent to Mailpit and never leave your machine. Click the reset/setup link from the Mailpit inbox to test the full flow locally.
+
+### Password Reset Email
+
+The account system sends password reset and managed-account setup links through the internal mail service in `app/services/mail_service.py`. Configure links with `APP_BASE_URL`; local Docker development should use `http://127.0.0.1:5000`, while production must use the deployed HTTPS origin.
+
+Development defaults:
+
+```dotenv
+APP_BASE_URL=http://127.0.0.1:5000
+MAIL_ENABLED=true
+MAIL_BACKEND=smtp
+MAIL_SERVER=mailpit
+MAIL_PORT=1025
+MAIL_USE_TLS=false
+MAIL_USE_SSL=false
+MAIL_DEFAULT_SENDER=AOLRC Inventory <noreply@localhost>
+MAIL_SUPPRESS_SEND=false
+MAIL_CAPTURE_UI_URL=http://127.0.0.1:8025
+```
+
+For a non-Docker Mailpit run, install/run Mailpit locally and use:
+
+```dotenv
+MAIL_SERVER=127.0.0.1
+MAIL_PORT=1025
+```
+
+Production SMTP is provider-agnostic and should work with services such as Resend, Postmark, SendGrid, or similar SMTP providers:
+
+```dotenv
+APP_BASE_URL=https://inventory.example.org
+MAIL_ENABLED=true
+MAIL_BACKEND=smtp
+MAIL_SERVER=smtp.provider.example
+MAIL_PORT=587
+MAIL_USERNAME=provider-username-or-api-key
+MAIL_PASSWORD=provider-secret
+MAIL_USE_TLS=true
+MAIL_USE_SSL=false
+MAIL_DEFAULT_SENDER=AOLRC Inventory <inventory@example.org>
+MAIL_SUPPRESS_SEND=false
+```
+
+Production requires a verified sending domain or verified sender address, depending on the provider. Do not commit real SMTP credentials. If mail is disabled or misconfigured, password reset requests keep a generic user-facing response and log a sanitized error for operators.
+
+Security notes:
+
+- There is no public registration flow; admins create managed accounts.
+- `AUTH_ALLOW_DEV_QUICK_LOGIN` and `AUTH_DEV_EXPOSE_PASSWORD_LINKS` are development-only and are blocked outside development.
+- Keep `SECRET_KEY` unique in production and set `APP_BASE_URL` to the public HTTPS origin so reset/setup links do not point at localhost.
+- Login protection allows 8 recent failed password attempts before a 15-minute account lockout by default. Stale failed-attempt counters are cleared when the recent throttling window is empty, so a user should not be locked by one typo after a quiet period or app restart.
+
 ### Prepare SQLite + Docker + Migration Status
 
 ```powershell

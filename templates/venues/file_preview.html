@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% import "_ui_macros.html" as ui %}
+
+{% block title %}{{ file_row.original_filename }}{% endblock %}
+
+{% block content %}
+  <div class="card mb-3 venue-file-preview-hero ui-surface-card-elevated">
+    <div class="card-body">
+      {% call ui.page_header(
+        title=file_row.original_filename,
+        subtitle="Preview and download this venue file.",
+        back_url=back_url,
+        back_label="Venue Files",
+        action_text="Download",
+        action_href=url_for('main.download_venue_file', venue_id=venue.id, file_id=file_row.id),
+        action_class="btn btn-aolrc-primary ui-control",
+        section_classes="venue-file-preview-header"
+      ) %}
+        {{ ui.chip(venue.name, tone="primary") }}
+        {{ ui.chip(file_row.category, tone="secondary") }}
+        {{ ui.chip(file_row.size_text, tone="neutral") }}
+        {{ ui.chip(file_row.extension_label, tone="neutral") }}
+      {% endcall %}
+    </div>
+  </div>
+
+  <section class="card ui-surface-card">
+    <div class="card-body venue-file-preview-body">
+      {% if file_row.description %}
+        {{ ui.state_banner("File note", body=file_row.description, tone="neutral", extra_classes="ui-state-banner-compact") }}
+      {% endif %}
+
+      {% if file_row.preview_type == "pdf" %}
+        <div class="venue-file-preview-frame-shell">
+          <iframe
+            class="venue-file-preview-frame"
+            src="{{ url_for('main.view_venue_file', venue_id=venue.id, file_id=file_row.id) }}"
+            title="PDF preview for {{ file_row.original_filename }}"
+          ></iframe>
+        </div>
+      {% elif file_row.preview_type == "image" %}
+        <div class="venue-file-image-preview-shell">
+          <img
+            class="venue-file-image-preview"
+            src="{{ url_for('main.view_venue_file', venue_id=venue.id, file_id=file_row.id) }}"
+            alt="{{ file_row.original_filename }}"
+          >
+        </div>
+      {% elif file_row.preview_type == "audio" %}
+        <div class="venue-file-media-preview-shell">
+          <audio controls preload="metadata" src="{{ url_for('main.view_venue_file', venue_id=venue.id, file_id=file_row.id) }}">
+            Download this audio file if playback is unavailable.
+          </audio>
+        </div>
+      {% elif file_row.preview_type == "video" %}
+        <div class="venue-file-media-preview-shell">
+          <video controls preload="metadata" src="{{ url_for('main.view_venue_file', venue_id=venue.id, file_id=file_row.id) }}">
+            Download this video file if playback is unavailable.
+          </video>
+        </div>
+      {% elif file_row.preview_type == "text" and text_preview %}
+        {% if text_preview.truncated %}
+          {{ ui.state_banner("Preview truncated", body="Download the file to view the full contents.", tone="neutral", extra_classes="ui-state-banner-compact") }}
+        {% endif %}
+        <pre class="venue-file-text-preview">{{ text_preview.text }}</pre>
+      {% elif file_row.preview_type == "csv" and csv_preview %}
+        {% if csv_preview.truncated %}
+          {{ ui.state_banner("Preview truncated", body="Download the file to view all rows.", tone="neutral", extra_classes="ui-state-banner-compact") }}
+        {% endif %}
+        {% if csv_preview.rows %}
+          <div class="venue-file-csv-scroll">
+            <table class="table table-sm venue-file-csv-table">
+              <tbody>
+                {% for csv_row in csv_preview.rows %}
+                  <tr>
+                    {% for cell in csv_row %}
+                      <td>{{ cell }}</td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          {{ ui.empty_state("This spreadsheet preview is empty.", body="Download the file to inspect it in another app.", compact=True) }}
+        {% endif %}
+      {% else %}
+        {{ ui.state_banner(
+          "Preview is limited for this file type.",
+          body="This file can be downloaded and opened in its native application. Browser preview support varies for Office, OpenDocument, archive, and other document formats.",
+          tone="neutral",
+          extra_classes="ui-state-banner-compact"
+        ) }}
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

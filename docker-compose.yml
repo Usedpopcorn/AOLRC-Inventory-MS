@@ -5,6 +5,23 @@ services:
       - "5000:5000"
     env_file:
       - .env
+    environment:
+      MAIL_ENABLED: "${MAIL_ENABLED:-true}"
+      MAIL_BACKEND: "${MAIL_BACKEND:-smtp}"
+      MAIL_SERVER: "${MAIL_SERVER:-mailpit}"
+      MAIL_PORT: "${MAIL_PORT:-1025}"
+      MAIL_USE_TLS: "${MAIL_USE_TLS:-false}"
+      MAIL_USE_SSL: "${MAIL_USE_SSL:-false}"
+      MAIL_DEFAULT_SENDER: "${MAIL_DEFAULT_SENDER:-AOLRC Inventory <noreply@localhost>}"
+      MAIL_CAPTURE_UI_URL: "${MAIL_CAPTURE_UI_URL:-http://127.0.0.1:8025}"
     volumes:
       - .:/app
     command: flask run --host=0.0.0.0 --port=5000
+    depends_on:
+      - mailpit
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"

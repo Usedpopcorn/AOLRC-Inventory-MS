@@ -1,7 +1,7 @@
 import hashlib
+import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
-import secrets
 
 from flask import (
     Blueprint,
@@ -19,8 +19,8 @@ from werkzeug.utils import secure_filename
 
 from app import ACTIVE_UI_THEME_SESSION_KEY, AUTH_SESSION_VERSION_SESSION_KEY, db
 from app.models import (
-    User,
     VALID_THEME_PREFERENCES,
+    User,
     normalize_theme_preference,
 )
 from app.security import get_client_ip, is_safe_redirect_target
@@ -34,9 +34,11 @@ from app.services.account_security import (
     resolve_password_action_token,
     utcnow,
     validate_new_password,
+    validate_password_not_reused,
 )
 from app.services.feedback import FEEDBACK_REVIEW_SESSION_KEY
 from app.services.inventory_status import ensure_utc
+from app.services.mail_service import send_password_action_email
 from app.services.rate_limits import rate_limiter
 
 auth_bp = Blueprint("auth", __name__)
@@ -177,6 +179,17 @@ def _record_failed_login(user):
     db.session.commit()
 
 
+def _clear_stale_failed_login_attempts(user, email, ip_address):
+    if user is None or not (user.failed_login_attempts or 0):
+        return
+
+    if _has_recent_login_failures(email, ip_address):
+        return
+
+    user.failed_login_attempts = 0
+    db.session.flush()
+
+
 def _finish_login(user):
     login_user(user)
     session[AUTH_SESSION_VERSION_SESSION_KEY] = int(user.session_version or 1)
@@ -292,6 +305,29 @@ def _clear_login_failures(email, ip_address):
     _clear_rate_limit("login-ip", ip_key)
 
 
+def _has_recent_login_failures(email, ip_address):
+    config = current_app.config
+    email_key = _throttle_key(email, fallback="blank-email")
+    ip_key = _throttle_key(ip_address, fallback="unknown-ip")
+    return any(
+        decision.count > 0
+        for decision in (
+            _peek_rate_limit(
+                "login-account",
+                email_key,
+                limit=config["AUTH_LOGIN_ACCOUNT_THROTTLE_LIMIT"],
+                window_seconds=config["AUTH_LOGIN_THROTTLE_WINDOW_SECONDS"],
+            ),
+            _peek_rate_limit(
+                "login-ip",
+                ip_key,
+                limit=config["AUTH_LOGIN_IP_THROTTLE_LIMIT"],
+                window_seconds=config["AUTH_LOGIN_THROTTLE_WINDOW_SECONDS"],
+            ),
+        )
+    )
+
+
 def _record_password_request_attempt(email, ip_address):
     config = current_app.config
     email_key = _throttle_key(email, fallback="blank-email")
@@ -390,6 +426,13 @@ def login():
             return _render_login(email=email, status_code=429)
 
         if not password_matches:
+            if (
+                user
+                and user.active
+                and not user.force_password_change
+                and not _is_user_locked(user, now)
+            ):
+                _clear_stale_failed_login_attempts(user, email, ip_address)
             throttle_decision = _record_login_failure(email, ip_address)
             if throttle_decision is not None:
                 _log_auth_security_event(
@@ -483,7 +526,7 @@ def forgot_password():
                 details={"retry_after_seconds": throttle_decision.retry_after_seconds},
             )
             flash(
-                "If an account matches that email, password reset instructions are ready.",
+                "If an account matches that email, password reset instructions have been sent.",
                 "success",
             )
             return redirect(url_for("auth.login"))
@@ -496,8 +539,17 @@ def forgot_password():
             ip_address=ip_address,
             details={"issued": bool(issued_link)},
         )
+        if issued_link:
+            delivery_result = send_password_action_email(user, issued_link)
+            _log_auth_security_event(
+                "password_email_delivery",
+                email=user.email,
+                user_id=user.id,
+                ip_address=ip_address,
+                details={"status": delivery_result.status},
+            )
         flash(
-            "If an account matches that email, password reset instructions are ready.",
+            "If an account matches that email, password reset instructions have been sent.",
             "success",
         )
         if issued_link and current_app.config["AUTH_DEV_EXPOSE_PASSWORD_LINKS"]:
@@ -511,6 +563,7 @@ def forgot_password():
 def reset_password(token):
     token_record = None
     token_error = None
+    form_error = None
     ip_address = get_client_ip()
     try:
         token_record = resolve_password_action_token(token)
@@ -537,6 +590,7 @@ def reset_password(token):
                     token=token,
                     token_record=token_record,
                     token_error=token_error,
+                    form_error=form_error,
                     purpose=(token_record.purpose if token_record else None),
                 ),
                 429,
@@ -555,36 +609,50 @@ def reset_password(token):
         new_password = request.form.get("new_password") or ""
         confirm_password = request.form.get("confirm_password") or ""
         try:
-            complete_password_action(
-                token=token,
-                new_password=new_password,
-                confirm_password=confirm_password,
-            )
+            validate_new_password(new_password, confirm_password)
+            validate_password_not_reused(token_record.user, new_password)
         except AccountManagementError as exc:
-            token_error = str(exc)
+            form_error = str(exc)
             _log_auth_security_event(
-                "password_reset_failed",
+                "password_reset_validation_failed",
                 email=getattr(getattr(token_record, "user", None), "email", None),
                 user_id=getattr(getattr(token_record, "user", None), "id", None),
                 ip_address=ip_address,
-                details={"reason": token_error},
+                details={"reason": form_error},
             )
         else:
-            _clear_password_reset_attempts(account_key, ip_address)
-            _log_auth_security_event(
-                "password_reset_completed",
-                email=getattr(getattr(token_record, "user", None), "email", None),
-                user_id=getattr(getattr(token_record, "user", None), "id", None),
-                ip_address=ip_address,
-            )
-            flash("Password updated. You can now sign in.", "success")
-            return redirect(url_for("auth.login"))
+            try:
+                complete_password_action(
+                    token=token,
+                    new_password=new_password,
+                    confirm_password=confirm_password,
+                )
+            except AccountManagementError as exc:
+                token_error = str(exc)
+                _log_auth_security_event(
+                    "password_reset_failed",
+                    email=getattr(getattr(token_record, "user", None), "email", None),
+                    user_id=getattr(getattr(token_record, "user", None), "id", None),
+                    ip_address=ip_address,
+                    details={"reason": token_error},
+                )
+            else:
+                _clear_password_reset_attempts(account_key, ip_address)
+                _log_auth_security_event(
+                    "password_reset_completed",
+                    email=getattr(getattr(token_record, "user", None), "email", None),
+                    user_id=getattr(getattr(token_record, "user", None), "id", None),
+                    ip_address=ip_address,
+                )
+                flash("Password updated. You can now sign in.", "success")
+                return redirect(url_for("auth.login"))
 
     return render_template(
         "auth/reset_password.html",
         token=token,
         token_record=token_record,
         token_error=token_error,
+        form_error=form_error,
         purpose=(token_record.purpose if token_record else None),
     )
 
@@ -720,11 +788,11 @@ def change_password():
         flash(str(exc), "error")
         return redirect(url_for("auth.account"))
 
-    if check_password_hash(current_user.password_hash, new_password):
-        flash("New password must be different from current password.", "error")
+    try:
+        change_password_for_user(user=current_user, new_password=new_password)
+    except AccountManagementError as exc:
+        flash(str(exc), "error")
         return redirect(url_for("auth.account"))
-
-    change_password_for_user(user=current_user, new_password=new_password)
     session.pop(AUTH_SESSION_VERSION_SESSION_KEY, None)
     session.pop(FEEDBACK_REVIEW_SESSION_KEY, None)
     logout_user()

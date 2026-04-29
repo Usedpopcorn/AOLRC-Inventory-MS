@@ -18,7 +18,7 @@
 ) }}
 
 <div class="collapse{{ ' show' if show_add_user_form else '' }}" id="adminCreateUserForm">
-  {% call ui.form_section("Create User", "Setup link after save.", "admin-user-create-panel") %}
+  {% call ui.form_section("Create User", "The user will receive an email link to set their first password.", "admin-user-create-panel") %}
     <form method="post" class="admin-user-create-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="page" value="{{ user_center.pagination.current_page }}">
@@ -51,6 +51,9 @@
             <option value="{{ value }}" {% if form_values.role == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
+      </div>
+      <div class="small text-muted">
+        New accounts cannot sign in until the user opens the setup email and chooses a password that meets the password rules.
       </div>
       <button class="btn btn-aolrc-accent ui-control" type="submit">Create User</button>
     </form>
@@ -163,12 +166,12 @@
             </td>
             <td class="admin-user-actions-cell">
               <div class="admin-user-actions admin-user-actions-desktop">
-                <a class="btn btn-sm btn-outline-secondary ui-control-sm" href="{{ row.manage_url }}">Edit</a>
+                <a class="btn btn-sm btn-secondary ui-control-sm" href="{{ row.manage_url }}">Edit</a>
 
                 <form method="post" action="{{ url_for('admin.issue_user_password_link', user_id=row.id) }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="next" value="{{ return_path }}">
-                  <button class="btn btn-sm btn-outline-secondary ui-control-sm" type="submit">
+                  <button class="btn btn-sm btn-secondary ui-control-sm" type="submit">
                     {{ "Setup Link" if row.password_status_label.startswith("Setup") else "Reset Link" }}
                   </button>
                 </form>
@@ -177,13 +180,13 @@
                   <form method="post" action="{{ url_for('admin.deactivate_user', user_id=row.id) }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="next" value="{{ return_path }}">
-                    <button class="btn btn-sm btn-outline-danger ui-control-sm" type="submit">Deactivate</button>
+                    <button class="btn btn-sm btn-danger ui-control-sm" type="submit">Deactivate</button>
                   </form>
                 {% elif not row.is_active %}
                   <form method="post" action="{{ url_for('admin.activate_user', user_id=row.id) }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="next" value="{{ return_path }}">
-                    <button class="btn btn-sm btn-outline-success ui-control-sm" type="submit">Activate</button>
+                    <button class="btn btn-sm btn-success ui-control-sm" type="submit">Activate</button>
                   </form>
                 {% endif %}
 
@@ -191,7 +194,7 @@
                   <form method="post" action="{{ url_for('admin.unlock_user', user_id=row.id) }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="next" value="{{ return_path }}">
-                    <button class="btn btn-sm btn-outline-warning ui-control-sm" type="submit">Unlock</button>
+                    <button class="btn btn-sm btn-warning ui-control-sm" type="submit">Unlock</button>
                   </form>
                 {% endif %}
               </div>
@@ -264,12 +267,12 @@
           {% endif %}
         </div>
         <div class="admin-user-actions-mobile">
-          <a class="btn btn-outline-secondary ui-control" href="{{ row.manage_url }}">Edit User</a>
+          <a class="btn btn-secondary ui-control" href="{{ row.manage_url }}">Edit User</a>
 
           <form method="post" action="{{ url_for('admin.issue_user_password_link', user_id=row.id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="next" value="{{ return_path }}">
-            <button class="btn btn-outline-secondary ui-control w-100" type="submit">
+            <button class="btn btn-secondary ui-control w-100" type="submit">
               {{ "Setup Link" if row.password_status_label.startswith("Setup") else "Reset Link" }}
             </button>
           </form>
@@ -278,13 +281,13 @@
             <form method="post" action="{{ url_for('admin.deactivate_user', user_id=row.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="next" value="{{ return_path }}">
-              <button class="btn btn-outline-danger ui-control w-100" type="submit">Deactivate</button>
+              <button class="btn btn-danger ui-control w-100" type="submit">Deactivate</button>
             </form>
           {% elif not row.is_active %}
             <form method="post" action="{{ url_for('admin.activate_user', user_id=row.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="next" value="{{ return_path }}">
-              <button class="btn btn-outline-success ui-control w-100" type="submit">Activate</button>
+              <button class="btn btn-success ui-control w-100" type="submit">Activate</button>
             </form>
           {% endif %}
 
@@ -292,7 +295,7 @@
             <form method="post" action="{{ url_for('admin.unlock_user', user_id=row.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="next" value="{{ return_path }}">
-              <button class="btn btn-outline-warning ui-control w-100" type="submit">Unlock</button>
+              <button class="btn btn-warning ui-control w-100" type="submit">Unlock</button>
             </form>
           {% endif %}
         </div>
