@@ -7,7 +7,7 @@ from email.message import EmailMessage
 
 from flask import current_app, render_template
 
-from app.services.account_security import PASSWORD_SETUP_PURPOSE
+from app.services.account_security import PASSWORD_RESET_PURPOSE, PASSWORD_SETUP_PURPOSE
 from app.services.inventory_status import ensure_utc
 
 MAIL_STATUS_DISABLED = "disabled"
@@ -40,20 +40,50 @@ class MailDeliveryResult:
 
 
 def send_password_action_email(user, issued_link):
-    purpose_label = _password_action_label(issued_link.purpose)
-    expires_at = ensure_utc(issued_link.expires_at)
+    if issued_link.purpose == PASSWORD_SETUP_PURPOSE:
+        return send_account_setup_email(
+            user=user,
+            setup_url=issued_link.url,
+            expires_at=issued_link.expires_at,
+        )
+    return send_password_reset_email(
+        user=user,
+        reset_url=issued_link.url,
+        expires_at=issued_link.expires_at,
+    )
+
+
+def send_password_reset_email(*, user, reset_url, expires_at):
+    return _send_password_link_email(
+        user=user,
+        purpose=PASSWORD_RESET_PURPOSE,
+        action_url=reset_url,
+        expires_at=expires_at,
+    )
+
+
+def send_account_setup_email(*, user, setup_url, expires_at):
+    return _send_password_link_email(
+        user=user,
+        purpose=PASSWORD_SETUP_PURPOSE,
+        action_url=setup_url,
+        expires_at=expires_at,
+    )
+
+
+def send_login_verification_email(*, user, verification_code, expires_at):
+    normalized_expiration = ensure_utc(expires_at)
     context = {
         "app_name": current_app.config["APP_NAME"],
-        "action_label": purpose_label,
-        "action_url": issued_link.url,
-        "expires_at": expires_at,
-        "expires_at_text": expires_at.strftime("%Y-%m-%d %I:%M %p %Z"),
-        "purpose": issued_link.purpose,
         "user": user,
+        "verification_code": verification_code,
+        "expires_at": normalized_expiration,
+        "expires_at_text": normalized_expiration.strftime("%Y-%m-%d %I:%M %p %Z"),
+        "expires_in_minutes": int(current_app.config["LOGIN_2FA_CODE_TTL_MINUTES"]),
     }
-    subject = _render_subject("email/password_action_subject.txt", **context)
-    body_text = render_template("email/password_action.txt", **context)
-    body_html = render_template("email/password_action.html", **context)
+    subject = _render_subject("email/login_verification_subject.txt", **context)
+    body_text = render_template("email/login_verification.txt", **context)
+    body_html = render_template("email/login_verification.html", **context)
     return send_transactional_email(
         to_address=user.email,
         subject=subject,
@@ -168,6 +198,28 @@ def _authenticate_and_send(smtp, username, password, message):
 
 def _render_subject(template_name, **context):
     return " ".join(render_template(template_name, **context).split())
+
+
+def _send_password_link_email(*, user, purpose, action_url, expires_at):
+    normalized_expiration = ensure_utc(expires_at)
+    context = {
+        "app_name": current_app.config["APP_NAME"],
+        "action_label": _password_action_label(purpose),
+        "action_url": action_url,
+        "expires_at": normalized_expiration,
+        "expires_at_text": normalized_expiration.strftime("%Y-%m-%d %I:%M %p %Z"),
+        "purpose": purpose,
+        "user": user,
+    }
+    subject = _render_subject("email/password_action_subject.txt", **context)
+    body_text = render_template("email/password_action.txt", **context)
+    body_html = render_template("email/password_action.html", **context)
+    return send_transactional_email(
+        to_address=user.email,
+        subject=subject,
+        body_text=body_text,
+        body_html=body_html,
+    )
 
 
 def _password_action_label(purpose):

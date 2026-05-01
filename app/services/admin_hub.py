@@ -15,6 +15,7 @@ from app.models import (
     InventoryAdminEvent,
     Item,
     PasswordActionToken,
+    TrustedDevice,
     User,
     Venue,
     VenueNote,
@@ -151,6 +152,7 @@ def build_admin_user_list_view_model(page=1, per_page=12, actor=None):
     current_page = min(max(int(page or 1), 1), total_pages)
     users = query.offset((current_page - 1) * per_page).limit(per_page).all()
     pending_tokens = _build_pending_password_token_map([user.id for user in users])
+    trusted_device_counts = _build_trusted_device_count_map([user.id for user in users])
     showing_from = (current_page - 1) * per_page + 1 if total_count else 0
     showing_to = min(current_page * per_page, total_count)
     return {
@@ -161,6 +163,7 @@ def build_admin_user_list_view_model(page=1, per_page=12, actor=None):
                 user,
                 actor=actor,
                 pending_token=pending_tokens.get(user.id),
+                trusted_device_count=trusted_device_counts.get(user.id, 0),
                 include_password_state=True,
             )
             for user in users
@@ -183,10 +186,12 @@ def build_admin_user_list_view_model(page=1, per_page=12, actor=None):
 def build_admin_user_detail_view_model(user_id, actor=None):
     user = db.get_or_404(User, user_id)
     pending_token = _build_pending_password_token_map([user.id]).get(user.id)
+    trusted_device_count = _build_trusted_device_count_map([user.id]).get(user.id, 0)
     user_row = _serialize_user_row(
         user,
         actor=actor,
         pending_token=pending_token,
+        trusted_device_count=trusted_device_count,
         include_password_state=True,
     )
     recent_events = _build_recent_account_event_rows(limit=12, target_user_id=user.id)
@@ -361,6 +366,23 @@ def _build_pending_password_token_map(user_ids):
     return pending_tokens
 
 
+def _build_trusted_device_count_map(user_ids):
+    if not user_ids:
+        return {}
+    now = utcnow_naive()
+    rows = (
+        db.session.query(TrustedDevice.user_id, func.count(TrustedDevice.id))
+        .filter(
+            TrustedDevice.user_id.in_(user_ids),
+            TrustedDevice.revoked_at.is_(None),
+            TrustedDevice.expires_at > now,
+        )
+        .group_by(TrustedDevice.user_id)
+        .all()
+    )
+    return {user_id: int(count or 0) for user_id, count in rows}
+
+
 def _build_user_password_status(user, pending_token=None):
     if pending_token is not None:
         is_setup = pending_token.purpose == "password_setup"
@@ -388,7 +410,14 @@ def _build_user_password_status(user, pending_token=None):
     }
 
 
-def _serialize_user_row(user, *, actor=None, pending_token=None, include_password_state=False):
+def _serialize_user_row(
+    user,
+    *,
+    actor=None,
+    pending_token=None,
+    trusted_device_count=0,
+    include_password_state=False,
+):
     role_meta = USER_ROLE_META.get(user.role, USER_ROLE_META["viewer"])
     locked = is_user_locked(user)
     is_self = bool(actor and getattr(actor, "id", None) == user.id)
@@ -416,6 +445,8 @@ def _serialize_user_row(user, *, actor=None, pending_token=None, include_passwor
         "deactivated_at_text": format_admin_timestamp(user.deactivated_at, missing_text="Not deactivated"),
         "is_self": is_self,
         "manage_url": f"/admin/users/{user.id}/edit",
+        "trusted_device_count": int(trusted_device_count or 0),
+        "has_trusted_devices": int(trusted_device_count or 0) > 0,
     }
     if include_password_state:
         password_status = _build_user_password_status(user, pending_token=pending_token)

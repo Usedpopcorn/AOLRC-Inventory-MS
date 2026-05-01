@@ -8,6 +8,7 @@ DEFAULT_THEME_PREFERENCE = "purple"
 ITEM_TRACKING_MODES = ("quantity", "singleton_asset")
 ITEM_CATEGORY_OPTIONS = ("consumable", "durable", "beverage", "cleaning", "office", "other")
 PASSWORD_ACTION_PURPOSES = ("password_setup", "password_reset")
+LOGIN_VERIFICATION_PURPOSES = ("login_verification",)
 ORDER_BATCH_TYPES = ("monthly", "quarterly", "ad_hoc")
 ORDER_LINE_STATUSES = ("planned", "ordered", "received", "skipped")
 FEEDBACK_SUBMISSION_TYPES = ("feedback", "bug_report")
@@ -76,7 +77,9 @@ class User(UserMixin, db.Model):
     failed_login_attempts = db.Column(db.Integer, nullable=False, default=0)
     locked_until = db.Column(db.DateTime, nullable=True)
     last_login_at = db.Column(db.DateTime, nullable=True)
+    last_login_verification_at = db.Column(db.DateTime, nullable=True)
     password_changed_at = db.Column(db.DateTime, nullable=True)
+    require_login_verification = db.Column(db.Boolean, nullable=False, default=False)
     force_password_change = db.Column(db.Boolean, nullable=False, default=False)
     session_version = db.Column(db.Integer, nullable=False, default=1)
     deactivated_at = db.Column(db.DateTime, nullable=True)
@@ -125,6 +128,46 @@ class PasswordActionToken(db.Model):
 
     user = db.relationship("User", foreign_keys=[user_id])
     created_by = db.relationship("User", foreign_keys=[created_by_user_id])
+
+
+class LoginVerificationChallenge(db.Model):
+    __tablename__ = "login_verification_challenges"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    purpose = db.Column(db.String(32), nullable=False, default="login_verification")
+    code_hash = db.Column(db.String(64), nullable=False, index=True)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    consumed_at = db.Column(db.DateTime, nullable=True)
+    failed_attempts = db.Column(db.Integer, nullable=False, default=0)
+    sent_to_email = db.Column(db.String(255), nullable=True)
+    request_ip = db.Column(db.String(128), nullable=True)
+    user_agent = db.Column(db.String(512), nullable=True)
+    request_country = db.Column(db.String(8), nullable=True)
+    next_url = db.Column(db.String(512), nullable=True)
+    reason_codes = db.Column(db.Text, nullable=True)
+    last_sent_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    user = db.relationship("User", foreign_keys=[user_id])
+
+
+class TrustedDevice(db.Model):
+    __tablename__ = "trusted_devices"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    user_agent_hash = db.Column(db.String(64), nullable=False, index=True)
+    user_agent_summary = db.Column(db.String(255), nullable=True)
+    last_ip = db.Column(db.String(128), nullable=True)
+    last_country = db.Column(db.String(8), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_seen_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    revoked_at = db.Column(db.DateTime, nullable=True, index=True)
+
+    user = db.relationship("User", foreign_keys=[user_id])
 
 
 class AccountAuditEvent(db.Model):

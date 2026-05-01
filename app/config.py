@@ -55,6 +55,7 @@ class Config:
     APP_BASE_URL = (os.getenv("APP_BASE_URL") or "").strip() or None
     FEEDBACK_REVIEW_PIN = (os.getenv("FEEDBACK_REVIEW_PIN") or "").strip()
     TRUSTED_HOSTS = tuple(_env_csv("TRUSTED_HOSTS") or _default_trusted_hosts())
+    TRUST_PROXY_HEADERS = _env_flag("TRUST_PROXY_HEADERS", default=False)
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = _env_flag(
@@ -111,6 +112,21 @@ class Config:
     AUTH_PASSWORD_RESET_THROTTLE_WINDOW_SECONDS = max(
         60, _env_int("AUTH_PASSWORD_RESET_THROTTLE_WINDOW_SECONDS", 300)
     )
+    LOGIN_EMAIL_2FA_ENABLED = _env_flag("LOGIN_EMAIL_2FA_ENABLED", default=True)
+    LOGIN_2FA_CODE_TTL_MINUTES = max(1, _env_int("LOGIN_2FA_CODE_TTL_MINUTES", 10))
+    LOGIN_2FA_MAX_ATTEMPTS = max(1, _env_int("LOGIN_2FA_MAX_ATTEMPTS", 5))
+    LOGIN_2FA_RESEND_COOLDOWN_SECONDS = max(
+        15, _env_int("LOGIN_2FA_RESEND_COOLDOWN_SECONDS", 60)
+    )
+    TRUSTED_DEVICE_DAYS_ADMIN = max(1, _env_int("TRUSTED_DEVICE_DAYS_ADMIN", 30))
+    TRUSTED_DEVICE_DAYS_STAFF = max(1, _env_int("TRUSTED_DEVICE_DAYS_STAFF", 60))
+    TRUSTED_DEVICE_DAYS_VIEWER = max(1, _env_int("TRUSTED_DEVICE_DAYS_VIEWER", 60))
+    TRUSTED_DEVICE_COOKIE_NAME = (
+        os.getenv("TRUSTED_DEVICE_COOKIE_NAME") or "aolrc_trusted_device"
+    ).strip() or "aolrc_trusted_device"
+    TRUSTED_DEVICE_COOKIE_SAMESITE = (
+        os.getenv("TRUSTED_DEVICE_COOKIE_SAMESITE") or "Lax"
+    ).strip() or "Lax"
     FEEDBACK_SUBMISSION_LIMIT = max(1, _env_int("FEEDBACK_SUBMISSION_LIMIT", 4))
     FEEDBACK_SUBMISSION_WINDOW_SECONDS = max(
         60, _env_int("FEEDBACK_SUBMISSION_WINDOW_SECONDS", 300)

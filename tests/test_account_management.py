@@ -19,6 +19,9 @@ from app.services.mail_service import (
     MAIL_STATUS_SENT,
     MAIL_STATUS_SUPPRESSED,
     MailDeliveryResult,
+    send_account_setup_email,
+    send_login_verification_email,
+    send_password_reset_email,
     send_transactional_email,
 )
 from app.services.rate_limits import rate_limiter
@@ -183,6 +186,80 @@ def test_mail_service_missing_config_logs_sanitized_error(caplog, app):
     assert result.failed is True
     assert "MAIL_SERVER and MAIL_DEFAULT_SENDER are required" in logged_messages
     assert "super-secret-password" not in logged_messages
+
+
+def test_password_mail_helpers_delegate_to_transactional_sender(app, monkeypatch):
+    captured_calls = []
+
+    def fake_send_transactional_email(**kwargs):
+        captured_calls.append(kwargs)
+        return MailDeliveryResult(
+            status=MAIL_STATUS_SENT,
+            message="Mail sent.",
+            recipient=kwargs.get("to_address"),
+        )
+
+    monkeypatch.setattr(
+        "app.services.mail_service.send_transactional_email",
+        fake_send_transactional_email,
+    )
+
+    class StubUser:
+        email = "mail-helper@example.com"
+
+    with app.app_context(), app.test_request_context(base_url="http://localhost"):
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        reset_result = send_password_reset_email(
+            user=StubUser(),
+            reset_url="https://inventory.example.org/reset-password/token1",
+            expires_at=expires_at,
+        )
+        setup_result = send_account_setup_email(
+            user=StubUser(),
+            setup_url="https://inventory.example.org/reset-password/token2",
+            expires_at=expires_at,
+        )
+
+    assert reset_result.status == MAIL_STATUS_SENT
+    assert setup_result.status == MAIL_STATUS_SENT
+    assert len(captured_calls) == 2
+    assert captured_calls[0]["to_address"] == "mail-helper@example.com"
+    assert "reset your password" in captured_calls[0]["body_text"].lower()
+    assert captured_calls[1]["to_address"] == "mail-helper@example.com"
+    assert "set up your password" in captured_calls[1]["body_text"].lower()
+
+
+def test_login_verification_mail_helper_delegates_to_transactional_sender(app, monkeypatch):
+    captured_calls = []
+
+    def fake_send_transactional_email(**kwargs):
+        captured_calls.append(kwargs)
+        return MailDeliveryResult(
+            status=MAIL_STATUS_SENT,
+            message="Mail sent.",
+            recipient=kwargs.get("to_address"),
+        )
+
+    monkeypatch.setattr(
+        "app.services.mail_service.send_transactional_email",
+        fake_send_transactional_email,
+    )
+
+    class StubUser:
+        email = "login-verify@example.com"
+
+    with app.app_context(), app.test_request_context(base_url="http://localhost"):
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+        result = send_login_verification_email(
+            user=StubUser(),
+            verification_code="123456",
+            expires_at=expires_at,
+        )
+
+    assert result.status == MAIL_STATUS_SENT
+    assert len(captured_calls) == 1
+    assert captured_calls[0]["to_address"] == "login-verify@example.com"
+    assert "123456" in captured_calls[0]["body_text"]
 
 
 def test_admin_can_create_user_from_users_page(client, app):

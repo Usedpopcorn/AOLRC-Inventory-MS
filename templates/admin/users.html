@@ -139,6 +139,8 @@
                   <div class="admin-user-cell-support">{{ row.failed_login_attempts }} failed attempt{{ "s" if row.failed_login_attempts != 1 else "" }}</div>
                 {% elif not row.is_active %}
                   <div class="admin-user-cell-support">Deactivated {{ row.deactivated_at_text }}</div>
+                {% elif row.has_trusted_devices %}
+                  <div class="admin-user-cell-support">{{ row.trusted_device_count }} trusted device{{ "s" if row.trusted_device_count != 1 else "" }}</div>
                 {% endif %}
               </div>
             </td>
@@ -195,6 +197,13 @@
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="next" value="{{ return_path }}">
                     <button class="btn btn-sm btn-warning ui-control-sm" type="submit">Unlock</button>
+                  </form>
+                {% endif %}
+                {% if row.has_trusted_devices %}
+                  <form method="post" action="{{ url_for('admin.revoke_user_trusted_devices', user_id=row.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ return_path }}">
+                    <button class="btn btn-sm btn-outline-secondary ui-control-sm" type="submit">Revoke Devices</button>
                   </form>
                 {% endif %}
               </div>
@@ -259,6 +268,11 @@
               <span class="admin-user-card-label">Failed attempts</span>
               <span>{{ row.failed_login_attempts }}</span>
             </div>
+          {% elif row.has_trusted_devices %}
+            <div class="admin-user-card-row">
+              <span class="admin-user-card-label">Trusted devices</span>
+              <span>{{ row.trusted_device_count }}</span>
+            </div>
           {% elif not row.is_active %}
             <div class="admin-user-card-row">
               <span class="admin-user-card-label">Deactivated</span>
@@ -296,6 +310,13 @@
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="next" value="{{ return_path }}">
               <button class="btn btn-warning ui-control w-100" type="submit">Unlock</button>
+            </form>
+          {% endif %}
+          {% if row.has_trusted_devices %}
+            <form method="post" action="{{ url_for('admin.revoke_user_trusted_devices', user_id=row.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="next" value="{{ return_path }}">
+              <button class="btn btn-outline-secondary ui-control w-100" type="submit">Revoke Devices</button>
             </form>
           {% endif %}
         </div>

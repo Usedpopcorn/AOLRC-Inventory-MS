@@ -1,0 +1,9 @@
+Hello,
+
+Use this code to finish signing in to {{ app_name }}:
+
+{{ verification_code }}
+
+This code expires in {{ expires_in_minutes }} minutes ({{ expires_at_text }}).
+
+If you did not try to sign in, you can ignore this email or contact an admin.

@@ -114,11 +114,24 @@ function Set-PublicTestEnvironment {
         }
     }
 
+    $configuredPublicBaseUrl = if ($values.ContainsKey("APP_BASE_URL") -and $values["APP_BASE_URL"]) {
+        $values["APP_BASE_URL"]
+    }
+    else {
+        $null
+    }
+    $effectivePublicBaseUrl = if ($PublicBaseUrl) {
+        $PublicBaseUrl
+    }
+    else {
+        $configuredPublicBaseUrl
+    }
+
     $publicHost = $null
-    if ($PublicBaseUrl) {
-        $env:APP_BASE_URL = $PublicBaseUrl
+    if ($effectivePublicBaseUrl) {
+        $env:APP_BASE_URL = $effectivePublicBaseUrl
         try {
-            $publicHost = ([Uri]$PublicBaseUrl).Host
+            $publicHost = ([Uri]$effectivePublicBaseUrl).Host
         }
         catch {
             $publicHost = $null
@@ -161,7 +174,7 @@ function Set-PublicTestEnvironment {
         ListenHost    = $listenHost
         Port          = $effectivePort
         LocalUrl      = "http://${listenHost}:$effectivePort"
-        PublicBaseUrl = $PublicBaseUrl
+        PublicBaseUrl = $effectivePublicBaseUrl
         PublicHost    = $publicHost
         VenvPython    = $venvPython
         WaitressServe = $waitressServe

@@ -17,6 +17,7 @@ def app():
     app.config.update(
         TESTING=True,
         WTF_CSRF_ENABLED=False,
+        LOGIN_EMAIL_2FA_ENABLED=False,
     )
     with app.app_context():
         db.drop_all()
