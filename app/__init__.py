@@ -8,6 +8,7 @@ from flask_wtf.csrf import CSRFError, CSRFProtect
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager, current_user
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash
 from dotenv import load_dotenv
 
@@ -54,7 +55,8 @@ def handle_unauthorized():
 
     if wants_json_response():
         return jsonify({"error": "authentication required", "code": "unauthenticated"}), 401
-    return redirect(url_for("auth.login", next=request.url))
+    next_path = request.full_path if request.query_string else request.path
+    return redirect(url_for("auth.login", next=next_path))
 
 
 def _current_git_branch():
@@ -122,9 +124,11 @@ def _save_user(email, password, role, display_name=None):
         )
         existing.active = True
         existing.force_password_change = False
+        existing.require_login_verification = False
         existing.session_version = int(existing.session_version or 0) + 1
         existing.password_changed_at = now
         existing.last_login_at = None
+        existing.last_login_verification_at = None
         existing.failed_login_attempts = 0
         existing.locked_until = None
         existing.deactivated_at = None
@@ -140,6 +144,7 @@ def _save_user(email, password, role, display_name=None):
         role=normalized_role,
         active=True,
         force_password_change=False,
+        require_login_verification=False,
         password_changed_at=now,
     )
     db.session.add(user)
@@ -159,9 +164,22 @@ def create_app():
     static_folder="../static"
 )
     app.config.from_object(Config)
+    if app.config.get("TRUST_PROXY_HEADERS"):
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", app.config["SECRET_KEY"])
+    app.config["APP_BASE_URL"] = (os.getenv("APP_BASE_URL", app.config["APP_BASE_URL"] or "").strip() or None)
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", app.config["SQLALCHEMY_DATABASE_URI"])
     _enforce_development_database_branch_policy(app.config["SQLALCHEMY_DATABASE_URI"])
+    app_base_url = (app.config.get("APP_BASE_URL") or "").strip()
+    if not is_development_environment():
+        if not app_base_url:
+            raise RuntimeError(
+                "APP_BASE_URL must be configured outside development so account emails use the deployed origin."
+            )
+        if not app_base_url.lower().startswith("https://"):
+            raise RuntimeError(
+                "APP_BASE_URL must use https:// outside development."
+            )
     venue_file_max_bytes = int(app.config.get("VENUE_FILE_MAX_BYTES") or (25 * 1024 * 1024))
     try:
         max_content_length = int(os.getenv("MAX_CONTENT_LENGTH", str(max(2 * 1024 * 1024, venue_file_max_bytes))))
@@ -409,8 +427,10 @@ def create_app():
             user.role = fixture["role"]
             user.active = fixture["active"]
             user.force_password_change = False
+            user.require_login_verification = False
             user.password_changed_at = now
             user.last_login_at = None
+            user.last_login_verification_at = None
             user.failed_login_attempts = 0
             user.locked_until = fixture["locked_until"]
             user.deactivated_at = None if fixture["active"] else now

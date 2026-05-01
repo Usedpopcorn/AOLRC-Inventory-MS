@@ -39,6 +39,12 @@ ACCOUNT_EVENT_META = {
     "password_reset_initiated": {"label": "Password Reset", "icon_class": "bi-arrow-clockwise"},
     "password_reset_completed": {"label": "Password Updated", "icon_class": "bi-check2-circle"},
     "password_changed": {"label": "Password Changed", "icon_class": "bi-shield-check"},
+    "login_verification_required": {"label": "Login Verification", "icon_class": "bi-shield-exclamation"},
+    "login_verification_resent": {"label": "Verification Resent", "icon_class": "bi-envelope-arrow-up"},
+    "login_verification_succeeded": {"label": "Login Verified", "icon_class": "bi-shield-check"},
+    "login_verification_failed": {"label": "Login Verification Failed", "icon_class": "bi-shield-x"},
+    "trusted_device_created": {"label": "Trusted Device Added", "icon_class": "bi-laptop"},
+    "trusted_device_revoked": {"label": "Trusted Device Revoked", "icon_class": "bi-device-ssd"},
 }
 
 
@@ -234,6 +240,26 @@ def describe_account_event(event, *, actor_name=None, target_name=None):
     elif event.event_type == "password_changed":
         title = "Changed account password"
         detail = target_email
+    elif event.event_type == "login_verification_required":
+        title = "Required login verification"
+        reason_list = details.get("reasons") or []
+        reason_text = ", ".join(reason_list) if reason_list else "risk-based challenge"
+        detail = f"{target_email} | {reason_text}"
+    elif event.event_type == "login_verification_resent":
+        title = "Resent login verification code"
+        detail = target_email
+    elif event.event_type == "login_verification_succeeded":
+        title = "Completed login verification"
+        detail = target_email
+    elif event.event_type == "login_verification_failed":
+        title = "Failed login verification"
+        detail = target_email
+    elif event.event_type == "trusted_device_created":
+        title = "Trusted a login device"
+        detail = target_email
+    elif event.event_type == "trusted_device_revoked":
+        title = "Revoked trusted device access"
+        detail = target_email
     else:
         title = meta["label"]
         detail = target_email
@@ -390,6 +416,7 @@ def unlock_user_account(*, actor, user_id):
 
         user.failed_login_attempts = 0
         user.locked_until = None
+        user.require_login_verification = True
         log_account_event("user_unlocked", actor=actor, target=user)
         db.session.commit()
         return user, True
@@ -442,6 +469,8 @@ def complete_password_action(*, token, new_password, confirm_password):
 
         user.password_hash = generate_password_hash(password)
         user.password_changed_at = now
+        user.last_login_verification_at = None
+        user.require_login_verification = True
         user.force_password_change = False
         rotate_user_session(user)
         user.failed_login_attempts = 0
@@ -469,6 +498,8 @@ def change_password_for_user(*, user, new_password):
 
         user.password_hash = generate_password_hash(password)
         user.password_changed_at = now
+        user.last_login_verification_at = None
+        user.require_login_verification = True
         user.force_password_change = False
         rotate_user_session(user)
         user.failed_login_attempts = 0
@@ -496,7 +527,15 @@ def resolve_password_action_token(token):
         raise AccountManagementError("This password link is invalid.")
     if token_record.consumed_at is not None:
         raise AccountManagementError("This password link has already been used.")
-    if ensure_utc(token_record.expires_at) <= utcnow():
+    expires_at = token_record.expires_at
+    if expires_at.tzinfo is None:
+        if db.session.get_bind().dialect.name == "sqlite":
+            expires_at_has_passed = expires_at <= utcnow().replace(tzinfo=None)
+        else:
+            expires_at_has_passed = expires_at <= datetime.now()
+    else:
+        expires_at_has_passed = ensure_utc(expires_at) <= utcnow()
+    if expires_at_has_passed:
         raise AccountManagementError("This password link has expired.")
     if token_record.purpose not in PASSWORD_ACTION_PURPOSES:
         raise AccountManagementError("This password link is invalid.")

@@ -70,6 +70,7 @@ from app.services.inventory_rules import (
     resolve_effective_stale_threshold_days,
     sync_item_venue_assignments,
 )
+from app.services.login_verification import revoke_all_trusted_devices_for_user
 from app.services.mail_service import (
     MAIL_STATUS_DISABLED,
     MAIL_STATUS_FAILED,
@@ -895,6 +896,23 @@ def unlock_user(user_id):
             "User unlocked." if changed else f"{user.email} is not currently locked.",
             "success",
         )
+    return redirect(_user_return_target("admin.users"))
+
+
+@admin_bp.post("/users/<int:user_id>/trusted-devices/revoke")
+@roles_required("admin")
+def revoke_user_trusted_devices(user_id):
+    user = db.get_or_404(User, user_id)
+    if not user.active:
+        flash("User is inactive. Reactivate before managing trusted devices.", "error")
+        return redirect(_user_return_target("admin.users"))
+
+    revoked_count = revoke_all_trusted_devices_for_user(actor=current_user, user=user)
+    if revoked_count:
+        flash(f"Revoked {revoked_count} trusted device(s) for {user.email}.", "success")
+    else:
+        flash(f"No active trusted devices found for {user.email}.", "success")
+    db.session.commit()
     return redirect(_user_return_target("admin.users"))
 
 

@@ -19,11 +19,16 @@ from werkzeug.utils import secure_filename
 
 from app import ACTIVE_UI_THEME_SESSION_KEY, AUTH_SESSION_VERSION_SESSION_KEY, db
 from app.models import (
+    LoginVerificationChallenge,
     VALID_THEME_PREFERENCES,
     User,
     normalize_theme_preference,
 )
-from app.security import get_client_ip, is_safe_redirect_target
+from app.security import (
+    get_client_ip,
+    is_safe_redirect_target,
+    normalize_safe_redirect_path,
+)
 from app.services.account_security import (
     AccountManagementError,
     build_dev_password_link_message,
@@ -38,7 +43,19 @@ from app.services.account_security import (
 )
 from app.services.feedback import FEEDBACK_REVIEW_SESSION_KEY
 from app.services.inventory_status import ensure_utc
-from app.services.mail_service import send_password_action_email
+from app.services.login_verification import (
+    create_login_verification_challenge,
+    evaluate_login_verification_need,
+    get_request_country,
+    get_request_user_agent,
+    get_trusted_device_cookie_name,
+    issue_trusted_device,
+    resend_allowed_for_challenge,
+    touch_trusted_device_if_present,
+    trusted_device_max_age_seconds,
+    verify_login_challenge_code,
+)
+from app.services.mail_service import send_login_verification_email, send_password_action_email
 from app.services.rate_limits import rate_limiter
 
 auth_bp = Blueprint("auth", __name__)
@@ -67,6 +84,10 @@ ACCOUNT_THEME_OPTIONS = (
         "value": "blue",
     },
 )
+PENDING_LOGIN_USER_ID_SESSION_KEY = "_pending_login_user_id"
+PENDING_LOGIN_CHALLENGE_ID_SESSION_KEY = "_pending_login_challenge_id"
+PENDING_LOGIN_NEXT_URL_SESSION_KEY = "_pending_login_next_url"
+PENDING_LOGIN_REASON_CODES_SESSION_KEY = "_pending_login_reason_codes"
 
 
 def _is_dev_quick_login_enabled():
@@ -201,6 +222,62 @@ def _finish_login(user):
 def _reset_login_failure_state(user):
     user.failed_login_attempts = 0
     user.locked_until = None
+
+
+def _clear_pending_login_state():
+    session.pop(PENDING_LOGIN_USER_ID_SESSION_KEY, None)
+    session.pop(PENDING_LOGIN_CHALLENGE_ID_SESSION_KEY, None)
+    session.pop(PENDING_LOGIN_NEXT_URL_SESSION_KEY, None)
+    session.pop(PENDING_LOGIN_REASON_CODES_SESSION_KEY, None)
+
+
+def _set_trusted_device_cookie(response, raw_token, user):
+    response.set_cookie(
+        get_trusted_device_cookie_name(),
+        raw_token,
+        max_age=trusted_device_max_age_seconds(user),
+        httponly=True,
+        secure=bool(current_app.config.get("SESSION_COOKIE_SECURE")),
+        samesite=current_app.config.get("TRUSTED_DEVICE_COOKIE_SAMESITE", "Lax"),
+        path="/",
+    )
+
+
+def _clear_trusted_device_cookie(response):
+    response.delete_cookie(
+        get_trusted_device_cookie_name(),
+        path="/",
+    )
+
+
+def _issue_login_challenge(
+    *,
+    user,
+    next_url,
+    ip_address,
+    user_agent,
+    reason_codes,
+    event_type="login_verification_required",
+):
+    challenge, raw_code = create_login_verification_challenge(
+        user=user,
+        next_url=next_url,
+        ip_address_text=ip_address,
+        user_agent=user_agent,
+        request_country=get_request_country(),
+        reason_codes=reason_codes,
+        event_type=event_type,
+    )
+    delivery = send_login_verification_email(
+        user=user,
+        verification_code=raw_code,
+        expires_at=challenge.expires_at,
+    )
+    session[PENDING_LOGIN_USER_ID_SESSION_KEY] = user.id
+    session[PENDING_LOGIN_CHALLENGE_ID_SESSION_KEY] = challenge.id
+    session[PENDING_LOGIN_NEXT_URL_SESSION_KEY] = next_url or ""
+    session[PENDING_LOGIN_REASON_CODES_SESSION_KEY] = list(reason_codes or ())
+    return challenge, delivery
 
 
 def _render_login(email="", status_code=200):
@@ -389,7 +466,10 @@ def login():
         return redirect(url_for("main.dashboard"))
 
     if request.method == "POST":
+        _clear_pending_login_state()
         ip_address = get_client_ip()
+        request_country = get_request_country()
+        request_user_agent = get_request_user_agent()
         quick_role = (request.form.get("quick_login_role") or "").strip().lower()
         if _is_dev_quick_login_enabled() and quick_role in DEV_QUICK_LOGIN_EMAILS:
             user = _resolve_quick_login_user(quick_role)
@@ -486,27 +566,203 @@ def login():
             flash(GENERIC_LOGIN_FAILURE_MESSAGE, "error")
             return _render_login(email=email, status_code=401)
 
+        next_url = normalize_safe_redirect_path(
+            request.args.get("next") or request.form.get("next"),
+            url_for("main.dashboard"),
+        )
+        verification_decision = evaluate_login_verification_need(
+            user=user,
+            ip_address_text=ip_address,
+            user_agent=request_user_agent,
+            request_country=request_country,
+            had_recent_failures=bool(
+                int(user.failed_login_attempts or 0) > 0
+                or _has_recent_login_failures(email, ip_address)
+            ),
+            raw_cookie_token=request.cookies.get(get_trusted_device_cookie_name()),
+        )
+        if verification_decision.requires_verification:
+            _challenge, delivery = _issue_login_challenge(
+                user=user,
+                next_url=next_url,
+                ip_address=ip_address,
+                user_agent=request_user_agent,
+                reason_codes=verification_decision.reasons,
+            )
+            if not delivery.sent:
+                db.session.rollback()
+                _clear_pending_login_state()
+                _log_auth_security_event(
+                    "login_verification_email_failed",
+                    email=user.email,
+                    user_id=user.id,
+                    ip_address=ip_address,
+                    details={"status": delivery.status},
+                )
+                flash("Unable to send verification code right now. Please try again.", "error")
+                return _render_login(email=email, status_code=503)
+            db.session.commit()
+            flash("We sent a verification code to your email.", "success")
+            return redirect(url_for("auth.verify_login"))
+
         _clear_login_failures(email, ip_address)
         _reset_login_failure_state(user)
         register_successful_login(user)
+        touch_trusted_device_if_present(
+            user=user,
+            raw_cookie_token=request.cookies.get(get_trusted_device_cookie_name()),
+            ip_address_text=ip_address,
+            request_country=request_country,
+        )
         db.session.commit()
         _finish_login(user)
 
-        next_url = request.args.get("next") or request.form.get("next")
-        if is_safe_redirect_target(next_url):
-            return redirect(next_url)
-        return redirect(url_for("main.dashboard"))
+        return redirect(next_url)
 
     return _render_login()
 
 
 @auth_bp.post("/logout")
 def logout():
+    _clear_pending_login_state()
     session.pop(AUTH_SESSION_VERSION_SESSION_KEY, None)
     session.pop(FEEDBACK_REVIEW_SESSION_KEY, None)
     logout_user()
     flash("Signed out.", "success")
-    return redirect(url_for("auth.login"))
+    response = redirect(url_for("auth.login"))
+    _clear_trusted_device_cookie(response)
+    return response
+
+
+@auth_bp.route("/verify-login", methods=["GET", "POST"])
+def verify_login():
+    if current_user.is_authenticated:
+        return redirect(url_for("main.dashboard"))
+
+    pending_user_id = session.get(PENDING_LOGIN_USER_ID_SESSION_KEY)
+    pending_challenge_id = session.get(PENDING_LOGIN_CHALLENGE_ID_SESSION_KEY)
+    if not pending_user_id or not pending_challenge_id:
+        flash("Sign in to continue.", "error")
+        return redirect(url_for("auth.login"))
+
+    user = db.session.get(User, int(pending_user_id))
+    challenge = db.session.get(LoginVerificationChallenge, int(pending_challenge_id))
+    if (
+        user is None
+        or challenge is None
+        or challenge.user_id != user.id
+        or challenge.consumed_at is not None
+        or ensure_utc(challenge.expires_at) <= ensure_utc(utcnow())
+    ):
+        _clear_pending_login_state()
+        flash("Your verification session has expired. Please sign in again.", "error")
+        return redirect(url_for("auth.login"))
+    if _is_user_locked(user) or not user.active or user.force_password_change:
+        _clear_pending_login_state()
+        flash(GENERIC_LOGIN_FAILURE_MESSAGE, "error")
+        return redirect(url_for("auth.login"))
+
+    if request.method == "POST":
+        submitted_code = (request.form.get("verification_code") or "").strip()
+        trust_device = str(request.form.get("trust_device") or "").strip().lower() in {
+            "1",
+            "true",
+            "on",
+            "yes",
+        }
+        valid_code, reason = verify_login_challenge_code(
+            user=user,
+            challenge_id=challenge.id,
+            submitted_code=submitted_code,
+        )
+        if not valid_code:
+            db.session.commit()
+            if reason == "expired":
+                _clear_pending_login_state()
+                flash("Verification code expired. Sign in again to request a new code.", "error")
+                return redirect(url_for("auth.login"))
+            if reason == "attempt_limit":
+                _clear_pending_login_state()
+                flash("Too many invalid attempts. Sign in again to request a new code.", "error")
+                return redirect(url_for("auth.login"))
+            flash("Verification code is invalid.", "error")
+            return render_template(
+                "auth/verify_login.html",
+                email=user.email,
+                challenge=challenge,
+                reason_codes=session.get(PENDING_LOGIN_REASON_CODES_SESSION_KEY, []),
+            ), 401
+
+        _reset_login_failure_state(user)
+        register_successful_login(user)
+        _clear_login_failures(user.email, get_client_ip())
+        response = redirect(
+            normalize_safe_redirect_path(
+                session.get(PENDING_LOGIN_NEXT_URL_SESSION_KEY),
+                url_for("main.dashboard"),
+            )
+        )
+        if trust_device:
+            _record, raw_token = issue_trusted_device(
+                user=user,
+                user_agent=get_request_user_agent(),
+                ip_address_text=get_client_ip(),
+                request_country=get_request_country(),
+            )
+            _set_trusted_device_cookie(response, raw_token, user)
+        db.session.commit()
+        _finish_login(user)
+        _clear_pending_login_state()
+        return response
+
+    return render_template(
+        "auth/verify_login.html",
+        email=user.email,
+        challenge=challenge,
+        reason_codes=session.get(PENDING_LOGIN_REASON_CODES_SESSION_KEY, []),
+    )
+
+
+@auth_bp.post("/verify-login/resend")
+def resend_verify_login():
+    pending_user_id = session.get(PENDING_LOGIN_USER_ID_SESSION_KEY)
+    pending_challenge_id = session.get(PENDING_LOGIN_CHALLENGE_ID_SESSION_KEY)
+    if not pending_user_id or not pending_challenge_id:
+        flash("Sign in to continue.", "error")
+        return redirect(url_for("auth.login"))
+
+    user = db.session.get(User, int(pending_user_id))
+    challenge = db.session.get(LoginVerificationChallenge, int(pending_challenge_id))
+    if user is None or challenge is None:
+        _clear_pending_login_state()
+        flash("Your verification session has expired. Please sign in again.", "error")
+        return redirect(url_for("auth.login"))
+    if _is_user_locked(user) or not user.active or user.force_password_change:
+        _clear_pending_login_state()
+        flash(GENERIC_LOGIN_FAILURE_MESSAGE, "error")
+        return redirect(url_for("auth.login"))
+
+    can_resend, retry_after = resend_allowed_for_challenge(challenge)
+    if not can_resend:
+        flash(f"Please wait {retry_after} seconds before requesting another code.", "warning")
+        return redirect(url_for("auth.verify_login"))
+
+    _challenge, delivery = _issue_login_challenge(
+        user=user,
+        next_url=session.get(PENDING_LOGIN_NEXT_URL_SESSION_KEY) or "",
+        ip_address=get_client_ip(),
+        user_agent=get_request_user_agent(),
+        reason_codes=tuple(session.get(PENDING_LOGIN_REASON_CODES_SESSION_KEY, [])),
+        event_type="login_verification_resent",
+    )
+    if not delivery.sent:
+        db.session.rollback()
+        _clear_pending_login_state()
+        flash("Unable to send a new verification code right now. Please sign in again.", "error")
+        return redirect(url_for("auth.login"))
+    db.session.commit()
+    flash("We sent a new verification code.", "success")
+    return redirect(url_for("auth.verify_login"))
 
 
 @auth_bp.route("/forgot-password", methods=["GET", "POST"])
