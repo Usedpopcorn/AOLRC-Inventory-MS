@@ -1,6 +1,6 @@
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import (
@@ -45,6 +45,7 @@ from app.services.feedback import FEEDBACK_REVIEW_SESSION_KEY
 from app.services.inventory_status import ensure_utc
 from app.services.login_verification import (
     create_login_verification_challenge,
+    datetime_has_passed,
     evaluate_login_verification_need,
     get_request_country,
     get_request_user_agent,
@@ -72,6 +73,10 @@ DEV_QUICK_LOGIN_ROLE_MAP = {
 }
 GENERIC_LOGIN_FAILURE_MESSAGE = "Invalid credentials or account unavailable."
 AUTH_THROTTLE_MESSAGE = "Too many attempts. Please wait a few minutes and try again."
+LOCKED_ACCOUNT_MESSAGE = (
+    "Your account is temporarily locked after too many sign-in attempts. "
+    "Wait a few minutes and try again, or use password reset."
+)
 ACCOUNT_THEME_OPTIONS = (
     {
         "description": "Keep the existing AOLRC purple primary with the shared gold accent.",
@@ -88,6 +93,16 @@ PENDING_LOGIN_USER_ID_SESSION_KEY = "_pending_login_user_id"
 PENDING_LOGIN_CHALLENGE_ID_SESSION_KEY = "_pending_login_challenge_id"
 PENDING_LOGIN_NEXT_URL_SESSION_KEY = "_pending_login_next_url"
 PENDING_LOGIN_REASON_CODES_SESSION_KEY = "_pending_login_reason_codes"
+VERIFICATION_REASON_LABELS = {
+    "unknown_device": "New or unrecognized device",
+    "admin_untrusted_device": "Admin sign-in from untrusted device",
+    "stale_trusted_device": "Trusted device expired due to inactivity",
+    "user_agent_changed": "Browser/device changed",
+    "network_changed": "Network changed",
+    "country_changed": "Region changed",
+    "recent_failed_attempts": "Recent failed sign-in attempts",
+    "post_security_event": "Recent account security update",
+}
 
 
 def _is_dev_quick_login_enabled():
@@ -281,14 +296,50 @@ def _issue_login_challenge(
 
 
 def _render_login(email="", status_code=200):
+    has_pending_verification = bool(
+        session.get(PENDING_LOGIN_USER_ID_SESSION_KEY)
+        and session.get(PENDING_LOGIN_CHALLENGE_ID_SESSION_KEY)
+    )
     return (
         render_template(
             "auth/login.html",
             email=email,
             quick_login_enabled=_is_dev_quick_login_enabled(),
+            pending_verification=has_pending_verification,
         ),
         status_code,
     )
+
+
+def _build_lockout_message(user, now):
+    base_message = f"{GENERIC_LOGIN_FAILURE_MESSAGE} {LOCKED_ACCOUNT_MESSAGE}"
+    locked_until = ensure_utc(getattr(user, "locked_until", None))
+    if locked_until is None:
+        return base_message
+    remaining_seconds = int((locked_until - ensure_utc(now)).total_seconds())
+    if remaining_seconds <= 0:
+        return base_message
+    remaining_minutes = max(1, (remaining_seconds + 59) // 60)
+    return f"{base_message} Try again in about {remaining_minutes} minute(s)."
+
+
+def _mask_email_address(email):
+    normalized = (email or "").strip()
+    if "@" not in normalized:
+        return normalized
+    local_part, domain = normalized.split("@", 1)
+    if len(local_part) <= 2:
+        masked_local = local_part[:1] + "*"
+    else:
+        masked_local = local_part[:1] + ("*" * (len(local_part) - 2)) + local_part[-1:]
+    return f"{masked_local}@{domain}"
+
+
+def _friendly_reason_labels(reason_codes):
+    labels = []
+    for reason_code in reason_codes or []:
+        labels.append(VERIFICATION_REASON_LABELS.get(reason_code, "Unfamiliar sign-in context"))
+    return list(dict.fromkeys(labels))
 
 
 def _log_auth_security_event(
@@ -464,6 +515,13 @@ def _clear_password_reset_attempts(account_key, ip_address):
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("main.dashboard"))
+    if request.method == "GET":
+        if (
+            session.get(PENDING_LOGIN_USER_ID_SESSION_KEY)
+            and session.get(PENDING_LOGIN_CHALLENGE_ID_SESSION_KEY)
+        ):
+            return redirect(url_for("auth.verify_login"))
+        return _render_login()
 
     if request.method == "POST":
         _clear_pending_login_state()
@@ -549,7 +607,7 @@ def login():
                 ip_address=ip_address,
                 details={"reason": "locked"},
             )
-            flash(GENERIC_LOGIN_FAILURE_MESSAGE, "error")
+            flash(_build_lockout_message(user, now), "error")
             return _render_login(email=email, status_code=401)
 
         if not user.active or user.force_password_change:
@@ -652,14 +710,17 @@ def verify_login():
         or challenge is None
         or challenge.user_id != user.id
         or challenge.consumed_at is not None
-        or ensure_utc(challenge.expires_at) <= ensure_utc(utcnow())
+        or datetime_has_passed(challenge.expires_at)
     ):
         _clear_pending_login_state()
         flash("Your verification session has expired. Please sign in again.", "error")
         return redirect(url_for("auth.login"))
     if _is_user_locked(user) or not user.active or user.force_password_change:
         _clear_pending_login_state()
-        flash(GENERIC_LOGIN_FAILURE_MESSAGE, "error")
+        if _is_user_locked(user):
+            flash(_build_lockout_message(user, utcnow()), "error")
+        else:
+            flash(GENERIC_LOGIN_FAILURE_MESSAGE, "error")
         return redirect(url_for("auth.login"))
 
     if request.method == "POST":
@@ -689,8 +750,13 @@ def verify_login():
             return render_template(
                 "auth/verify_login.html",
                 email=user.email,
+                masked_email=_mask_email_address(user.email),
                 challenge=challenge,
                 reason_codes=session.get(PENDING_LOGIN_REASON_CODES_SESSION_KEY, []),
+                reason_labels=_friendly_reason_labels(
+                    session.get(PENDING_LOGIN_REASON_CODES_SESSION_KEY, [])
+                ),
+                expires_in_minutes=int(current_app.config["LOGIN_2FA_CODE_TTL_MINUTES"]),
             ), 401
 
         _reset_login_failure_state(user)
@@ -718,8 +784,13 @@ def verify_login():
     return render_template(
         "auth/verify_login.html",
         email=user.email,
+        masked_email=_mask_email_address(user.email),
         challenge=challenge,
         reason_codes=session.get(PENDING_LOGIN_REASON_CODES_SESSION_KEY, []),
+        reason_labels=_friendly_reason_labels(
+            session.get(PENDING_LOGIN_REASON_CODES_SESSION_KEY, [])
+        ),
+        expires_in_minutes=int(current_app.config["LOGIN_2FA_CODE_TTL_MINUTES"]),
     )
 
 
@@ -739,7 +810,10 @@ def resend_verify_login():
         return redirect(url_for("auth.login"))
     if _is_user_locked(user) or not user.active or user.force_password_change:
         _clear_pending_login_state()
-        flash(GENERIC_LOGIN_FAILURE_MESSAGE, "error")
+        if _is_user_locked(user):
+            flash(_build_lockout_message(user, utcnow()), "error")
+        else:
+            flash(GENERIC_LOGIN_FAILURE_MESSAGE, "error")
         return redirect(url_for("auth.login"))
 
     can_resend, retry_after = resend_allowed_for_challenge(challenge)
@@ -763,6 +837,13 @@ def resend_verify_login():
     db.session.commit()
     flash("We sent a new verification code.", "success")
     return redirect(url_for("auth.verify_login"))
+
+
+@auth_bp.post("/verify-login/cancel")
+def cancel_verify_login():
+    _clear_pending_login_state()
+    flash("Verification canceled. Sign in again to continue.", "warning")
+    return redirect(url_for("auth.login"))
 
 
 @auth_bp.route("/forgot-password", methods=["GET", "POST"])
@@ -970,7 +1051,7 @@ def upload_avatar():
             old_path.unlink()
 
     current_user.avatar_filename = safe_name
-    current_user.avatar_updated_at = datetime.utcnow()
+    current_user.avatar_updated_at = datetime.now(timezone.utc)
     db.session.commit()
     flash("Profile picture updated.", "success")
     return redirect(url_for("auth.account"))

@@ -1,4 +1,8 @@
+import re
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from flask import current_app, has_app_context
 
 
 STATUS_META = {
@@ -66,11 +70,47 @@ def ensure_utc(value):
     return value.astimezone(timezone.utc)
 
 
-def format_timestamp(value, missing_text="No updates yet"):
+def get_app_timezone_name():
+    if has_app_context():
+        configured = (current_app.config.get("APP_TIMEZONE") or "").strip()
+        if configured:
+            return configured
+    return "UTC"
+
+
+def get_app_timezone():
+    timezone_name = get_app_timezone_name()
+    normalized_name = timezone_name.upper()
+    if normalized_name in {"LOCAL", "SYSTEM"}:
+        return datetime.now().astimezone().tzinfo or timezone.utc
+    if normalized_name == "UTC":
+        return timezone.utc
+    utc_offset_match = re.fullmatch(r"UTC([+-])(\d{1,2})(?::?(\d{2}))?", normalized_name)
+    if utc_offset_match:
+        sign = 1 if utc_offset_match.group(1) == "+" else -1
+        hours = int(utc_offset_match.group(2))
+        minutes = int(utc_offset_match.group(3) or "0")
+        if hours <= 23 and minutes <= 59:
+            return timezone(sign * timedelta(hours=hours, minutes=minutes))
+    try:
+        return ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        return timezone.utc
+
+
+def to_app_timezone(value):
     normalized = ensure_utc(value)
     if normalized is None:
+        return None
+    return normalized.astimezone(get_app_timezone())
+
+
+def format_timestamp(value, missing_text="No updates yet", include_tz=False):
+    localized = to_app_timezone(value)
+    if localized is None:
         return missing_text
-    return normalized.strftime("%Y-%m-%d %I:%M %p")
+    format_string = "%Y-%m-%d %I:%M %p %Z" if include_tz else "%Y-%m-%d %I:%M %p"
+    return localized.strftime(format_string)
 
 
 def _resolve_stale_threshold(stale_threshold=None):

@@ -262,6 +262,45 @@ def test_login_verification_mail_helper_delegates_to_transactional_sender(app, m
     assert "123456" in captured_calls[0]["body_text"]
 
 
+def test_mail_helpers_render_expiration_in_configured_app_timezone(app, monkeypatch):
+    captured_calls = []
+
+    def fake_send_transactional_email(**kwargs):
+        captured_calls.append(kwargs)
+        return MailDeliveryResult(
+            status=MAIL_STATUS_SENT,
+            message="Mail sent.",
+            recipient=kwargs.get("to_address"),
+        )
+
+    monkeypatch.setattr(
+        "app.services.mail_service.send_transactional_email",
+        fake_send_transactional_email,
+    )
+
+    class StubUser:
+        email = "timezone-check@example.com"
+
+    app.config["APP_TIMEZONE"] = "UTC-04:00"
+
+    with app.app_context(), app.test_request_context(base_url="http://localhost"):
+        expires_at = datetime(2026, 7, 1, 16, 0, tzinfo=timezone.utc)
+        send_password_reset_email(
+            user=StubUser(),
+            reset_url="https://inventory.example.org/reset-password/token",
+            expires_at=expires_at,
+        )
+        send_login_verification_email(
+            user=StubUser(),
+            verification_code="654321",
+            expires_at=expires_at,
+        )
+
+    assert len(captured_calls) == 2
+    assert "2026-07-01 12:00 PM UTC-04:00" in captured_calls[0]["body_text"]
+    assert "2026-07-01 12:00 PM UTC-04:00" in captured_calls[1]["body_text"]
+
+
 def test_admin_can_create_user_from_users_page(client, app):
     app.config["MAIL_ENABLED"] = False
 

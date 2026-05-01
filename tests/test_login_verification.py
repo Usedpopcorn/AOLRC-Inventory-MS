@@ -4,7 +4,11 @@ from werkzeug.security import generate_password_hash
 
 from app import db
 from app.models import LoginVerificationChallenge, TrustedDevice, User
-from app.services.login_verification import hash_trusted_token, hash_user_agent
+from app.services.login_verification import (
+    create_login_verification_challenge,
+    hash_trusted_token,
+    hash_user_agent,
+)
 from app.services.mail_service import MailDeliveryResult
 
 
@@ -259,3 +263,85 @@ def test_password_reset_forces_followup_login_verification(client, app, monkeypa
             ).first()
         )
         assert challenge is not None
+
+
+def test_pending_login_redirects_login_page_to_verify_route(client, app):
+    app.config["AUTH_ALLOW_DEV_QUICK_LOGIN"] = False
+    with app.app_context():
+        user = create_user(email="pending-verify@example.com", password="Pending!123")
+        challenge, _raw_code = create_login_verification_challenge(
+            user=user,
+            next_url="/dashboard",
+            ip_address_text="198.51.100.10",
+            user_agent="Mozilla/5.0 Pending Test",
+            request_country="US",
+            reason_codes=("unknown_device",),
+        )
+        db.session.commit()
+        user_id = user.id
+        challenge_id = challenge.id
+
+    with client.session_transaction() as session_state:
+        session_state["_pending_login_user_id"] = user_id
+        session_state["_pending_login_challenge_id"] = challenge_id
+        session_state["_pending_login_next_url"] = "/dashboard"
+        session_state["_pending_login_reason_codes"] = ["unknown_device"]
+
+    response = client.get("/login", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/verify-login")
+
+    verify_page = client.get("/verify-login", follow_redirects=False)
+    assert verify_page.status_code == 200
+    assert b"Verify This Login" in verify_page.data
+    assert b"verification_code" in verify_page.data
+    assert b"Use a different account" in verify_page.data
+
+
+def test_cancel_verify_login_clears_pending_session_state(client, app):
+    with app.app_context():
+        user = create_user(email="cancel-verify@example.com", password="Cancel!123")
+        challenge, _raw_code = create_login_verification_challenge(
+            user=user,
+            next_url="/dashboard",
+            ip_address_text="198.51.100.20",
+            user_agent="Mozilla/5.0 Cancel Test",
+            request_country="US",
+            reason_codes=("unknown_device",),
+        )
+        db.session.commit()
+        user_id = user.id
+        challenge_id = challenge.id
+
+    with client.session_transaction() as session_state:
+        session_state["_pending_login_user_id"] = user_id
+        session_state["_pending_login_challenge_id"] = challenge_id
+        session_state["_pending_login_next_url"] = "/dashboard"
+        session_state["_pending_login_reason_codes"] = ["unknown_device"]
+
+    response = client.post("/verify-login/cancel", follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Verification canceled. Sign in again to continue." in response.data
+
+    with client.session_transaction() as session_state:
+        assert "_pending_login_user_id" not in session_state
+        assert "_pending_login_challenge_id" not in session_state
+        assert "_pending_login_next_url" not in session_state
+        assert "_pending_login_reason_codes" not in session_state
+
+
+def test_locked_account_login_shows_explicit_lockout_message(client, app):
+    with app.app_context():
+        user = create_user(email="locked-msg@example.com", password="Locked!123")
+        user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=12)
+        db.session.commit()
+
+    response = client.post(
+        "/login",
+        data={"email": "locked-msg@example.com", "password": "Locked!123"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 401
+    assert b"Invalid credentials or account unavailable." in response.data
+    assert b"temporarily locked" in response.data
+    assert b"Try again in about" in response.data

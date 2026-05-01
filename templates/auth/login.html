@@ -10,6 +10,18 @@
 
 <div class="row justify-content-center">
   <div class="col-12 col-sm-10 col-md-8 col-lg-5">
+    {% if pending_verification %}
+      {{ ui.state_banner(
+        title="Verification code already sent",
+        body="Continue to verify this login using the code in your email.",
+        tone="warning",
+        icon_class="bi-shield-lock",
+        extra_classes="mb-3"
+      ) }}
+      <a class="btn btn-outline-secondary ui-control w-100 mb-3" href="{{ url_for('auth.verify_login') }}">
+        Enter verification code
+      </a>
+    {% endif %}
     <div class="card">
       <div class="card-body p-4">
         <form method="post" class="d-flex flex-column gap-3">

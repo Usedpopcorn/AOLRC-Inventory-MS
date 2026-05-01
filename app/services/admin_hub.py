@@ -23,7 +23,7 @@ from app.models import (
 from app.services.account_security import describe_account_event
 from app.services.feedback import build_feedback_summary_counts
 from app.services.inventory_rules import describe_inventory_admin_event
-from app.services.inventory_status import ensure_utc, normalize_status
+from app.services.inventory_status import ensure_utc, format_timestamp, normalize_status, to_app_timezone
 
 USER_ACTIVITY_WINDOW_DAYS = 30
 RECENT_ACTIVITY_LIMIT = 8
@@ -54,23 +54,20 @@ CHANGE_TYPE_META = {
 
 
 def format_admin_timestamp(value, missing_text="No recorded time"):
-    normalized = ensure_utc(value)
-    if normalized is None:
-        return missing_text
-    return normalized.strftime("%Y-%m-%d %I:%M %p")
+    return format_timestamp(value, missing_text=missing_text)
 
 
 def format_admin_timestamp_parts(value, missing_text="No recorded time"):
-    normalized = ensure_utc(value)
-    if normalized is None:
+    localized = to_app_timezone(value)
+    if localized is None:
         return {
             "primary": missing_text,
             "secondary": None,
             "has_value": False,
         }
     return {
-        "primary": normalized.strftime("%Y-%m-%d"),
-        "secondary": normalized.strftime("%I:%M %p"),
+        "primary": localized.strftime("%Y-%m-%d"),
+        "secondary": localized.strftime("%I:%M %p"),
         "has_value": True,
     }
 

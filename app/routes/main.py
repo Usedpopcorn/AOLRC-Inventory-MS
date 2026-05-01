@@ -38,7 +38,11 @@ from app.services.inventory_signals import (
     build_latest_count_signal_map,
     build_latest_status_signal_map,
 )
-from app.services.inventory_status import normalize_singleton_status, normalize_status
+from app.services.inventory_status import (
+    format_timestamp,
+    normalize_singleton_status,
+    normalize_status,
+)
 from app.services.notes import (
     NOTE_BODY_MAX_LENGTH,
     NOTE_TITLE_MAX_LENGTH,
@@ -280,9 +284,7 @@ def normalize_activity_actor_user_id(value):
 
 
 def format_activity_timestamp(value):
-    if value is None:
-        return "Unknown time"
-    return value.strftime("%Y-%m-%d %I:%M %p")
+    return format_timestamp(value, missing_text="Unknown time")
 
 
 def parse_activity_date(value):
@@ -1192,9 +1194,7 @@ def serialize_restock_row(row, next_path):
         "setup_group_label": row.get("setup_group_label"),
         "setup_group_display": row.get("setup_group_display"),
         "latest_check_ts": latest_check_at.timestamp() if latest_check_at else None,
-        "latest_check_text": (
-            latest_check_at.strftime("%Y-%m-%d %I:%M %p") if latest_check_at else "No check yet"
-        ),
+        "latest_check_text": format_timestamp(latest_check_at, missing_text="No check yet"),
         "latest_check_missing": latest_check_at is None,
         "raw_count": row.get("raw_count"),
         "par_value": row.get("par_value"),

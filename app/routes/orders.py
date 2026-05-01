@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user
@@ -21,6 +21,7 @@ from app.services.csv_exports import (
     normalize_export_scope,
 )
 from app.services.inventory_rules import InventoryRuleError
+from app.services.inventory_status import format_timestamp, get_app_timezone
 from app.services.orders import (
     ORDER_BATCH_TYPE_LABELS,
     ORDER_LINE_EXPORT_HEADERS,
@@ -58,7 +59,7 @@ orders_bp = Blueprint("orders", __name__)
 
 def build_order_batch_form_values(form_data=None):
     default_type = "monthly"
-    today_stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today_stamp = datetime.now(get_app_timezone()).strftime("%Y-%m-%d")
     if form_data is None:
         default_name = f"{ORDER_BATCH_TYPE_LABELS[default_type]} Order {today_stamp}"
         return {
@@ -149,11 +150,7 @@ def build_order_batch_list_rows(*, filters):
             "batch_type": batch.batch_type,
             "batch_type_label": format_order_batch_type_label(batch.batch_type),
             "created_at": batch.created_at,
-            "created_at_text": (
-                batch.created_at.strftime("%Y-%m-%d %I:%M %p")
-                if batch.created_at
-                else "Unknown time"
-            ),
+            "created_at_text": format_timestamp(batch.created_at, missing_text="Unknown time"),
             "created_by_label": format_user_label(batch.created_by),
             "notes": batch.notes,
             "notes_excerpt": (batch.notes or "").strip()[:160],

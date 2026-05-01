@@ -168,6 +168,9 @@ def create_app():
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", app.config["SECRET_KEY"])
     app.config["APP_BASE_URL"] = (os.getenv("APP_BASE_URL", app.config["APP_BASE_URL"] or "").strip() or None)
+    app.config["APP_TIMEZONE"] = (
+        os.getenv("APP_TIMEZONE", app.config.get("APP_TIMEZONE") or "UTC").strip() or "UTC"
+    )
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", app.config["SQLALCHEMY_DATABASE_URI"])
     _enforce_development_database_branch_policy(app.config["SQLALCHEMY_DATABASE_URI"])
     app_base_url = (app.config.get("APP_BASE_URL") or "").strip()

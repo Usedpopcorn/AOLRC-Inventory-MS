@@ -7,6 +7,8 @@ from datetime import datetime
 
 from flask import Response
 
+from app.services.inventory_status import get_app_timezone
+
 EXPORT_SCOPE_FILTERED = "filtered"
 EXPORT_SCOPE_FULL = "full"
 VALID_EXPORT_SCOPES = {EXPORT_SCOPE_FILTERED, EXPORT_SCOPE_FULL}
@@ -65,7 +67,7 @@ def slugify_export_token(value, *, fallback="export"):
 
 
 def build_dated_csv_filename(prefix, *tokens):
-    date_stamp = datetime.now().strftime("%Y-%m-%d")
+    date_stamp = datetime.now(get_app_timezone()).strftime("%Y-%m-%d")
     filename_tokens = [slugify_export_token(prefix, fallback="export")]
     for token in tokens:
         normalized = slugify_export_token(token, fallback="")

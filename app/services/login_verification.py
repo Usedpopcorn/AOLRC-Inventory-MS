@@ -5,7 +5,7 @@ import hmac
 import json
 import secrets
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from ipaddress import ip_address
 
 from flask import current_app, request
@@ -52,6 +52,37 @@ def trusted_device_days_for_user(user):
 
 def trusted_device_max_age_seconds(user):
     return trusted_device_days_for_user(user) * 24 * 60 * 60
+
+
+def _is_sqlite_dialect():
+    return db.session.get_bind().dialect.name == "sqlite"
+
+
+def _datetime_has_passed(value):
+    if value is None:
+        return False
+    if value.tzinfo is None:
+        if _is_sqlite_dialect():
+            return value <= utcnow().replace(tzinfo=None)
+        return value <= datetime.now()
+    return ensure_utc(value) <= ensure_utc(utcnow())
+
+
+def datetime_has_passed(value):
+    return _datetime_has_passed(value)
+
+
+def _seconds_until(value):
+    if value is None:
+        return 0
+    if value.tzinfo is None:
+        if _is_sqlite_dialect():
+            delta = value - utcnow().replace(tzinfo=None)
+        else:
+            delta = value - datetime.now()
+    else:
+        delta = ensure_utc(value) - ensure_utc(utcnow())
+    return int(delta.total_seconds())
 
 
 def hash_verification_code(code):
@@ -102,7 +133,7 @@ def _active_trusted_device_for_user(user, raw_cookie_token):
         return None
     if trusted_device.revoked_at is not None:
         return None
-    if ensure_utc(trusted_device.expires_at) <= ensure_utc(now):
+    if _datetime_has_passed(trusted_device.expires_at):
         return None
     return trusted_device
 
@@ -200,7 +231,6 @@ def create_login_verification_challenge(
 
 
 def verify_login_challenge_code(*, user, challenge_id, submitted_code):
-    now = ensure_utc(utcnow())
     challenge = LoginVerificationChallenge.query.filter_by(
         id=challenge_id,
         user_id=user.id,
@@ -210,7 +240,7 @@ def verify_login_challenge_code(*, user, challenge_id, submitted_code):
         return False, "invalid"
     if challenge.consumed_at is not None:
         return False, "used"
-    if ensure_utc(challenge.expires_at) <= now:
+    if _datetime_has_passed(challenge.expires_at):
         return False, "expired"
 
     max_attempts = int(current_app.config["LOGIN_2FA_MAX_ATTEMPTS"])
@@ -246,13 +276,13 @@ def verify_login_challenge_code(*, user, challenge_id, submitted_code):
 def resend_allowed_for_challenge(challenge):
     if challenge is None:
         return False, 0
-    now = ensure_utc(utcnow())
-    last_sent_at = ensure_utc(challenge.last_sent_at or challenge.created_at)
+    last_sent_at = challenge.last_sent_at or challenge.created_at
     cooldown = int(current_app.config["LOGIN_2FA_RESEND_COOLDOWN_SECONDS"])
     retry_at = last_sent_at + timedelta(seconds=cooldown)
-    if now >= retry_at:
+    retry_after_seconds = _seconds_until(retry_at)
+    if retry_after_seconds <= 0:
         return True, 0
-    return False, int((retry_at - now).total_seconds())
+    return False, retry_after_seconds
 
 
 def issue_trusted_device(*, user, user_agent, ip_address_text, request_country):

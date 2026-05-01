@@ -11,6 +11,7 @@ from app.models import (
     normalize_order_line_status,
 )
 from app.services.csv_exports import build_dated_csv_filename, sanitize_csv_cell
+from app.services.inventory_status import to_app_timezone
 from app.services.inventory_rules import InventoryRuleError, normalize_optional_tracking_value
 from app.services.restocking import build_restock_rows
 from app.services.spreadsheet_compat import (
@@ -631,9 +632,10 @@ def build_grouped_summary_support_text(summary_rows, *, singular_label, plural_l
 
 
 def format_order_export_timestamp(value):
-    if value is None:
+    localized = to_app_timezone(value)
+    if localized is None:
         return ""
-    return value.strftime("%Y-%m-%d")
+    return localized.strftime("%Y-%m-%d")
 
 
 def build_order_line_csv_rows(batch, line_rows):

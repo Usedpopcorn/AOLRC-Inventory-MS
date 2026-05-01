@@ -21,7 +21,7 @@ from app.models import (
     normalize_role,
 )
 from app.security import build_external_url
-from app.services.inventory_status import ensure_utc
+from app.services.inventory_status import ensure_utc, format_timestamp
 
 PASSWORD_SETUP_PURPOSE = "password_setup"
 PASSWORD_RESET_PURPOSE = "password_reset"
@@ -140,10 +140,7 @@ def rotate_user_session(user):
 
 
 def format_account_timestamp(value, missing_text="No recorded time"):
-    normalized = ensure_utc(value)
-    if normalized is None:
-        return missing_text
-    return normalized.strftime("%Y-%m-%d %I:%M %p")
+    return format_timestamp(value, missing_text=missing_text)
 
 
 def _coerce_datetime(value):

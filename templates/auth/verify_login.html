@@ -5,17 +5,29 @@
 {% block content %}
 {{ ui.page_header(
   title="Verify This Login",
-  subtitle="We sent a verification code to your email."
+  subtitle="Enter the code we emailed to finish signing in."
 ) }}
 
 <div class="row justify-content-center">
   <div class="col-12 col-sm-10 col-md-8 col-lg-5">
+    {{ ui.state_banner(
+      title="Check your email",
+      body="We sent a 6-digit code to " ~ masked_email ~ ". The code expires in about " ~ expires_in_minutes ~ " minute(s).",
+      tone="info",
+      icon_class="bi-envelope-check",
+      extra_classes="mb-3"
+    ) }}
     {% call ui.form_section("Enter Verification Code", "Use the 6-digit code from your email. It expires quickly.", "mb-3") %}
       <form method="post" class="d-flex flex-column gap-3">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div class="small text-muted">Email: {{ email }}</div>
-        {% if reason_codes %}
-          <div class="small text-muted">This extra step protects your account when sign-in context changes.</div>
+        <div class="small text-muted">Email: {{ masked_email }}</div>
+        {% if reason_labels %}
+          <div class="small text-muted fw-semibold">Why this check was required:</div>
+          <ul class="small text-muted mb-0 ps-3">
+            {% for reason_label in reason_labels %}
+              <li>{{ reason_label }}</li>
+            {% endfor %}
+          </ul>
         {% endif %}
         <div>
           <label class="form-label" for="verification_code">Verification code</label>
@@ -42,6 +54,10 @@
       <form method="post" action="{{ url_for('auth.resend_verify_login') }}" class="mt-3">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-outline-secondary ui-control" type="submit">Resend code</button>
+      </form>
+      <form method="post" action="{{ url_for('auth.cancel_verify_login') }}" class="mt-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-link p-0 text-decoration-none" type="submit">Use a different account</button>
       </form>
     {% endcall %}
   </div>

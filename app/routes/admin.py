@@ -28,6 +28,7 @@ from app.models import (
     normalize_tracking_mode,
 )
 from app.security import is_safe_redirect_target
+from app.services.inventory_status import to_app_timezone
 from app.services.account_security import (
     AccountManagementError,
     build_dev_password_link_message,
@@ -493,7 +494,9 @@ def build_item_catalog_export_rows(item_rows):
                     "" if item.stale_threshold_days is None else item.stale_threshold_days
                 ),
                 "Created At": (
-                    item.created_at.strftime("%Y-%m-%d") if item.created_at else ""
+                    to_app_timezone(item.created_at).strftime("%Y-%m-%d")
+                    if item.created_at
+                    else ""
                 ),
             }
         )

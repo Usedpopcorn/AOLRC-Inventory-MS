@@ -27,6 +27,7 @@ from app.services.inventory_signals import (
     build_latest_status_signal_map,
 )
 from app.services.inventory_status import (
+    format_timestamp,
     derive_singleton_count_from_status as shared_derive_singleton_count,
 )
 from app.services.inventory_status import (
@@ -39,6 +40,7 @@ from app.services.inventory_status import (
     normalize_singleton_status as shared_normalize_singleton_status,
 )
 from app.services.inventory_status import (
+    to_app_timezone,
     normalize_status,
     restock_status_meta_for_item,
 )
@@ -98,22 +100,19 @@ def ensure_utc(value):
 
 
 def format_supply_timestamp(value):
-    normalized = ensure_utc(value)
-    if normalized is None:
-        return "No counts yet"
-    return normalized.strftime("%Y-%m-%d %I:%M %p")
+    return format_timestamp(value, missing_text="No counts yet")
 
 
 def build_supply_timestamp_parts(value):
-    normalized = ensure_utc(value)
-    if normalized is None:
+    localized = to_app_timezone(value)
+    if localized is None:
         return {
             "date_text": "No counts yet",
             "time_text": "",
         }
     return {
-        "date_text": normalized.strftime("%Y-%m-%d"),
-        "time_text": normalized.strftime("%I:%M %p"),
+        "date_text": localized.strftime("%Y-%m-%d"),
+        "time_text": localized.strftime("%I:%M %p"),
     }
 
 
@@ -255,10 +254,7 @@ def build_supply_redirect_response(filters, *, note_item_id=None, note_focus=Non
 
 
 def format_supply_note_timestamp(value):
-    normalized = ensure_utc(value)
-    if normalized is None:
-        return "Unknown time"
-    return normalized.strftime("%Y-%m-%d %I:%M %p")
+    return format_timestamp(value, missing_text="Unknown time")
 
 
 def get_supply_note_item(item_id):

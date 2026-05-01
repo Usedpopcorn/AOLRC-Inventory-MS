@@ -49,6 +49,7 @@ def is_development_environment():
 
 class Config:
     APP_NAME = (os.getenv("APP_NAME") or DEFAULT_APP_NAME).strip() or DEFAULT_APP_NAME
+    APP_TIMEZONE = (os.getenv("APP_TIMEZONE") or "UTC").strip() or "UTC"
     SECRET_KEY = DEFAULT_SECRET_KEY
     SQLALCHEMY_DATABASE_URI = "sqlite:///local.db"
     SQLALCHEMY_TRACK_MODIFICATIONS = False

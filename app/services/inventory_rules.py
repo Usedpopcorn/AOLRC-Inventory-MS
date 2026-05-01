@@ -17,7 +17,7 @@ from app.models import (
     VenueItem,
     VenueItemCount,
 )
-from app.services.inventory_status import ensure_utc
+from app.services.inventory_status import ensure_utc, format_timestamp
 
 GLOBAL_STALE_THRESHOLD_DEFAULT_DAYS = 2
 ITEM_HARD_DELETE_WINDOW_DAYS = 30
@@ -67,10 +67,7 @@ def deserialize_event_details(details_json):
 
 
 def format_inventory_timestamp(value, missing_text="No recorded time"):
-    normalized = ensure_utc(value)
-    if normalized is None:
-        return missing_text
-    return normalized.strftime("%Y-%m-%d %I:%M %p")
+    return format_timestamp(value, missing_text=missing_text)
 
 
 def ensure_inventory_policy():

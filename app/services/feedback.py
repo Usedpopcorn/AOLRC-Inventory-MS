@@ -6,7 +6,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload
 
 from app.models import FEEDBACK_SUBMISSION_TYPES, FeedbackSubmission
-from app.services.inventory_status import ensure_utc
+from app.services.inventory_status import format_timestamp
 from app.services.notes import NOTE_BODY_MAX_LENGTH, NOTE_TITLE_MAX_LENGTH, build_pagination
 
 FEEDBACK_REVIEW_SESSION_KEY = "_feedback_review_admin_id"
@@ -195,7 +195,4 @@ def _build_submitter_label(submission):
 
 
 def _format_feedback_timestamp(value):
-    normalized = ensure_utc(value)
-    if normalized is None:
-        return "No recorded time"
-    return normalized.strftime("%Y-%m-%d %I:%M %p")
+    return format_timestamp(value, missing_text="No recorded time")

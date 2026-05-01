@@ -8,6 +8,7 @@ from flask import current_app
 from werkzeug.utils import secure_filename
 
 from app.models import VenueFile
+from app.services.inventory_status import format_timestamp
 
 PDF_EXTENSIONS = {"pdf"}
 IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "bmp"}
@@ -196,7 +197,7 @@ def build_venue_file_row(venue_file):
         "size_bytes": int(venue_file.size_bytes or 0),
         "extension_label": f".{venue_file.extension}",
         "uploaded_by": uploader_name or "Unknown user",
-        "uploaded_at_text": venue_file.created_at.strftime("%Y-%m-%d %I:%M %p") if venue_file.created_at else "Unknown time",
+        "uploaded_at_text": format_timestamp(venue_file.created_at, missing_text="Unknown time"),
         "created_timestamp": int(venue_file.created_at.timestamp()) if venue_file.created_at else 0,
         "can_preview_inline": (venue_file.preview_type or classification["preview_type"]) in {"pdf", "image", "text", "csv", "audio", "video"},
     }

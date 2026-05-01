@@ -8,7 +8,7 @@ from email.message import EmailMessage
 from flask import current_app, render_template
 
 from app.services.account_security import PASSWORD_RESET_PURPOSE, PASSWORD_SETUP_PURPOSE
-from app.services.inventory_status import ensure_utc
+from app.services.inventory_status import format_timestamp
 
 MAIL_STATUS_DISABLED = "disabled"
 MAIL_STATUS_FAILED = "failed"
@@ -72,13 +72,13 @@ def send_account_setup_email(*, user, setup_url, expires_at):
 
 
 def send_login_verification_email(*, user, verification_code, expires_at):
-    normalized_expiration = ensure_utc(expires_at)
+    expiration_text = format_timestamp(expires_at, missing_text="Unknown time", include_tz=True)
     context = {
         "app_name": current_app.config["APP_NAME"],
         "user": user,
         "verification_code": verification_code,
-        "expires_at": normalized_expiration,
-        "expires_at_text": normalized_expiration.strftime("%Y-%m-%d %I:%M %p %Z"),
+        "expires_at": expires_at,
+        "expires_at_text": expiration_text,
         "expires_in_minutes": int(current_app.config["LOGIN_2FA_CODE_TTL_MINUTES"]),
     }
     subject = _render_subject("email/login_verification_subject.txt", **context)
@@ -201,13 +201,13 @@ def _render_subject(template_name, **context):
 
 
 def _send_password_link_email(*, user, purpose, action_url, expires_at):
-    normalized_expiration = ensure_utc(expires_at)
+    expiration_text = format_timestamp(expires_at, missing_text="Unknown time", include_tz=True)
     context = {
         "app_name": current_app.config["APP_NAME"],
         "action_label": _password_action_label(purpose),
         "action_url": action_url,
-        "expires_at": normalized_expiration,
-        "expires_at_text": normalized_expiration.strftime("%Y-%m-%d %I:%M %p %Z"),
+        "expires_at": expires_at,
+        "expires_at_text": expiration_text,
         "purpose": purpose,
         "user": user,
     }
